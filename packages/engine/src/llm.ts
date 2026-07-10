@@ -66,6 +66,8 @@ export interface ChatTextOpts {
   system: SystemBlock[];
   prompt: string;
   maxTokens: number;
+  /** 仅 deepseek 路径生效；人格发言默认 1.25（拉开声线），anthropic 不支持该参数 */
+  temperature?: number;
   onDelta?: (delta: string) => void;
 }
 
@@ -75,6 +77,7 @@ export async function chatText(opts: ChatTextOpts): Promise<string> {
     const stream = await getDeepseek().chat.completions.create({
       model: opts.model,
       max_tokens: opts.maxTokens,
+      temperature: opts.temperature ?? 1.25,
       stream: true,
       messages: [
         { role: 'system', content: opts.system.map((b) => b.text).join('\n\n') },
@@ -144,6 +147,7 @@ ${JSON.stringify(opts.schema)}`;
       const response = await getDeepseek().chat.completions.create({
         model: opts.model,
         max_tokens: opts.maxTokens,
+        temperature: 0, // 导演与评审必须可复现
         response_format: { type: 'json_object' },
         messages: [
           { role: 'system', content: system },

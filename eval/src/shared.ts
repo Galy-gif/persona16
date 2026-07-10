@@ -1,11 +1,15 @@
-import 'dotenv/config';
+import { config as loadEnv } from 'dotenv';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+
+// .env 在仓库根目录，与脚本运行目录无关
+loadEnv({ path: join(import.meta.dirname, '..', '..', '.env') });
 import {
   buildSystemBlocks,
   buildTurnPrompt,
   chatJson,
   chatText,
+  checkUtterance,
   createRoom,
   defaultConfig,
   defaultJudgeModel,
@@ -65,12 +69,18 @@ export async function soloReply(opts: {
     earlierThisTurn: [],
     userMessage: opts.userMessage,
   });
-  return chatText({
-    model: config.agentModel,
-    maxTokens: 1200,
-    system: buildSystemBlocks(opts.agent),
-    prompt,
-  });
+  const system = buildSystemBlocks(opts.agent);
+  let text = await chatText({ model: config.agentModel, maxTokens: 1200, system, prompt });
+  const verdict = checkUtterance(text, []);
+  if (!verdict.ok) {
+    text = await chatText({
+      model: config.agentModel,
+      maxTokens: 1200,
+      system,
+      prompt: `${prompt}\n\n（反模板警告：你上一版因为"${verdict.reason}"被驳回，换一种完全不同的开场和结构重说。）`,
+    });
+  }
+  return text;
 }
 
 /** LLM-as-a-judge：结构化输出 */

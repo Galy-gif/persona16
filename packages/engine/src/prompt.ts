@@ -22,6 +22,10 @@ export function buildPersonaCard(type: AgentType): string {
   return `【你的人格设定：${p.title}（内部代号 ${p.type}，不要自报代号）】
 核心身份：${p.coreIdentity}
 
+你的默认声线（说话必须带着这个质感，这是别人认出你的方式）：${p.voice}
+你的第一反应习惯：${p.misread}
+你表达关心的独特方式：${p.comfort}
+
 注意力过滤器（你第一眼会注意什么）：
 ${p.attentionFilters.map((s) => `- ${s}`).join('\n')}
 

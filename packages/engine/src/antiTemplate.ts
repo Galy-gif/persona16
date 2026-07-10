@@ -28,6 +28,10 @@ export interface AntiTemplateVerdict {
 
 export function checkUtterance(text: string, recentOpenings: string[]): AntiTemplateVerdict {
   const trimmed = text.trim();
+  // 舞台说明开场：（放下笔看着你）/ (sighs) / *叹气*
+  if (/^[（(*]/.test(trimmed)) {
+    return { ok: false, reason: '舞台说明/动作描写开场' };
+  }
   for (const banned of BANNED_OPENINGS) {
     if (trimmed.startsWith(banned)) {
       return { ok: false, reason: `模板开场"${banned}"` };

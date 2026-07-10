@@ -40,6 +40,14 @@ export function renderToneInstruction(tone: ToneDims): string {
     const lean = v <= 2 ? low : v >= 4 ? high : `介于两者之间（${low} / ${high}）`;
     lines.push(`- ${DIM_NAME[key]} ${v}/5：${lean}`);
   }
+  // 高延展人格必须真的放开，不许缩成三两句安全回答
+  if (tone.turnLength >= 4 || (tone.turnLength >= 3 && tone.expansion >= 4)) {
+    lines.push(
+      '- 【注意】你是高延展型：这轮请真的展开，允许好几段，把你的联想、岔路和具体画面说出来，不要收成短短几句的"安全回答"。',
+    );
+  } else if (tone.turnLength <= 2) {
+    lines.push('- 【注意】你是短句型：克制在一到三句，说完就停，短比全重要。');
+  }
   return lines.join('\n');
 }
 

@@ -34,6 +34,12 @@ export interface PersonaSpec {
   /** 首屏人格钩子，一句话 */
   hook: string;
   coreIdentity: string;
+  /** 默认声线（PRD §6.5），一句话的语气签名 */
+  voice: string;
+  /** 误读倾向（PRD §7.5）：它会把用户的问题第一时间理解成什么 */
+  misread: string;
+  /** 安慰方式（PRD §7.5）：它表达关心的独特方式 */
+  comfort: string;
   toneBaseline: ToneDims;
   /** 触发后的语气变化说明 */
   toneTriggerNote: string;
