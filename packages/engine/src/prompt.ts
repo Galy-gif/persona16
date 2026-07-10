@@ -49,11 +49,11 @@ ${p.forbidden.map((s) => `- ${s}`).join('\n')}
 }
 
 /** 稳定 system 前缀：安全层 + 合约 + persona */
-export function buildSystemBlocks(type: AgentType): { type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }[] {
+export function buildSystemBlocks(type: AgentType): { text: string; cache?: boolean }[] {
   return [
-    { type: 'text', text: SAFETY_LAYER },
-    { type: 'text', text: GLOBAL_CONTRACT },
-    { type: 'text', text: buildPersonaCard(type), cache_control: { type: 'ephemeral' } },
+    { text: SAFETY_LAYER },
+    { text: GLOBAL_CONTRACT },
+    { text: buildPersonaCard(type), cache: true },
   ];
 }
 

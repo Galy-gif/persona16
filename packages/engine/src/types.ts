@@ -146,6 +146,7 @@ export interface TurnResult {
 }
 
 export interface EngineConfig {
+  provider: 'anthropic' | 'deepseek';
   agentModel: string;
   directorModel: string;
   /** JSONL trace 文件路径，不设则不落盘 */

@@ -1,4 +1,4 @@
-import { getClient } from './llm';
+import { chatJson } from './llm';
 import { getPersona } from './personas';
 import type {
   AgentType,
@@ -119,27 +119,17 @@ export async function runDirector(
   userMessage: string,
 ): Promise<DirectorDecision> {
   const agentsInRoom = room.agents.map((a) => a.type);
-  const client = getClient();
-  const response = await client.messages.create({
+  const raw = await chatJson<
+    DirectorDecision & {
+      assessments: (DirectorDecision['assessments'][number] & { toneShift: unknown })[];
+    }
+  >({
     model,
-    max_tokens: 2000,
-    system: [{ type: 'text', text: DIRECTOR_SYSTEM, cache_control: { type: 'ephemeral' } }],
-    messages: [{ role: 'user', content: renderRoomForDirector(room, userMessage) }],
-    output_config: {
-      format: {
-        type: 'json_schema',
-        schema: decisionSchema(agentsInRoom),
-      },
-    },
+    maxTokens: 2000,
+    system: DIRECTOR_SYSTEM,
+    prompt: renderRoomForDirector(room, userMessage),
+    schema: decisionSchema(agentsInRoom),
   });
-
-  const text = response.content.find((b) => b.type === 'text');
-  if (!text || text.type !== 'text') {
-    throw new Error(`director returned no text (stop_reason=${response.stop_reason})`);
-  }
-  const raw = JSON.parse(text.text) as DirectorDecision & {
-    assessments: (DirectorDecision['assessments'][number] & { toneShift: unknown })[];
-  };
 
   // 清洗：只保留在场 Agent、去掉 null toneShift、裁剪偏移到 2 维
   const valid = new Set<string>(agentsInRoom);

@@ -1,13 +1,14 @@
 import 'dotenv/config';
-import Anthropic from '@anthropic-ai/sdk';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   buildSystemBlocks,
   buildTurnPrompt,
+  chatJson,
+  chatText,
   createRoom,
   defaultConfig,
-  getClient,
+  defaultJudgeModel,
   getPersona,
   PERSONAS,
   type AgentType,
@@ -29,7 +30,7 @@ export function saveArtifact(name: string, data: unknown): string {
   return file;
 }
 
-export const JUDGE_MODEL = process.env.PERSONA16_JUDGE_MODEL || 'claude-sonnet-5';
+export const JUDGE_MODEL = defaultJudgeModel();
 
 /** 绕过导演、直接让某个 Agent 对一句话做出回应（用于同题盲测和动态性评测） */
 export async function soloReply(opts: {
@@ -43,7 +44,6 @@ export async function soloReply(opts: {
   toneShift?: Partial<ToneDims>;
 }): Promise<string> {
   const config = defaultConfig();
-  const client = getClient();
   const room = opts.room ?? createRoom([opts.agent]);
   const plan: TurnPlan = {
     scene: opts.scene ?? '吐槽',
@@ -65,15 +65,12 @@ export async function soloReply(opts: {
     earlierThisTurn: [],
     userMessage: opts.userMessage,
   });
-  const response = await client.messages.create({
+  return chatText({
     model: config.agentModel,
-    max_tokens: 1200,
+    maxTokens: 1200,
     system: buildSystemBlocks(opts.agent),
-    messages: [{ role: 'user', content: prompt }],
-    output_config: { effort: 'low' },
+    prompt,
   });
-  const text = response.content.find((b) => b.type === 'text');
-  return text && text.type === 'text' ? text.text.trim() : '';
 }
 
 /** LLM-as-a-judge：结构化输出 */
@@ -82,17 +79,13 @@ export async function judge<T>(
   userPrompt: string,
   schema: Record<string, unknown>,
 ): Promise<T> {
-  const client = getClient();
-  const response = await client.messages.create({
+  return chatJson<T>({
     model: JUDGE_MODEL,
-    max_tokens: 4000,
+    maxTokens: 8000,
     system: systemPrompt,
-    messages: [{ role: 'user', content: userPrompt }],
-    output_config: { format: { type: 'json_schema', schema } },
+    prompt: userPrompt,
+    schema,
   });
-  const text = response.content.find((b) => b.type === 'text');
-  if (!text || text.type !== 'text') throw new Error('judge returned no text');
-  return JSON.parse(text.text) as T;
 }
 
 export function personaRoster(): string {

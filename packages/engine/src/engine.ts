@@ -1,6 +1,6 @@
 import { checkUtterance, recordOpening } from './antiTemplate';
 import { runDirector } from './director';
-import { defaultConfig, getClient } from './llm';
+import { chatText, defaultConfig } from './llm';
 import { buildSystemBlocks, buildTurnPrompt } from './prompt';
 import { advanceRoomState, resolveTurnPlan } from './scoring';
 import { createTracer, type Tracer } from './trace';
@@ -76,7 +76,6 @@ async function generateUtterance(
   tracer: Tracer,
   opts: RunTurnOptions,
 ): Promise<AgentUtterance> {
-  const client = getClient();
   const agentState = room.agents.find((a) => a.type === speaker.type)!;
   const system = buildSystemBlocks(speaker.type);
   const maxTokens = speaker.speechType === '长发言' ? 1200 : 400;
@@ -95,33 +94,17 @@ async function generateUtterance(
     });
     tracer.emit('agent_prompt', { agent: speaker.type, attempt, prompt });
 
-    const stream = client.messages.stream({
-      model: config.agentModel,
-      max_tokens: maxTokens,
-      system,
-      messages: [{ role: 'user', content: prompt }],
-      output_config: { effort: 'low' },
-    });
-
-    let buffered = '';
+    // 第一次尝试先缓冲不外发，通过反模板检查后再整体回放；
+    // 重生成的这次直接边生成边外发。
     const isFinalAttempt = attempt === 1;
-    for await (const event of stream) {
-      if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
-        buffered += event.delta.text;
-        // 第一次尝试先缓冲不外发，通过反模板检查后再整体回放；
-        // 重生成的这次直接边生成边外发。
-        if (isFinalAttempt) opts.onDelta?.(speaker.type, event.delta.text);
-      }
-    }
-    const final = await stream.finalMessage();
-    const text = buffered.trim();
-    tracer.emit('agent_output', {
-      agent: speaker.type,
-      attempt,
-      text,
-      stopReason: final.stop_reason,
-      usage: final.usage,
+    const text = await chatText({
+      model: config.agentModel,
+      maxTokens,
+      system,
+      prompt,
+      onDelta: isFinalAttempt ? (delta) => opts.onDelta?.(speaker.type, delta) : undefined,
     });
+    tracer.emit('agent_output', { agent: speaker.type, attempt, text });
 
     const verdict = checkUtterance(text, agentState.recentOpenings);
     if (verdict.ok || isFinalAttempt) {

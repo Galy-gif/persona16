@@ -7,6 +7,7 @@ export { resolveTurnPlan, advanceRoomState } from './scoring';
 export { runDirector } from './director';
 export { checkUtterance, recordOpening } from './antiTemplate';
 export { createTracer } from './trace';
-export { defaultConfig, getClient } from './llm';
+export { defaultConfig, defaultJudgeModel, currentProvider, chatText, chatJson } from './llm';
+export type { Provider, SystemBlock, ChatTextOpts, ChatJsonOpts } from './llm';
 export { createRoom, addAgent, removeAgent, setPaused, runTurn } from './engine';
 export type { RunTurnOptions } from './engine';

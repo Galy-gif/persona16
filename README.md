@@ -37,10 +37,12 @@ apps/web          Web 原型（移动优先 PWA）
 
 ```bash
 pnpm install
-cp .env.example .env   # 填入 ANTHROPIC_API_KEY
+cp .env.example .env   # 填入 DEEPSEEK_API_KEY（或 ANTHROPIC_API_KEY）
 pnpm typecheck
 pnpm eval:blindtest    # 跑同题盲测
 ```
+
+模型提供商可切换：设了 `DEEPSEEK_API_KEY` 默认走 DeepSeek（`deepseek-chat`，OpenAI 兼容 API + JSON 模式）；设 `ANTHROPIC_API_KEY` 并指定 `PERSONA16_PROVIDER=anthropic` 则走 Claude（原生结构化输出 + prompt cache）。
 
 ## 边界说明
 
