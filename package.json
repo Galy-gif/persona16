@@ -1,0 +1,13 @@
+{
+  "name": "persona16",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "pnpm -r typecheck",
+    "eval:blindtest": "pnpm --filter @persona16/eval blindtest",
+    "eval:dynamics": "pnpm --filter @persona16/eval dynamics",
+    "eval:rooms": "pnpm --filter @persona16/eval rooms",
+    "eval:report": "pnpm --filter @persona16/eval report"
+  },
+  "packageManager": "pnpm@11.11.0"
+}

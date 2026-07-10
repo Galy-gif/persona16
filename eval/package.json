@@ -1,0 +1,23 @@
+{
+  "name": "@persona16/eval",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "blindtest": "tsx src/blindtest.ts",
+    "dynamics": "tsx src/dynamics.ts",
+    "rooms": "tsx src/rooms.ts",
+    "report": "tsx src/report.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.111.0",
+    "@persona16/engine": "workspace:*",
+    "dotenv": "^16.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}
