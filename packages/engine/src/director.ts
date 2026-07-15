@@ -7,6 +7,7 @@ import type {
   TurnMessage,
 } from './types';
 import { AGENT_TYPES } from './types';
+import type { ModelBudget } from './runtime/modelBudget';
 
 /**
  * 主持器/导演：每轮一次便宜模型调用，输出场景识别 + 每个在场 Agent 的
@@ -85,7 +86,8 @@ function renderRoomForDirector(room: RoomState, userMessage: string): string {
   const transcript = room.history
     .slice(-16)
     .map((m: TurnMessage) => `${m.speaker === 'user' ? '用户' : m.speaker}：${m.text}`)
-    .join('\n');
+    .join('\n')
+    .slice(-12_000);
 
   return `【在场 Agent】
 ${roster}
@@ -117,15 +119,19 @@ export async function runDirector(
   model: string,
   room: RoomState,
   userMessage: string,
+  options: { budget?: ModelBudget; signal?: AbortSignal } = {},
 ): Promise<DirectorDecision> {
   const agentsInRoom = room.agents.map((a) => a.type);
+  const reservation = options.budget?.reserve('director', 2000, 2);
   const raw = await chatJson<
     DirectorDecision & {
       assessments: (DirectorDecision['assessments'][number] & { toneShift: unknown })[];
     }
   >({
     model,
-    maxTokens: 2000,
+    maxTokens: reservation?.maxTokens ?? 2000,
+    signal: reservation?.signal(options.signal) ?? options.signal,
+    onUsage: reservation?.recordUsage,
     system: DIRECTOR_SYSTEM,
     prompt: renderRoomForDirector(room, userMessage),
     schema: decisionSchema(agentsInRoom),

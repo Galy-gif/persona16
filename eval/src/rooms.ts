@@ -8,8 +8,8 @@
  * - 用户能得到"分歧点 + 下一步"
  * 注意：这些组合只用于 QA，不作为用户侧推荐展示。
  */
-import { createRoom, runTurn, type AgentType, type TurnResult } from '@persona16/engine';
-import { judge, saveArtifact } from './shared';
+import { createRoom, defaultConfig, runTurn, type AgentType, type TurnResult } from '@persona16/engine';
+import { engineDependencies, judge, saveArtifact } from './shared';
 
 const COMBOS: [AgentType, AgentType][] = [
   ['INTJ', 'ENFP'],
@@ -46,11 +46,18 @@ async function runCombo(combo: [AgentType, AgentType]): Promise<RoomEvalResult> 
   const room = createRoom(combo);
   const transcript: RoomEvalResult['transcript'] = [];
   let forceSummaryTriggered = false;
+  const config = defaultConfig();
 
   for (let turn = 0; turn < SCRIPT.length; turn++) {
     const userMsg = SCRIPT[turn]!;
     transcript.push({ turn, speaker: 'user', text: userMsg });
-    const result: TurnResult = await runTurn(room, userMsg);
+    const result: TurnResult = await runTurn(
+      room,
+      userMsg,
+      { roomId: `eval-room-${name}`, promptVersion: 'rooms-eval-v1' },
+      config,
+      engineDependencies(config),
+    );
     if (result.plan.forceSummary) forceSummaryTriggered = true;
     for (const u of result.utterances) {
       transcript.push({ turn, speaker: u.type, speechType: u.speechType, text: u.text });

@@ -130,6 +130,7 @@ export function advanceRoomState(
   room: RoomState,
   plan: TurnPlan,
   conflictTopic: string | null,
+  summaryCompleted: boolean,
 ): void {
   const spoke = new Set(plan.speakers.map((s) => s.type));
   for (const a of room.agents) {
@@ -142,7 +143,7 @@ export function advanceRoomState(
     room.conflictTopic = conflictTopic;
     room.conflictRounds = conflictTopic ? 1 : 0;
   }
-  if (plan.forceSummary) {
+  if (summaryCompleted) {
     room.conflictTopic = null;
     room.conflictRounds = 0;
   }

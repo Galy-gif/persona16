@@ -70,7 +70,9 @@ export interface RelationshipMemory {
 }
 
 export interface TurnMessage {
-  speaker: 'user' | AgentType;
+  /** 服务端消息标识；旧房间迁移数据可能暂时没有。 */
+  id?: string;
+  speaker: 'user' | 'safety' | AgentType;
   text: string;
   speechType?: SpeechType;
 }
@@ -149,10 +151,12 @@ export interface AgentUtterance {
 export interface TurnResult {
   plan: TurnPlan;
   utterances: AgentUtterance[];
+  loop: import('./room/types').RoomLoopReport;
 }
 
 export interface EngineConfig {
   provider: 'anthropic' | 'deepseek';
+  runtime: 'legacy' | 'pi';
   agentModel: string;
   directorModel: string;
   /** JSONL trace 文件路径，不设则不落盘 */

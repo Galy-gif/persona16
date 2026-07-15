@@ -3,10 +3,15 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test": "pnpm --filter @persona16/eval unit",
     "typecheck": "pnpm -r typecheck",
     "eval:blindtest": "pnpm --filter @persona16/eval blindtest",
     "eval:dynamics": "pnpm --filter @persona16/eval dynamics",
     "eval:rooms": "pnpm --filter @persona16/eval rooms",
+    "eval:room-adversarial": "pnpm --filter @persona16/eval room:adversarial",
+    "eval:safety": "pnpm --filter @persona16/eval safety",
+    "eval:phase4-smoke": "pnpm --filter @persona16/eval phase4:smoke",
+    "eval:runtime": "pnpm --filter @persona16/eval runtime:compare",
     "eval:report": "pnpm --filter @persona16/eval report"
   },
   "packageManager": "pnpm@11.11.0"

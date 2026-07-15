@@ -1,0 +1,12 @@
+{
+  "name": "persona16 — 16 人格房间",
+  "short_name": "persona16",
+  "description": "同一句话，16 个 Agent 暴露 16 种理解世界的方式。",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f6f5f2",
+  "theme_color": "#f6f5f2",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

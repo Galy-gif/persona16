@@ -1,7 +1,12 @@
 import { checkUtterance, recordOpening } from './antiTemplate';
+import { randomUUID } from 'node:crypto';
 import { runDirector } from './director';
 import { chatText, defaultConfig } from './llm';
 import { buildSystemBlocks, buildTurnPrompt } from './prompt';
+import { createLlmRoomController } from './room/roomController';
+import { runRoomLoop } from './room/roomLoop';
+import type { RoomAction, RoomController, RoomLoopBudget } from './room/types';
+import { runRuntimeText } from './runtime/runRuntimeText';
 import { advanceRoomState, resolveTurnPlan } from './scoring';
 import { createTracer, type Tracer } from './trace';
 import type {
@@ -14,15 +19,39 @@ import type {
   TurnPlan,
   TurnResult,
 } from './types';
+import type { AgentRuntime } from './runtime/agentRuntime';
+import type { SafetyLevel } from './safety/safetyRouter';
+import { createModelBudget, type ModelBudget } from './runtime/modelBudget';
+import {
+  invokeDelivery,
+  invokeObserver,
+  type ObserverErrorHandler,
+} from './lifecycleHooks';
 
 export interface RunTurnOptions {
   /** 用户本轮点名的 Agent */
   calledAgent?: AgentType;
-  /** 每个 token 片段的回调（speaker + delta），用于 streaming UI */
+  /** 以下回调是 streaming Delivery Sink；失败会显式终止投递，不按 Observer 吞错。 */
   onDelta?: (speaker: AgentType, delta: string) => void;
-  /** 某个 Agent 开始/结束发言 */
   onSpeakerStart?: (speaker: AgentType, plan: SpeakerPlan) => void;
-  onSpeakerEnd?: (utterance: AgentUtterance) => void;
+  onSpeakerEnd?: (utterance: AgentUtterance, messageId: string) => void;
+  onRoomAction?: (action: RoomAction) => void;
+  onTurnEnd?: (stopReason: TurnResult['loop']['stopReason']) => void;
+  /** Trace 等非关键观察者失败时的隔离报告。 */
+  onObserverError?: ObserverErrorHandler;
+  roomId?: string;
+  turnId?: string;
+  promptVersion?: string;
+  signal?: AbortSignal;
+  /** 预处理安全级别；sensitive 会降低刺激但保留人格核心。crisis/blocked 应在调用引擎前旁路。 */
+  safetyMode?: SafetyLevel;
+}
+
+export interface EngineDependencies {
+  runtime?: AgentRuntime;
+  roomController?: RoomController;
+  roomLoopBudget?: Partial<RoomLoopBudget>;
+  modelBudget?: ModelBudget;
 }
 
 export function createRoom(agents: AgentType[], roomGoal?: RoomGoal): RoomState {
@@ -75,10 +104,14 @@ async function generateUtterance(
   userMessage: string,
   tracer: Tracer,
   opts: RunTurnOptions,
+  runtime: AgentRuntime | undefined,
+  turnId: string,
+  modelBudget: ModelBudget,
+  maxCharacters: number,
 ): Promise<AgentUtterance> {
   const agentState = room.agents.find((a) => a.type === speaker.type)!;
   const system = buildSystemBlocks(speaker.type);
-  const maxTokens = speaker.speechType === '长发言' ? 1200 : 400;
+  const requestedTokens = speaker.speechType === '长发言' ? 1200 : 400;
 
   let antiTemplateNote: string | undefined;
   let regenerated = false;
@@ -91,26 +124,74 @@ async function generateUtterance(
       earlierThisTurn,
       userMessage,
       antiTemplateNote,
+      safetyMode: opts.safetyMode,
     });
     tracer.emit('agent_prompt', { agent: speaker.type, attempt, prompt });
 
-    // 第一次尝试先缓冲不外发，通过反模板检查后再整体回放；
-    // 重生成的这次直接边生成边外发。
     const isFinalAttempt = attempt === 1;
-    const text = await chatText({
-      model: config.agentModel,
-      maxTokens,
-      system,
-      prompt,
-      onDelta: isFinalAttempt ? (delta) => opts.onDelta?.(speaker.type, delta) : undefined,
-    });
-    tracer.emit('agent_output', { agent: speaker.type, attempt, text });
+    const reservation = modelBudget.reserve(`persona:${speaker.type}:attempt:${attempt}`, requestedTokens);
+    let streamedCharacters = 0;
+    const onDelta = isFinalAttempt
+      ? (delta: string) => {
+          const remaining = maxCharacters - streamedCharacters;
+          if (remaining <= 0) return;
+          const bounded = delta.slice(0, remaining);
+          streamedCharacters += bounded.length;
+          if (bounded) invokeDelivery('delta', opts.onDelta, [speaker.type, bounded]);
+        }
+      : undefined;
+    const text = runtime
+      ? await runRuntimeText(runtime, {
+          runId: `${turnId}:${speaker.type}:${attempt}:${randomUUID()}`,
+          model: { provider: config.provider, id: config.agentModel },
+          system,
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 1.25,
+          limits: { maxTurns: 1, maxTokens: reservation.maxTokens, timeoutMs: 60_000 },
+          metadata: {
+            roomId: opts.roomId ?? 'ephemeral-room',
+            turnId,
+            agent: speaker.type,
+            promptVersion: opts.promptVersion ?? 'unversioned',
+          },
+        }, {
+          signal: reservation.signal(opts.signal),
+          onDelta,
+          onEvent: (event) => {
+            if (event.type === 'usage') {
+              reservation.recordUsage({
+                inputTokens: event.inputTokens,
+                outputTokens: event.outputTokens,
+                cacheReadTokens: 0,
+                cacheWriteTokens: 0,
+                estimatedCostUsd: event.estimatedCostUsd,
+              });
+            }
+            if (event.type !== 'text_delta') {
+              tracer.emit('runtime_event', { agent: speaker.type, attempt, runtimeEvent: event });
+            }
+          },
+        })
+      : await chatText({
+          model: config.agentModel,
+          maxTokens: reservation.maxTokens,
+          system,
+          prompt,
+          onDelta,
+          signal: reservation.signal(opts.signal),
+          onUsage: reservation.recordUsage,
+        });
+    const boundedText = text.slice(0, maxCharacters);
+    tracer.emit('agent_output', { agent: speaker.type, attempt, text: boundedText });
 
-    const verdict = checkUtterance(text, agentState.recentOpenings);
+    const verdict = checkUtterance(boundedText, agentState.recentOpenings);
     if (verdict.ok || isFinalAttempt) {
-      if (!isFinalAttempt) opts.onDelta?.(speaker.type, text);
-      agentState.recentOpenings = recordOpening(text, agentState.recentOpenings);
-      return { type: speaker.type, speechType: speaker.speechType, text, regenerated };
+      if (!isFinalAttempt) invokeDelivery('delta', opts.onDelta, [speaker.type, boundedText]);
+      else if (streamedCharacters < boundedText.length) {
+        invokeDelivery('delta', opts.onDelta, [speaker.type, boundedText.slice(streamedCharacters)]);
+      }
+      agentState.recentOpenings = recordOpening(boundedText, agentState.recentOpenings);
+      return { type: speaker.type, speechType: speaker.speechType, text: boundedText, regenerated };
     }
     tracer.emit('anti_template_reject', { agent: speaker.type, reason: verdict.reason });
     antiTemplateNote = `反模板警告：你上一版回复因为"${verdict.reason}"被驳回。换一种完全不同的开场和结构重说，保持人格不变。`;
@@ -128,12 +209,24 @@ export async function runTurn(
   userMessage: string,
   opts: RunTurnOptions = {},
   config: EngineConfig = defaultConfig(),
+  dependencies: EngineDependencies = {},
 ): Promise<TurnResult> {
-  const tracer = createTracer(config.traceFile);
+  if (config.runtime === 'pi' && !dependencies.runtime) {
+    throw new Error('PERSONA16_RUNTIME=pi requires an AgentRuntime dependency');
+  }
+  const tracer = createTracer(config.traceFile, (failure) => {
+    invokeObserver(
+      'observer_error',
+      opts.onObserverError,
+      [{ hook: `trace_${failure.operation}`, error: failure.error }],
+    );
+  });
+  const turnId = opts.turnId ?? randomUUID();
+  const modelBudget = dependencies.modelBudget ?? createModelBudget();
   room.calledAgent = opts.calledAgent;
   room.history.push({ speaker: 'user', text: userMessage });
 
-  const decision = await runDirector(config.directorModel, room, userMessage);
+  const decision = await runDirector(config.directorModel, room, userMessage, { budget: modelBudget, signal: opts.signal });
   tracer.emit('director_decision', { decision });
 
   const plan = resolveTurnPlan(decision, room);
@@ -145,22 +238,52 @@ export async function runTurn(
     scores: plan.scores,
   });
 
-  const utterances: AgentUtterance[] = [];
   const earlierThisTurn: { type: AgentType; text: string }[] = [];
+  const controller = dependencies.roomController ?? createLlmRoomController(config.directorModel, { budget: modelBudget, signal: opts.signal });
+  const loop = await runRoomLoop({
+    room,
+    userMessage,
+    plan,
+    controller,
+    budget: dependencies.roomLoopBudget,
+    onAction: (action) => {
+      tracer.emit('room_action', { turnId, action });
+    },
+    onActionEvent: (action) => invokeDelivery('room_action', opts.onRoomAction, [action]),
+    onObserverError: opts.onObserverError,
+    async execute({ action, speaker, forceSummary, remainingCharacters }) {
+      invokeDelivery('speaker_start', opts.onSpeakerStart, [speaker.type, speaker]);
+      const effectivePlan = forceSummary ? { ...plan, forceSummary: true } : plan;
+      const utterance = await generateUtterance(
+        config, room, effectivePlan, speaker, earlierThisTurn, userMessage, tracer, opts,
+        dependencies.runtime, turnId, modelBudget, remainingCharacters,
+      );
+      earlierThisTurn.push({ type: utterance.type, text: utterance.text });
+      const messageId = randomUUID();
+      room.history.push({ id: messageId, speaker: utterance.type, text: utterance.text, speechType: utterance.speechType });
+      invokeDelivery('speaker_end', opts.onSpeakerEnd, [utterance, messageId]);
+      tracer.emit('room_action_done', { turnId, action, utterance: { type: utterance.type, speechType: utterance.speechType } });
+      return utterance;
+    },
+  });
 
-  for (const speaker of plan.speakers) {
-    opts.onSpeakerStart?.(speaker.type, speaker);
-    const utterance = await generateUtterance(
-      config, room, plan, speaker, earlierThisTurn, userMessage, tracer, opts,
-    );
-    utterances.push(utterance);
-    earlierThisTurn.push({ type: utterance.type, text: utterance.text });
-    room.history.push({ speaker: utterance.type, text: utterance.text, speechType: utterance.speechType });
-    opts.onSpeakerEnd?.(utterance);
-  }
+  const actualPlan: TurnPlan = {
+    ...plan,
+    forceSummary: plan.forceSummary || loop.report.stopReason === 'summary_complete',
+    speakers: loop.speakers,
+  };
+  advanceRoomState(room, actualPlan, decision.conflictTopic, loop.report.summaryCount > 0);
+  invokeDelivery('turn_end', opts.onTurnEnd, [loop.report.stopReason]);
+  tracer.emit('turn_done', {
+    stopReason: loop.report.stopReason,
+    loop: loop.report,
+    utterances: loop.utterances.map((utterance) => ({
+      type: utterance.type,
+      speechType: utterance.speechType,
+      regenerated: utterance.regenerated,
+    })),
+    modelBudget: modelBudget.snapshot(),
+  });
 
-  advanceRoomState(room, plan, decision.conflictTopic);
-  tracer.emit('turn_done', { utterances: utterances.map((u) => ({ type: u.type, speechType: u.speechType, regenerated: u.regenerated })) });
-
-  return { plan, utterances };
+  return { plan: actualPlan, utterances: loop.utterances, loop: loop.report };
 }

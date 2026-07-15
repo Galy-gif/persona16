@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 import type { EngineConfig } from './types';
+import type { ModelActualUsage } from './runtime/modelBudget';
 
 /**
  * 模型调用层：提供商可切换。
@@ -43,11 +44,15 @@ export function currentProvider(): Provider {
 
 export function defaultConfig(): EngineConfig {
   const provider = currentProvider();
+  const requestedRuntime = process.env.PERSONA16_RUNTIME;
   const dft = provider === 'deepseek'
     ? { agent: 'deepseek-chat', director: 'deepseek-chat' }
     : { agent: 'claude-sonnet-5', director: 'claude-haiku-4-5' };
   return {
     provider,
+    runtime: requestedRuntime === 'legacy' || (requestedRuntime !== 'pi' && provider === 'anthropic')
+      ? 'legacy'
+      : 'pi',
     agentModel: process.env.PERSONA16_AGENT_MODEL || dft.agent,
     directorModel: process.env.PERSONA16_DIRECTOR_MODEL || dft.director,
     traceFile: process.env.PERSONA16_TRACE_FILE,
@@ -69,6 +74,24 @@ export interface ChatTextOpts {
   /** 仅 deepseek 路径生效；人格发言默认 1.25（拉开声线），anthropic 不支持该参数 */
   temperature?: number;
   onDelta?: (delta: string) => void;
+  signal?: AbortSignal;
+  onUsage?: (usage: Omit<ModelActualUsage, 'calls'>) => void;
+}
+
+function zeroSafe(value: number | null | undefined): number {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, value) : 0;
+}
+
+function deepseekCacheUsage(usage: unknown): { cacheReadTokens: number; cacheWriteTokens: number } {
+  const value = (usage ?? {}) as {
+    prompt_cache_hit_tokens?: number;
+    prompt_cache_miss_tokens?: number;
+    prompt_tokens_details?: { cached_tokens?: number };
+  };
+  return {
+    cacheReadTokens: zeroSafe(value.prompt_cache_hit_tokens ?? value.prompt_tokens_details?.cached_tokens),
+    cacheWriteTokens: zeroSafe(value.prompt_cache_miss_tokens),
+  };
 }
 
 /** 流式文本生成，返回完整文本 */
@@ -79,17 +102,26 @@ export async function chatText(opts: ChatTextOpts): Promise<string> {
       max_tokens: opts.maxTokens,
       temperature: opts.temperature ?? 1.25,
       stream: true,
+      stream_options: { include_usage: true },
       messages: [
         { role: 'system', content: opts.system.map((b) => b.text).join('\n\n') },
         { role: 'user', content: opts.prompt },
       ],
-    });
+    }, { signal: opts.signal });
     let text = '';
     for await (const chunk of stream) {
       const delta = chunk.choices[0]?.delta?.content ?? '';
       if (delta) {
         text += delta;
         opts.onDelta?.(delta);
+      }
+      if (chunk.usage) {
+        const cache = deepseekCacheUsage(chunk.usage);
+        opts.onUsage?.({
+          inputTokens: zeroSafe(chunk.usage.prompt_tokens),
+          outputTokens: zeroSafe(chunk.usage.completion_tokens),
+          ...cache,
+        });
       }
     }
     return text.trim();
@@ -105,7 +137,7 @@ export async function chatText(opts: ChatTextOpts): Promise<string> {
     })),
     messages: [{ role: 'user', content: opts.prompt }],
     output_config: { effort: 'low' },
-  });
+  }, { signal: opts.signal });
   let text = '';
   for await (const event of stream) {
     if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
@@ -113,7 +145,13 @@ export async function chatText(opts: ChatTextOpts): Promise<string> {
       opts.onDelta?.(event.delta.text);
     }
   }
-  await stream.finalMessage();
+  const final = await stream.finalMessage();
+  opts.onUsage?.({
+    inputTokens: zeroSafe(final.usage.input_tokens),
+    outputTokens: zeroSafe(final.usage.output_tokens),
+    cacheReadTokens: zeroSafe(final.usage.cache_read_input_tokens),
+    cacheWriteTokens: zeroSafe(final.usage.cache_creation_input_tokens),
+  });
   return text.trim();
 }
 
@@ -123,6 +161,8 @@ export interface ChatJsonOpts {
   prompt: string;
   schema: Record<string, unknown>;
   maxTokens: number;
+  signal?: AbortSignal;
+  onUsage?: (usage: Omit<ModelActualUsage, 'calls'>) => void;
 }
 
 function extractJson(text: string): string {
@@ -158,8 +198,14 @@ ${JSON.stringify(opts.schema)}`;
               : `${opts.prompt}\n\n（上一次输出不是合法 JSON：${lastError}。重新输出严格符合 schema 的 JSON。）`,
           },
         ],
-      });
+      }, { signal: opts.signal });
       const raw = response.choices[0]?.message?.content ?? '';
+      const cache = deepseekCacheUsage(response.usage);
+      opts.onUsage?.({
+        inputTokens: zeroSafe(response.usage?.prompt_tokens),
+        outputTokens: zeroSafe(response.usage?.completion_tokens),
+        ...cache,
+      });
       try {
         return JSON.parse(extractJson(raw)) as T;
       } catch (e) {
@@ -175,8 +221,14 @@ ${JSON.stringify(opts.schema)}`;
     system: [{ type: 'text', text: opts.system, cache_control: { type: 'ephemeral' } }],
     messages: [{ role: 'user', content: opts.prompt }],
     output_config: { format: { type: 'json_schema', schema: opts.schema } },
-  });
+  }, { signal: opts.signal });
   const text = response.content.find((b) => b.type === 'text');
+  opts.onUsage?.({
+    inputTokens: zeroSafe(response.usage.input_tokens),
+    outputTokens: zeroSafe(response.usage.output_tokens),
+    cacheReadTokens: zeroSafe(response.usage.cache_read_input_tokens),
+    cacheWriteTokens: zeroSafe(response.usage.cache_creation_input_tokens),
+  });
   if (!text || text.type !== 'text') {
     throw new Error(`structured output returned no text (stop_reason=${response.stop_reason})`);
   }

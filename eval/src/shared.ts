@@ -22,7 +22,11 @@ import {
   type ToneDims,
   type TurnPlan,
   type UserEmotion,
+  type EngineConfig,
+  type EngineDependencies,
+  runRuntimeText,
 } from '@persona16/engine';
+import { PiAgentRuntime } from '@persona16/runtime-pi';
 
 export const ARTIFACT_DIR = join(import.meta.dirname, '..', 'artifacts');
 
@@ -35,6 +39,16 @@ export function saveArtifact(name: string, data: unknown): string {
 }
 
 export const JUDGE_MODEL = defaultJudgeModel();
+let piRuntime: PiAgentRuntime | undefined;
+
+function getPiRuntime(): PiAgentRuntime {
+  piRuntime ??= new PiAgentRuntime();
+  return piRuntime;
+}
+
+export function engineDependencies(config: EngineConfig): EngineDependencies {
+  return config.runtime === 'pi' ? { runtime: getPiRuntime() } : {};
+}
 
 /** 绕过导演、直接让某个 Agent 对一句话做出回应（用于同题盲测和动态性评测） */
 export async function soloReply(opts: {
@@ -70,15 +84,26 @@ export async function soloReply(opts: {
     userMessage: opts.userMessage,
   });
   const system = buildSystemBlocks(opts.agent);
-  let text = await chatText({ model: config.agentModel, maxTokens: 1200, system, prompt });
+  const generate = (nextPrompt: string) => config.runtime === 'pi'
+    ? runRuntimeText(getPiRuntime(), {
+        runId: `eval:${opts.agent}:${Date.now()}:${Math.random().toString(36).slice(2)}`,
+        model: { provider: config.provider, id: config.agentModel },
+        system,
+        messages: [{ role: 'user', content: nextPrompt }],
+        temperature: 1.25,
+        limits: { maxTurns: 1, maxTokens: 1200, timeoutMs: 60_000 },
+        metadata: {
+          roomId: 'eval-room',
+          turnId: `eval-${Date.now()}`,
+          agent: opts.agent,
+          promptVersion: 'eval-runtime-v1',
+        },
+      })
+    : chatText({ model: config.agentModel, maxTokens: 1200, system, prompt: nextPrompt });
+  let text = await generate(prompt);
   const verdict = checkUtterance(text, []);
   if (!verdict.ok) {
-    text = await chatText({
-      model: config.agentModel,
-      maxTokens: 1200,
-      system,
-      prompt: `${prompt}\n\n（反模板警告：你上一版因为"${verdict.reason}"被驳回，换一种完全不同的开场和结构重说。）`,
-    });
+    text = await generate(`${prompt}\n\n（反模板警告：你上一版因为"${verdict.reason}"被驳回，换一种完全不同的开场和结构重说。）`);
   }
   return text;
 }

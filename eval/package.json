@@ -5,14 +5,23 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",
+    "smoke": "tsx src/smoke.ts",
     "blindtest": "tsx src/blindtest.ts",
     "dynamics": "tsx src/dynamics.ts",
     "rooms": "tsx src/rooms.ts",
-    "report": "tsx src/report.ts"
+    "room:adversarial": "tsx src/roomAdversarial.ts",
+    "safety": "tsx src/safety.ts",
+    "phase4:smoke": "tsx src/phase4Smoke.ts",
+    "report": "tsx src/report.ts",
+    "pi:smoke": "tsx src/piSmoke.ts",
+    "runtime:compare": "tsx src/runtimeRegression.ts",
+    "unit": "tsx --test ../packages/engine/test/*.test.ts ../packages/runtime-pi/test/*.test.ts ../packages/store/test/*.test.ts ../apps/web/test/*.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.111.0",
     "@persona16/engine": "workspace:*",
+    "@persona16/runtime-pi": "workspace:*",
+    "@persona16/store": "workspace:*",
     "dotenv": "^16.4.0"
   },
   "devDependencies": {

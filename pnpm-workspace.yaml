@@ -3,6 +3,9 @@ packages:
   - apps/*
   - eval
 allowBuilds:
+  '@google/genai': false
   esbuild: true
+  protobufjs: false
+  sharp: true
 minimumReleaseAgeExclude:
   - '@anthropic-ai/sdk@0.111.0'

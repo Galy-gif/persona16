@@ -7,7 +7,7 @@
  * 3. 代码统计开场重复、长短分布（§11.3 的硬性要求）
  * 4. 生成人工盲测 HTML 页
  */
-import { AGENT_TYPES } from '@persona16/engine';
+import { AGENT_TYPES, defaultConfig } from '@persona16/engine';
 import {
   judge,
   mapWithConcurrency,
@@ -23,6 +23,7 @@ const QUESTIONS = [
   { id: 'q1-quit-job', scene: '决策' as const, text: '我最近很想辞职，但又怕后悔。' },
   { id: 'q2-no-work', scene: '吐槽' as const, text: '我今天不想上班，但也不知道自己到底想干嘛。' },
 ];
+const RUNTIME = defaultConfig().runtime;
 
 interface GuessResult {
   guesses: { replyIndex: number; top1: AgentType; top3: AgentType[]; reason: string }[];
@@ -33,9 +34,10 @@ interface GuessResult {
 async function runQuestion(q: (typeof QUESTIONS)[number]) {
   console.log(`\n=== ${q.id}: ${q.text}`);
   const replies = await mapWithConcurrency([...AGENT_TYPES], 4, async (agent) => {
+    const startedAt = Date.now();
     const text = await soloReply({ agent, userMessage: q.text, scene: q.scene });
     console.log(`  [${agent}] ${text.slice(0, 40).replace(/\n/g, ' ')}...`);
-    return { agent, text };
+    return { agent, text, latencyMs: Date.now() - startedAt };
   });
 
   const order = shuffled(replies, q.id.length * 7 + 13);
@@ -112,10 +114,11 @@ async function main() {
   for (const q of QUESTIONS) {
     results.push(await runQuestion(q));
   }
-  saveArtifact('blindtest.json', results);
-  saveArtifact('blindtest.html', renderBlindtestHtml(results));
+  const suffix = RUNTIME === 'pi' ? '-pi' : '';
+  saveArtifact(`blindtest${suffix}.json`, results);
+  saveArtifact(`blindtest${suffix}.html`, renderBlindtestHtml(results));
 
-  console.log('\n===== 盲测结果 vs PRD §12 =====');
+  console.log(`\n===== ${RUNTIME} 盲测结果 vs PRD §12 =====`);
   for (const r of results) {
     console.log(`\n${r.question.id}`);
     console.log(`  judge top1 辨识：${r.judge.top1Hits}/16（目标≥60% → ≥10）`);

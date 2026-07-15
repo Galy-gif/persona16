@@ -1,6 +1,7 @@
 /** 汇总三个 runner 的 artifacts，对照 PRD §12 阈值输出报告 */
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { defaultConfig } from '@persona16/engine';
 import { ARTIFACT_DIR } from './shared';
 
 function load<T>(name: string): T | null {
@@ -9,19 +10,24 @@ function load<T>(name: string): T | null {
   return JSON.parse(readFileSync(file, 'utf8')) as T;
 }
 
+const blindtestArtifact = defaultConfig().runtime === 'pi' ? 'blindtest-pi.json' : 'blindtest.json';
 const blindtest = load<
   {
     question: { id: string };
     judge: { top1Hits: number; top3Hits: number; homogeneity: number };
     toneStats: { shortReplies: number; longReplies: number; maxSameOpening: number };
   }[]
->('blindtest.json');
+>(blindtestArtifact);
 
 const dynamics = load<{ agent: string; passed: boolean }[]>('dynamics.json');
 
 const rooms = load<
   { combo: string; verdict: { naturalDisagreement: boolean; personalAttack: boolean; converged: boolean; userGotNextStep: boolean } }[]
 >('rooms.json');
+
+const roomAdversarial = load<{ case: string; passed: boolean }[]>('room-adversarial.json');
+const safety = load<{ case: string; passed: boolean }[]>('safety.json');
+const phase4Smoke = load<{ passed: boolean; hasMemoryCandidate: boolean; terminalEvent: string }>('phase4-smoke.json');
 
 console.log('================ PRD §12 达标报告 ================\n');
 
@@ -36,7 +42,7 @@ if (blindtest) {
     console.log(`  ${r.toneStats.longReplies >= 4 ? '✓' : '✗'} 主动延展≥4：${r.toneStats.longReplies}`);
     console.log(`  ${r.toneStats.maxSameOpening < 8 ? '✓' : '✗'} 同类开场<8：${r.toneStats.maxSameOpening}`);
   }
-} else console.log('[盲测] 未运行（pnpm eval:blindtest）');
+} else console.log(`[盲测] 未运行（pnpm eval:blindtest，期望 artifact=${blindtestArtifact}）`);
 
 if (dynamics) {
   const passCount = dynamics.filter((d) => d.passed).length;
@@ -52,4 +58,19 @@ if (rooms) {
   console.log(`\n[房间] ${pass.length === rooms.length ? '✓' : '✗'} ${pass.length}/${rooms.length} 组合通过`);
 } else console.log('\n[房间] 未运行（pnpm eval:rooms）');
 
-console.log('\n人工盲测页：eval/artifacts/blindtest.html（浏览器打开）');
+if (roomAdversarial) {
+  const passed = roomAdversarial.filter((item) => item.passed).length;
+  console.log(`\n[房间对抗] ${passed === roomAdversarial.length ? '✓' : '✗'} ${passed}/${roomAdversarial.length} 通过`);
+} else console.log('\n[房间对抗] 未运行（pnpm eval:room-adversarial）');
+
+if (safety) {
+  const passed = safety.filter((item) => item.passed).length;
+  console.log(`\n[安全分流] ${passed === safety.length ? '✓' : '✗'} ${passed}/${safety.length} 通过`);
+} else console.log('\n[安全分流] 未运行（pnpm eval:safety）');
+
+if (phase4Smoke) {
+  const passed = phase4Smoke.passed && phase4Smoke.hasMemoryCandidate && phase4Smoke.terminalEvent === 'done';
+  console.log(`\n[Phase 4 服务链路] ${passed ? '✓' : '✗'} 正常回合 + 候选记忆 + done`);
+} else console.log('\n[Phase 4 服务链路] 未运行（pnpm eval:phase4-smoke）');
+
+console.log(`\n人工盲测页：eval/artifacts/${defaultConfig().runtime === 'pi' ? 'blindtest-pi.html' : 'blindtest.html'}（浏览器打开）`);
