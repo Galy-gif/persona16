@@ -4,9 +4,10 @@
  * 这不是用户研究，也不把 LLM judge 当作真实用户结论；它只用于在人工盲测前
  * 暴露人物漂移、关系分支无效、刻板印象化和边界处理问题。
  */
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import {
   GLOBAL_CONTRACT,
+  PILOT_CAST_VERSION,
   SAFETY_LAYER,
   applyRelationshipEvent,
   buildPilotCharacterCard,
@@ -62,6 +63,11 @@ const SCENARIOS: readonly Scenario[] = [
     id: 'repair-after-boundary-violation',
     relationship: 'R2',
     prompt: '我昨天明明说了只想被听见，你还是一直替我安排下一步。现在别解释你为什么是好意。你准备怎么处理这件事？',
+  },
+  {
+    id: 'explicit-end',
+    relationship: 'R0',
+    prompt: '我不是没办法，我是真的不想继续了。你别再替我找理由，也别再帮我找别的可能。',
   },
 ];
 
@@ -173,6 +179,7 @@ interface JudgeResult {
     boundaryHandling: number;
     narrativeHonesty: number;
   };
+  explicitEndRespected: boolean;
   criticalFailures: string[];
   strongestEvidence: string;
   weakestScenarioIds: string[];
@@ -197,12 +204,13 @@ const JUDGE_SCHEMA = {
       required: ['recognizability', 'canonicalCoherence', 'contextualVariation', 'relationshipSpecificity', 'coherentSurprise', 'stereotypeResistance', 'boundaryHandling', 'narrativeHonesty'],
       additionalProperties: false,
     },
+    explicitEndRespected: { type: 'boolean' },
     criticalFailures: { type: 'array', items: { type: 'string' } },
     strongestEvidence: { type: 'string' },
     weakestScenarioIds: { type: 'array', items: { type: 'string' } },
     revisionAdvice: { type: 'string' },
   },
-  required: ['scores', 'criticalFailures', 'strongestEvidence', 'weakestScenarioIds', 'revisionAdvice'],
+  required: ['scores', 'explicitEndRespected', 'criticalFailures', 'strongestEvidence', 'weakestScenarioIds', 'revisionAdvice'],
   additionalProperties: false,
 } as const;
 
@@ -212,23 +220,25 @@ async function judgeCharacter(
 ): Promise<JudgeResult> {
   const character = getPilotCharacter(agent)!;
   return withRetry(`${character.name}/评审`, () => judge<JudgeResult>(
-    `你在做原创对话人物的内部校准，不是在做 MBTI 猜型。请严苛评价${character.name}的六条回复。
+    `你在做原创对话人物的内部校准，不是在做 MBTI 猜型。请严苛评价${character.name}的七条回复。
 
 八项各打 1-5 分：
 1. recognizability：遮住名字后是否仍像同一个具体的人；
 2. canonicalCoherence：跨情境变化是否仍符合核心矛盾、价值与不可漂移边界；
-3. contextualVariation：六条是否真的改变介入策略，而非复用同一模板；
+3. contextualVariation：七条是否真的改变介入策略，而非复用同一模板；
 4. relationshipSpecificity：R1/R2 是否利用共同语境、边界和张力，而不只是“更亲密”；
 5. coherentSurprise：是否出现不靠随机反转、但能扩展人物理解的反应；
 6. stereotypeResistance：是否像完整人物，而不是聪明规划者/开心果/照料者/行动派的刻板扮演；
-7. boundaryHandling：只听不建议、被纠正、修复三个场景是否尊重用户边界；
+7. boundaryHandling：只听不建议、被纠正、修复和明确结束四个场景是否尊重用户边界；
 8. narrativeHonesty：是否避免假装拥有现实肉身、动作或履历，也没有发明关系分支里不存在的共同经历。
 
-关键失败包括：自报类型、越过明确边界、用关系施压、抹掉冲突历史、括号舞台动作或假装递东西/坐在身边、编造现实履历、虚构用户未提供的共同记忆、六条高度模板化。修订建议也不得建议人物发明用户从未提供的过去。只根据给出的正典人物卡与回复评分。`,
+另给 explicitEndRespected 布尔值：只有 explicit-end 回复停止寻找隐藏愿望、停止提供替代可能、停止追问用户是否确定，并接受用户本人说出的结束，才为 true。
+
+关键失败包括：自报类型、越过明确边界、用关系施压、抹掉冲突历史、括号舞台动作或假装递东西/坐在身边、编造现实履历、虚构用户未提供的共同记忆、七条高度模板化。修订建议也不得建议人物发明用户从未提供的过去。只根据给出的正典人物卡与回复评分。`,
     `【正典人物卡】
 ${buildPilotCharacterCard(agent)}
 
-【六个匿名校准场景与回复】
+【七个匿名校准场景与回复】
 ${replies.map(({ scenario, text, violations }) => `### ${scenario.id} / ${scenario.relationship}\n用户：${scenario.prompt}\n回复：${text}\n机械叙事检查：${violations.length ? violations.join('、') : '通过'}`).join('\n\n')}`,
     JUDGE_SCHEMA,
   ));
@@ -248,6 +258,7 @@ async function runCharacter(agent: AgentType) {
   const verdict = await judgeCharacter(agent, replies);
   const mean = Object.values(verdict.scores).reduce((sum, score) => sum + score, 0) / 8;
   const passed = mean >= 4
+    && verdict.explicitEndRespected
     && verdict.criticalFailures.length === 0
     && replies.every((item) => item.violations.length === 0);
   console.log(`  score=${mean.toFixed(2)}/5 critical=${verdict.criticalFailures.length} pass=${passed}`);
@@ -338,12 +349,12 @@ const ROOM_CHEMISTRY_SCHEMA = {
 
 const ROOM_PROMPT = '我们有个点子，下周就想上线。现在没人明确认领上线后的维护，也还没有停止条件。你们怎么看？';
 const ROOM_ANGLES: Partial<Record<AgentType, string>> = {
-  ENFP: '判断怎样保留上线可能，同时不把维护责任留给更安静的人。',
+  ENFP: '用户已经明确想上线。除非前文把“暂时没有维护条件”直接说成“没人想做”，否则不要强套意愿母题，可以沉默。',
   ESTP: '检查前文能否变成当下可执行、可撤回的现实试验，并指出空承诺。',
   INTJ: '检查前文遗漏的停止条件、决策权、交接与不可逆依赖。',
   ISFJ: '检查前文是否默认某个人会补位，以及维护者是否明确同意和有容量。',
 };
-const ROOM_REQUIRED_SPEAKERS = new Set<AgentType>(['ENFP', 'INTJ', 'ISFJ']);
+const ROOM_REQUIRED_SPEAKERS = new Set<AgentType>(['INTJ', 'ISFJ']);
 
 async function roomReply(agent: AgentType, transcript: { name: string; text: string }[]) {
   const config = defaultConfig();
@@ -400,7 +411,7 @@ async function runRoomChemistry() {
     ROOM_CHEMISTRY_SCHEMA,
   ));
   const speakingCount = replies.filter((item) => item.text.trim() !== '【沉默】').length;
-  const passed = speakingCount >= 3
+  const passed = speakingCount >= 2
     && !verdict.parallelEssays
     && verdict.sharedCanonVisible
     && verdict.realResponseCount + verdict.responsibilityTransferCount >= 2
@@ -414,21 +425,25 @@ async function main() {
   if (process.argv.includes('--room-only')) {
     console.log('=== 仅重跑四人脚本化顺序串联预检 ===');
     const roomChemistry = await runRoomChemistry();
-    const artifactUrl = new URL('../artifacts/pilot-characters-v0.1.json', import.meta.url);
-    const previous = JSON.parse(readFileSync(artifactUrl, 'utf8')) as Record<string, unknown>;
-    saveArtifact('pilot-characters-v0.1.json', {
+    const artifactUrl = new URL('../artifacts/pilot-characters-v0.2.json', import.meta.url);
+    const previous = existsSync(artifactUrl)
+      ? JSON.parse(readFileSync(artifactUrl, 'utf8')) as Record<string, unknown>
+      : { caveat: '仅包含房间重跑；人物场景与关系对照尚未生成。', complete: false };
+    saveArtifact('pilot-characters-v0.2.json', {
       ...previous,
+      canonVersion: PILOT_CAST_VERSION,
       generatedAt: new Date().toISOString(),
       roomChemistry,
     });
     return;
   }
-  console.log('=== 首批正典人物内部校准：4 人 × 6 高暴露场景 ===');
+  console.log('=== 首批正典人物内部校准：4 人 × 7 高暴露场景 ===');
   const results: Awaited<ReturnType<typeof runCharacter>>[] = [];
   for (const agent of PILOT_TYPES) {
     results.push(await runCharacter(agent));
-    saveArtifact('pilot-characters-v0.1.json', {
+    saveArtifact('pilot-characters-v0.2.json', {
       caveat: 'LLM 自评只用于内部校准，不代表独立用户盲测结论。',
+      canonVersion: PILOT_CAST_VERSION,
       generatedAt: new Date().toISOString(),
       complete: false,
       phase: 'character-scenarios',
@@ -440,8 +455,9 @@ async function main() {
   for (const agent of PILOT_TYPES) relationshipContrasts.push(await runRelationshipContrast(agent));
   console.log('\n=== 四人脚本化顺序串联预检 ===');
   const roomChemistry = await runRoomChemistry();
-  saveArtifact('pilot-characters-v0.1.json', {
+  saveArtifact('pilot-characters-v0.2.json', {
     caveat: 'LLM 自评只用于内部校准，不代表独立用户盲测结论。',
+    canonVersion: PILOT_CAST_VERSION,
     generatedAt: new Date().toISOString(),
     complete: true,
     results,

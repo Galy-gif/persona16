@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import {
   applyRelationshipEvent,
+  PILOT_CAST_VERSION,
   buildPilotCharacterCard,
   buildPilotRelationshipContext,
   buildPilotRoomContext,
@@ -13,6 +14,14 @@ import {
   getPilotCharacter,
 } from '../src';
 
+function characterSection(source: string, characterName: string): string {
+  const heading = new RegExp(`^## \\d+\\. ${characterName}.*$`, 'm').exec(source);
+  assert.ok(heading?.index !== undefined, `正典文档缺少${characterName}章节`);
+  const fromHeading = source.slice(heading.index + heading[0].length);
+  const nextHeading = fromHeading.search(/^## \d+\./m);
+  return nextHeading === -1 ? fromHeading : fromHeading.slice(0, nextHeading);
+}
+
 test('pilot characters are canonical people rather than public type labels', () => {
   const linHeng = getPilotCharacter('INTJ');
 
@@ -22,7 +31,8 @@ test('pilot characters are canonical people rather than public type labels', () 
   assert.equal(getPilotCharacter('ENTP'), undefined);
 
   const card = buildPilotCharacterCard('INTJ');
-  assert.match(card, /【正典人物：林衡】/);
+  assert.equal(PILOT_CAST_VERSION, '0.2');
+  assert.match(card, /【正典人物：林衡｜正典版本：0\.2】/);
   assert.match(card, /不可漂移/);
   assert.match(card, /不写假装拥有身体的舞台动作/);
   assert.match(card, /不编造未出现在关系分支中的共同经历/);
@@ -37,26 +47,39 @@ test('pilot characters are canonical people rather than public type labels', () 
     (linHeng.invariants as unknown as string[]).push('迎合当前用户');
   }, TypeError);
   assert.equal(getPilotCharacter('INTJ')?.name, '林衡');
+
+  const xiaXu = getPilotCharacter('ENFP')!;
+  assert.equal(
+    xiaXu.firstImpression,
+    '她总觉得，做不到和不想要不是一回事。可当别人真的说“我不要了”，她又没那么容易相信。',
+  );
+  assert.match(xiaXu.coreContradiction, /保护.*真实意愿.*覆盖.*意愿/);
+  assert.ok(xiaXu.safetyBoundaries.includes('用户明确说不想继续时停止追问和重开可能'));
 });
 
 test('pilot room context exposes shared canon tensions instead of four isolated personas', () => {
   const context = buildPilotRoomContext('INTJ');
 
   assert.match(context, /林衡 × 夏栩/);
-  assert.match(context, /收窄风险 vs 打开可能/);
+  assert.match(context, /风险是否足以结束 vs 结论是否下得太早/);
   assert.match(context, /默认周禾承担维护/);
   assert.doesNotMatch(context, /INTJ × ENFP/);
 });
 
 test('runtime pilot canon stays aligned with the versioned character source document', () => {
-  const source = readFileSync(
+  const v01Source = readFileSync(
     new URL('../../../docs/characters/pilot-cast-v0.1.md', import.meta.url),
     'utf8',
   ).replaceAll('**', '');
-  const compactSource = source.replace(/[\s|]/g, '');
+  const v02Source = readFileSync(
+    new URL('../../../docs/characters/pilot-cast-v0.2.md', import.meta.url),
+    'utf8',
+  ).replaceAll('**', '');
 
   for (const type of ['INTJ', 'ENFP', 'ISFJ', 'ESTP'] as const) {
     const character = getPilotCharacter(type)!;
+    const source = characterSection(type === 'ENFP' ? v02Source : v01Source, character.name);
+    const compactSource = source.replace(/[\s|]/g, '');
     assert.ok(source.includes(character.firstImpression), `${character.name} 第一印象发生漂移`);
     assert.ok(source.includes(character.opening), `${character.name} 开场发生漂移`);
     assert.ok(source.includes(character.coreFear), `${character.name} 核心恐惧发生漂移`);
@@ -86,6 +109,12 @@ test('runtime pilot canon stays aligned with the versioned character source docu
     for (const boundary of character.safetyBoundaries) {
       assert.ok(source.includes(boundary), `${character.name} 安全边界发生漂移：${boundary}`);
     }
+  }
+
+  const roomContext = buildPilotRoomContext('ENFP');
+  for (const phrase of ['风险是否足以结束 vs 结论是否下得太早', '真实意愿 vs 现实承受', '再确认意愿 vs 立即接触现实']) {
+    assert.ok(v02Source.includes(phrase), `v0.2 文档缺少房间关系：${phrase}`);
+    assert.ok(roomContext.includes(phrase), `v0.2 运行时缺少房间关系：${phrase}`);
   }
 });
 

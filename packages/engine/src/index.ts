@@ -94,6 +94,7 @@ export {
   setRelationshipMemoryEnabled,
 } from './relationship/relationshipBranch';
 export {
+  PILOT_CAST_VERSION,
   buildPilotCharacterCard,
   buildPilotRelationshipContext,
   buildPilotRoomContext,
