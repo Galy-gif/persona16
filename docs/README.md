@@ -34,6 +34,7 @@ ADR 记录决策当时的背景。新结论若改变既有决策，应新增 ADR
 - [人物验证方案](evals/pilot-character-validation-v0.1.md)
 - [自动预检](evals/pilot-character-preflight-2026-07-20.md)
 - [首位用户人物校准](evals/pilot-human-calibration-2026-07-20.md)
+- [v0.3 九场景复测报告](evals/pilot-character-retest-2026-07-21.md)
 
 自动分数只用于发现问题。真人样本量、测试条件和证据边界必须与结论一起保留。
 
