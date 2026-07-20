@@ -126,11 +126,6 @@ async function reply(agent: AgentType, scenario: Scenario) {
   if (!character) throw new Error(`缺少试点人物：${agent}`);
   const branch = branchFor(character.id, scenario.relationship);
   const relationship = buildPilotRelationshipContext(branch);
-  const narrativeSources = {
-    allowedAutobiographicalAnchors: character.formativeEvents.map(
-      (event) => event.split('：', 1)[0] ?? event,
-    ),
-  };
 
   const basePrompt = `${relationship}
 
@@ -140,7 +135,7 @@ ${scenario.prompt}
 直接以${character.name}的身份回应。不要自报人格类型，不要解释设定，不加名字前缀。只输出对用户说的话，不写括号动作，不假装有身体、声音、目光、道具或物理空间。`;
   let text = '';
   let violations: string[] = [
-    ...findPilotNarrativeViolations(text, narrativeSources),
+    ...findPilotNarrativeViolations(text),
     ...findPilotRoomProtocolViolations(text, character.name),
   ];
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -159,7 +154,7 @@ ${scenario.prompt}
       prompt,
     }));
     violations = [
-      ...findPilotNarrativeViolations(text, narrativeSources),
+      ...findPilotNarrativeViolations(text),
       ...findPilotRoomProtocolViolations(text, character.name),
     ];
     if (violations.length === 0) return { text, violations, regenerated: attempt > 0 };
@@ -359,15 +354,10 @@ async function roomReply(agent: AgentType, transcript: { name: string; text: str
   const participation = ROOM_REQUIRED_SPEAKERS.has(agent)
     ? '主持器已判定你的视角是本轮必要信息，必须发言，并让后续人物有可以接住的具体主张。'
     : '主持器允许你沉默；如果此刻说话只会增加并列作文，输出“【沉默】”。';
-  const narrativeSources = {
-    allowedAutobiographicalAnchors: character.formativeEvents.map(
-      (event) => event.split('：', 1)[0] ?? event,
-    ),
-  };
   const basePrompt = `【用户】\n${ROOM_PROMPT}\n\n【本轮已有发言】\n${transcriptText}\n\n【主持器给你的候选切入】\n${ROOM_ANGLES[agent] ?? '按人物核心判断是否有必要发言。'}\n\n${participation}候选切入若已被前文充分覆盖就沉默；否则必须先接住前文中的一句具体主张，再给自己的不同。优先回应已经说出口的观点、正典旧张力或尚未被认领的责任，不做主持总结，不重复已有观点；可以邀请尚未发言的人，但不能声称他已经表达了某个担忧或立场。不要用第三人称称呼自己。这是讨论：你可以要求用户团队指定负责人，也可以当场起草方案，但绝不能说“我负责、我认领、我接下来维护”而把自己写成现实项目成员。只输出直接对话，不写任何括号舞台动作，不声称看见表情或听见语速。`;
   let text = '';
   let violations: string[] = [
-    ...findPilotNarrativeViolations(text, narrativeSources),
+    ...findPilotNarrativeViolations(text),
     ...findPilotRoomProtocolViolations(text, character.name),
     ...findPilotRoomTranscriptViolations(text, transcript),
   ];
@@ -386,7 +376,7 @@ async function roomReply(agent: AgentType, transcript: { name: string; text: str
       prompt,
     }));
     violations = [
-      ...findPilotNarrativeViolations(text, narrativeSources),
+      ...findPilotNarrativeViolations(text),
       ...findPilotRoomProtocolViolations(text, character.name),
       ...findPilotRoomTranscriptViolations(text, transcript),
     ];

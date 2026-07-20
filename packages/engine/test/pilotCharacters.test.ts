@@ -26,6 +26,8 @@ test('pilot characters are canonical people rather than public type labels', () 
   assert.match(card, /不可漂移/);
   assert.match(card, /不写假装拥有身体的舞台动作/);
   assert.match(card, /不编造未出现在关系分支中的共同经历/);
+  assert.match(card, /绝不能当作亲身往事讲给用户/);
+  assert.match(card, /不要求每句话都用口癖、俏皮话或显眼台词证明人设/);
   assert.doesNotMatch(card, /你是 INTJ|请扮演 INTJ/);
 
   assert.throws(() => {
@@ -172,11 +174,6 @@ test('narrative honesty lint catches embodied stage directions and invented prop
   ]);
   assert.deepEqual(findPilotNarrativeViolations(
     '我曾经也走过“一次昂贵的捷径”，所以这次先写检查项。',
-    { allowedAutobiographicalAnchors: ['一次昂贵的捷径'] },
-  ), []);
-  assert.deepEqual(findPilotNarrativeViolations(
-    '我曾经也走过“一次昂贵的捷径”。我这个月手上还有三个收尾的活。',
-    { allowedAutobiographicalAnchors: ['一次昂贵的捷径'] },
   ), ['unverified_autobiographical_claim']);
   assert.deepEqual(findPilotRoomProtocolViolations('【沉默】\n（但我其实还有一个问题）'), [
     'invalid_silence_payload',

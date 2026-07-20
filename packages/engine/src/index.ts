@@ -105,7 +105,6 @@ export {
 export type {
   PilotCharacterId,
   PilotCharacterSpec,
-  PilotNarrativeSources,
   PilotNarrativeViolation,
   PilotRoomChemistry,
   PilotRoomProtocolViolation,
