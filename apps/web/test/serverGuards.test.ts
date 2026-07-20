@@ -7,9 +7,10 @@ test('proxy address is ignored unless the deployment explicitly trusts proxy hea
   const original = process.env.PERSONA16_TRUST_PROXY;
   delete process.env.PERSONA16_TRUST_PROXY;
   const request = new Request('http://localhost', { headers: { 'x-forwarded-for': '203.0.113.9' } });
-  assert.equal(clientIpKey(request), 'direct');
+  assert.equal(clientIpKey(request), undefined);
   process.env.PERSONA16_TRUST_PROXY = '1';
   assert.equal(clientIpKey(request), '203.0.113.9');
+  assert.equal(clientIpKey(new Request('http://localhost')), undefined);
   if (original === undefined) delete process.env.PERSONA16_TRUST_PROXY;
   else process.env.PERSONA16_TRUST_PROXY = original;
 });

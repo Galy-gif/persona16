@@ -2,6 +2,8 @@ packages:
   - packages/*
   - apps/*
   - eval
+overrides:
+  postcss: 8.5.10
 allowBuilds:
   '@google/genai': false
   esbuild: true

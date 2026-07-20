@@ -372,8 +372,7 @@ async function runRoomTurn(ctx: TurnContext) {
 | 表 | 核心字段 | 用途 |
 | --- | --- | --- |
 | `users` | id, anonymous_id, created_at | 内测可先匿名，后续绑定账号 |
-| `rooms` | id, user_id, goal, version, status | 服务端房间真相源 |
-| `room_agents` | room_id, agent_type, paused, joined_at, state_json | 成员和运行状态 |
+| `rooms` | id, user_id, state_json, version, status | 服务端房间、成员和暂停状态的单一真相源 |
 | `messages` | id, room_id, turn_id, speaker, text, speech_type, seq | 可重放对话 |
 | `memories` | id, user_id, agent_type, kind, content, status, source_message_id | 候选/确认/拒绝/删除记忆 |
 | `turn_runs` | id, room_id, prompt_version, model, status, stop_reason, usage_json, latency_json | 每轮运行事实 |

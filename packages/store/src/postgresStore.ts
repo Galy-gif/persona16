@@ -125,7 +125,6 @@ export class PostgresPersonaStore implements PersonaStore {
          RETURNING id, user_id, state_json, version, status, active_turn_id, created_at, updated_at`,
         [roomId, input.userId, JSON.stringify(input.state)],
       );
-      await this.replaceAgents(client, roomId, input.state);
       await client.query('COMMIT');
       return mapRoom(result.rows[0]!);
     } catch (error) {
@@ -158,7 +157,6 @@ export class PostgresPersonaStore implements PersonaStore {
          RETURNING id, user_id, state_json, version, status, active_turn_id, created_at, updated_at`,
         [input.roomId, input.userId, JSON.stringify(input.state)],
       );
-      await this.replaceAgents(client, input.roomId, input.state);
       await client.query('COMMIT');
       return mapRoom(result.rows[0]!);
     } catch (error) {
@@ -297,16 +295,35 @@ export class PostgresPersonaStore implements PersonaStore {
           JSON.stringify(observability.trace),
         ],
       );
-      await this.replaceAgents(client, input.roomId, input.state);
       let sourceMessageId: string | undefined;
+      const messages: Array<{
+        id: string;
+        seq: number;
+        speaker: string;
+        text: string;
+        speech_type: string | null;
+      }> = [];
       for (let seq = turn.base_history_length; seq < input.state.history.length; seq++) {
         const message = input.state.history[seq]!;
         const messageId = message.id ?? randomUUID();
         if (!sourceMessageId && message.speaker === 'user') sourceMessageId = messageId;
+        messages.push({
+          id: messageId,
+          seq,
+          speaker: message.speaker,
+          text: message.text,
+          speech_type: message.speechType ?? null,
+        });
+      }
+      if (messages.length > 0) {
         await client.query(
           `INSERT INTO messages (id, room_id, turn_id, seq, speaker, text, speech_type)
-           VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (room_id, seq) DO NOTHING`,
-          [messageId, input.roomId, input.turnId, seq, message.speaker, message.text, message.speechType ?? null],
+           SELECT message.id, $1, $2, message.seq, message.speaker, message.text, message.speech_type
+           FROM jsonb_to_recordset($3::jsonb) AS message(
+             id text, seq integer, speaker text, text text, speech_type text
+           )
+           ON CONFLICT (room_id, seq) DO NOTHING`,
+          [input.roomId, input.turnId, JSON.stringify(messages)],
         );
       }
       if (sourceMessageId) {
@@ -315,11 +332,19 @@ export class PostgresPersonaStore implements PersonaStore {
           [input.turnId, sourceMessageId],
         );
       }
-      for (let seq = 0; seq < input.events.length; seq++) {
-        const event = input.events[seq]!;
+      if (input.events.length > 0) {
+        const events = input.events.map((event, seq) => ({
+          seq,
+          event_type: String(event.type ?? 'unknown'),
+          payload_json: event,
+        }));
         await client.query(
-          `INSERT INTO turn_events (turn_id, seq, event_type, payload_json) VALUES ($1, $2, $3, $4::jsonb)`,
-          [input.turnId, seq, String(event.type ?? 'unknown'), JSON.stringify(event)],
+          `INSERT INTO turn_events (turn_id, seq, event_type, payload_json)
+           SELECT $1, event.seq, event.event_type, event.payload_json
+           FROM jsonb_to_recordset($2::jsonb) AS event(
+             seq integer, event_type text, payload_json jsonb
+           )`,
+          [input.turnId, JSON.stringify(events)],
         );
       }
       await client.query('COMMIT');
@@ -512,16 +537,6 @@ export class PostgresPersonaStore implements PersonaStore {
     );
     if (!result.rows[0]) throw new StoreError('ROOM_NOT_FOUND', '房间不存在');
     return result.rows[0];
-  }
-
-  private async replaceAgents(client: PoolClient, roomId: string, state: RoomState): Promise<void> {
-    await client.query('DELETE FROM room_agents WHERE room_id = $1', [roomId]);
-    for (const agent of state.agents) {
-      await client.query(
-        `INSERT INTO room_agents (room_id, agent_type, paused, state_json) VALUES ($1, $2, $3, $4::jsonb)`,
-        [roomId, agent.type, agent.paused, JSON.stringify(agent)],
-      );
-    }
   }
 
   private async rollbackAndRethrow(client: PoolClient, originalError: unknown): Promise<never> {

@@ -56,6 +56,7 @@ pnpm --filter @persona16/web dev
 ```
 
 Web 默认运行在 `http://localhost:3016`。开发环境未配置 `DATABASE_URL` 时使用内存 Store；生产环境必须使用 PostgreSQL。
+GitHub CI 会启动 PostgreSQL，强制执行数据库集成测试、类型检查、Web 构建和生产依赖审计；本地未配置 `PERSONA16_TEST_DATABASE_URL` 时，对应数据库用例会明确跳过。
 
 配置数据库后执行迁移：
 
