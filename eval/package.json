@@ -16,7 +16,7 @@
     "report": "tsx src/report.ts",
     "pi:smoke": "tsx src/piSmoke.ts",
     "runtime:compare": "tsx src/runtimeRegression.ts",
-    "unit": "tsx --test ../packages/engine/test/*.test.ts ../packages/runtime-pi/test/*.test.ts ../packages/store/test/*.test.ts ../apps/web/test/*.test.ts"
+    "unit": "tsx --test test/*.test.ts ../packages/engine/test/*.test.ts ../packages/runtime-pi/test/*.test.ts ../packages/store/test/*.test.ts ../apps/web/test/*.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.111.0",

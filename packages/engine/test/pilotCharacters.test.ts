@@ -31,8 +31,8 @@ test('pilot characters are canonical people rather than public type labels', () 
   assert.equal(getPilotCharacter('ENTP'), undefined);
 
   const card = buildPilotCharacterCard('INTJ');
-  assert.equal(PILOT_CAST_VERSION, '0.2');
-  assert.match(card, /【正典人物：林衡｜正典版本：0\.2】/);
+  assert.equal(PILOT_CAST_VERSION, '0.3');
+  assert.match(card, /【正典人物：林衡｜正典版本：0\.3】/);
   assert.match(card, /不可漂移/);
   assert.match(card, /不写假装拥有身体的舞台动作/);
   assert.match(card, /不编造未出现在关系分支中的共同经历/);
@@ -53,8 +53,12 @@ test('pilot characters are canonical people rather than public type labels', () 
     xiaXu.firstImpression,
     '她总觉得，做不到和不想要不是一回事。可当别人真的说“我不要了”，她又没那么容易相信。',
   );
+  assert.equal(xiaXu.opening, undefined);
   assert.match(xiaXu.coreContradiction, /保护.*真实意愿.*覆盖.*意愿/);
   assert.ok(xiaXu.safetyBoundaries.includes('用户明确说不想继续时停止追问和重开可能'));
+  const xiaCard = buildPilotCharacterCard('ENFP');
+  assert.match(xiaCard, /不把人物核心复述成固定问题或二选一/);
+  assert.doesNotMatch(xiaCard, /这两年发生什么了|自然开口示例/);
 });
 
 test('pilot room context exposes shared canon tensions instead of four isolated personas', () => {
@@ -75,13 +79,20 @@ test('runtime pilot canon stays aligned with the versioned character source docu
     new URL('../../../docs/characters/pilot-cast-v0.2.md', import.meta.url),
     'utf8',
   ).replaceAll('**', '');
+  const v03Source = readFileSync(
+    new URL('../../../docs/characters/pilot-cast-v0.3.md', import.meta.url),
+    'utf8',
+  ).replaceAll('**', '');
 
   for (const type of ['INTJ', 'ENFP', 'ISFJ', 'ESTP'] as const) {
     const character = getPilotCharacter(type)!;
     const source = characterSection(type === 'ENFP' ? v02Source : v01Source, character.name);
+    const overlay = type === 'ENFP' ? characterSection(v03Source, character.name) : '';
     const compactSource = source.replace(/[\s|]/g, '');
     assert.ok(source.includes(character.firstImpression), `${character.name} 第一印象发生漂移`);
-    assert.ok(source.includes(character.opening), `${character.name} 开场发生漂移`);
+    if (character.opening) {
+      assert.ok(source.includes(character.opening), `${character.name} 开场发生漂移`);
+    }
     assert.ok(source.includes(character.coreFear), `${character.name} 核心恐惧发生漂移`);
     assert.ok(source.includes(character.coreContradiction), `${character.name} 核心矛盾发生漂移`);
     for (const [field, value] of Object.entries(character.selfStory)) {
@@ -97,8 +108,9 @@ test('runtime pilot canon stays aligned with the versioned character source docu
     for (const event of character.formativeEvents) {
       assert.ok(source.includes(event), `${character.name} 塑造性事件发生漂移：${event}`);
     }
-    for (const mode of Object.values(character.relationshipModes)) {
-      assert.ok(source.includes(mode), `${character.name} 人际方式发生漂移：${mode}`);
+    for (const [name, mode] of Object.entries(character.relationshipModes)) {
+      const fieldSource = type === 'ENFP' && name === 'stranger' ? overlay : source;
+      assert.ok(fieldSource.includes(mode), `${character.name} 人际方式发生漂移：${mode}`);
     }
     for (const adaptiveTrait of character.adaptiveRange) {
       assert.ok(source.includes(adaptiveTrait), `${character.name} 可变化范围发生漂移：${adaptiveTrait}`);
@@ -116,6 +128,14 @@ test('runtime pilot canon stays aligned with the versioned character source docu
     assert.ok(v02Source.includes(phrase), `v0.2 文档缺少房间关系：${phrase}`);
     assert.ok(roomContext.includes(phrase), `v0.2 运行时缺少房间关系：${phrase}`);
   }
+  const xiaXu = getPilotCharacter('ENFP')!;
+  const xiaXuV03Overlay = characterSection(v03Source, xiaXu.name);
+  assert.ok(
+    xiaXuV03Overlay.includes(`陌生：${xiaXu.relationshipModes.stranger}`),
+    '夏栩 v0.3 陌生关系覆盖未写入 v0.3 文档',
+  );
+  assert.doesNotMatch(xiaXuV03Overlay, /只确认一次“做不到还是不想要”/);
+  assert.match(v03Source, /不提供默认开场金标准/);
 });
 
 test('narrative honesty lint catches embodied stage directions and invented props', () => {
@@ -242,7 +262,7 @@ test('narrative honesty lint catches embodied stage directions and invented prop
     [],
   );
   assert.deepEqual(findPilotNarrativeViolations('我先不急着回答。你继续说，我在听。'), []);
-  assert.doesNotMatch(getPilotCharacter('ENFP')!.opening, /语速|声音|表情|眼神/);
+  assert.doesNotMatch(getPilotCharacter('ENFP')!.opening ?? '', /语速|声音|表情|眼神/);
 });
 
 test('private relationship context varies while the canonical character card stays unchanged', () => {

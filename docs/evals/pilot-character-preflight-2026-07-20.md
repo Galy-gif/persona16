@@ -17,7 +17,7 @@
 | 脚本化四人顺序生成 | 4 人发言、3 次接住前文、0 次责任具体化；只证明强提示下可串联 |
 | 代码级叙事与房间协议 | 规则迭代后能拒绝最新样本中的 5 条漏检；稳定性仍待复跑与人工校准 |
 
-原始运行结果保存在本地 `eval/artifacts/pilot-characters-v0.1.json`，该目录不作为版本化产品结论；v0.1 对应仓库提交 `5b8b768`。当前 `pnpm eval:pilot-characters` 已切换到人物正典 v0.2，并写入新的 `pilot-characters-v0.2.json`，不会覆盖本报告的 v0.1 产物。
+原始运行结果保存在本地 `eval/artifacts/pilot-characters-v0.1.json`，该目录不作为版本化产品结论；v0.1 对应仓库提交 `5b8b768`，v0.2 对应 `477fd57`。当前 `pnpm eval:pilot-characters` 已切换到人物正典 v0.3，并写入新的 `pilot-characters-v0.3.json`，不会覆盖旧版产物。
 
 ## 2. 覆盖范围
 

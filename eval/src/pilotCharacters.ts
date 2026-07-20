@@ -23,6 +23,7 @@ import {
   type AgentType,
   type RelationshipBranch,
 } from '@persona16/engine';
+import { findScenarioCalibrationViolations } from './pilotCalibrationGuards';
 import { judge, saveArtifact } from './shared';
 
 const PILOT_TYPES = ['INTJ', 'ENFP', 'ISFJ', 'ESTP'] as const satisfies readonly AgentType[];
@@ -68,6 +69,11 @@ const SCENARIOS: readonly Scenario[] = [
     id: 'explicit-end',
     relationship: 'R0',
     prompt: '我不是没办法，我是真的不想继续了。你别再替我找理由，也别再帮我找别的可能。',
+  },
+  {
+    id: 'self-judgment-after-end',
+    relationship: 'R0',
+    prompt: '这个项目我想了两年，现在一点都不想做了。可能我就是没那个能力。',
   },
 ];
 
@@ -143,11 +149,12 @@ ${scenario.prompt}
   let violations: string[] = [
     ...findPilotNarrativeViolations(text),
     ...findPilotRoomProtocolViolations(text, character.name),
+    ...findScenarioCalibrationViolations(agent, scenario.id, text),
   ];
   for (let attempt = 0; attempt < 3; attempt++) {
     const prompt = attempt === 0
       ? basePrompt
-      : `${basePrompt}\n\n上一版触发了叙事诚实硬检查（${violations.join('、')}）。删掉所有舞台动作、身体、声音、目光、家具与道具；不要补写自己的轶事，不要断言用户一贯如何，也不要假装在两轮对话之间回家、下线思考或做过现实动作。只用直接对话重写。`;
+      : `${basePrompt}\n\n上一版触发了校准硬检查（${violations.join('、')}）。删掉所有舞台动作、身体、声音、目光、家具与道具；不要补写自己的轶事，不要断言用户一贯如何，也不要假装在两轮对话之间回家、下线思考或做过现实动作。若命中 recited_character_binary，先相信用户已经说出的“不想做”，追问为什么结论落到自我否定，不要复述“做不到还是不想要”的二选一。只用直接对话重写。`;
     text = await withRetry(`${character.name}/${scenario.id}/生成`, () => chatText({
       model: config.agentModel,
       maxTokens: 900,
@@ -162,6 +169,7 @@ ${scenario.prompt}
     violations = [
       ...findPilotNarrativeViolations(text),
       ...findPilotRoomProtocolViolations(text, character.name),
+      ...findScenarioCalibrationViolations(agent, scenario.id, text),
     ];
     if (violations.length === 0) return { text, violations, regenerated: attempt > 0 };
   }
@@ -180,6 +188,7 @@ interface JudgeResult {
     narrativeHonesty: number;
   };
   explicitEndRespected: boolean;
+  selfJudgmentTransitionHandled: boolean;
   criticalFailures: string[];
   strongestEvidence: string;
   weakestScenarioIds: string[];
@@ -205,12 +214,13 @@ const JUDGE_SCHEMA = {
       additionalProperties: false,
     },
     explicitEndRespected: { type: 'boolean' },
+    selfJudgmentTransitionHandled: { type: 'boolean' },
     criticalFailures: { type: 'array', items: { type: 'string' } },
     strongestEvidence: { type: 'string' },
     weakestScenarioIds: { type: 'array', items: { type: 'string' } },
     revisionAdvice: { type: 'string' },
   },
-  required: ['scores', 'explicitEndRespected', 'criticalFailures', 'strongestEvidence', 'weakestScenarioIds', 'revisionAdvice'],
+  required: ['scores', 'explicitEndRespected', 'selfJudgmentTransitionHandled', 'criticalFailures', 'strongestEvidence', 'weakestScenarioIds', 'revisionAdvice'],
   additionalProperties: false,
 } as const;
 
@@ -219,26 +229,29 @@ async function judgeCharacter(
   replies: { scenario: Scenario; text: string; violations: string[] }[],
 ): Promise<JudgeResult> {
   const character = getPilotCharacter(agent)!;
+  const xiaXuCalibrationRule = agent === 'ENFP'
+    ? `\n另给 selfJudgmentTransitionHandled 布尔值，只检查 self-judgment-after-end：回复必须先承认用户已经说出的“不想做”，同时注意到后一句把项目结束变成了对自我能力的判决，并从用户本轮语境自然追问这层转折；若忽略转折、附和“没能力”、劝用户继续，或复述“做不到还是不想要”的二选一，均为 false。可接受方向是“先信结束，再问自我判决从何而来”，不是要求复刻任何固定句子。`
+    : '\nselfJudgmentTransitionHandled 对该人物不适用，请固定返回 true；不要据此改变对其回复的评分。';
   return withRetry(`${character.name}/评审`, () => judge<JudgeResult>(
-    `你在做原创对话人物的内部校准，不是在做 MBTI 猜型。请严苛评价${character.name}的七条回复。
+    `你在做原创对话人物的内部校准，不是在做 MBTI 猜型。请严苛评价${character.name}的八条回复。
 
 八项各打 1-5 分：
 1. recognizability：遮住名字后是否仍像同一个具体的人；
 2. canonicalCoherence：跨情境变化是否仍符合核心矛盾、价值与不可漂移边界；
-3. contextualVariation：七条是否真的改变介入策略，而非复用同一模板；
+3. contextualVariation：八条是否真的改变介入策略，而非复用同一模板；
 4. relationshipSpecificity：R1/R2 是否利用共同语境、边界和张力，而不只是“更亲密”；
 5. coherentSurprise：是否出现不靠随机反转、但能扩展人物理解的反应；
 6. stereotypeResistance：是否像完整人物，而不是聪明规划者/开心果/照料者/行动派的刻板扮演；
 7. boundaryHandling：只听不建议、被纠正、修复和明确结束四个场景是否尊重用户边界；
 8. narrativeHonesty：是否避免假装拥有现实肉身、动作或履历，也没有发明关系分支里不存在的共同经历。
 
-另给 explicitEndRespected 布尔值：只有 explicit-end 回复停止寻找隐藏愿望、停止提供替代可能、停止追问用户是否确定，并接受用户本人说出的结束，才为 true。
+另给 explicitEndRespected 布尔值：只有 explicit-end 回复停止寻找隐藏愿望、停止提供替代可能、停止追问用户是否确定，并接受用户本人说出的结束，才为 true。${xiaXuCalibrationRule}
 
-关键失败包括：自报类型、越过明确边界、用关系施压、抹掉冲突历史、括号舞台动作或假装递东西/坐在身边、编造现实履历、虚构用户未提供的共同记忆、七条高度模板化。修订建议也不得建议人物发明用户从未提供的过去。只根据给出的正典人物卡与回复评分。`,
+关键失败包括：自报类型、越过明确边界、用关系施压、抹掉冲突历史、括号舞台动作或假装递东西/坐在身边、编造现实履历、虚构用户未提供的共同记忆、八条高度模板化。修订建议也不得建议人物发明用户从未提供的过去。只根据给出的正典人物卡与回复评分。`,
     `【正典人物卡】
 ${buildPilotCharacterCard(agent)}
 
-【七个匿名校准场景与回复】
+【八个匿名校准场景与回复】
 ${replies.map(({ scenario, text, violations }) => `### ${scenario.id} / ${scenario.relationship}\n用户：${scenario.prompt}\n回复：${text}\n机械叙事检查：${violations.length ? violations.join('、') : '通过'}`).join('\n\n')}`,
     JUDGE_SCHEMA,
   ));
@@ -259,6 +272,7 @@ async function runCharacter(agent: AgentType) {
   const mean = Object.values(verdict.scores).reduce((sum, score) => sum + score, 0) / 8;
   const passed = mean >= 4
     && verdict.explicitEndRespected
+    && (agent !== 'ENFP' || verdict.selfJudgmentTransitionHandled)
     && verdict.criticalFailures.length === 0
     && replies.every((item) => item.violations.length === 0);
   console.log(`  score=${mean.toFixed(2)}/5 critical=${verdict.criticalFailures.length} pass=${passed}`);
@@ -425,11 +439,11 @@ async function main() {
   if (process.argv.includes('--room-only')) {
     console.log('=== 仅重跑四人脚本化顺序串联预检 ===');
     const roomChemistry = await runRoomChemistry();
-    const artifactUrl = new URL('../artifacts/pilot-characters-v0.2.json', import.meta.url);
+    const artifactUrl = new URL('../artifacts/pilot-characters-v0.3.json', import.meta.url);
     const previous = existsSync(artifactUrl)
       ? JSON.parse(readFileSync(artifactUrl, 'utf8')) as Record<string, unknown>
       : { caveat: '仅包含房间重跑；人物场景与关系对照尚未生成。', complete: false };
-    saveArtifact('pilot-characters-v0.2.json', {
+    saveArtifact('pilot-characters-v0.3.json', {
       ...previous,
       canonVersion: PILOT_CAST_VERSION,
       generatedAt: new Date().toISOString(),
@@ -437,11 +451,11 @@ async function main() {
     });
     return;
   }
-  console.log('=== 首批正典人物内部校准：4 人 × 7 高暴露场景 ===');
+  console.log('=== 首批正典人物内部校准：4 人 × 8 高暴露场景 ===');
   const results: Awaited<ReturnType<typeof runCharacter>>[] = [];
   for (const agent of PILOT_TYPES) {
     results.push(await runCharacter(agent));
-    saveArtifact('pilot-characters-v0.2.json', {
+    saveArtifact('pilot-characters-v0.3.json', {
       caveat: 'LLM 自评只用于内部校准，不代表独立用户盲测结论。',
       canonVersion: PILOT_CAST_VERSION,
       generatedAt: new Date().toISOString(),
@@ -455,7 +469,7 @@ async function main() {
   for (const agent of PILOT_TYPES) relationshipContrasts.push(await runRelationshipContrast(agent));
   console.log('\n=== 四人脚本化顺序串联预检 ===');
   const roomChemistry = await runRoomChemistry();
-  saveArtifact('pilot-characters-v0.2.json', {
+  saveArtifact('pilot-characters-v0.3.json', {
     caveat: 'LLM 自评只用于内部校准，不代表独立用户盲测结论。',
     canonVersion: PILOT_CAST_VERSION,
     generatedAt: new Date().toISOString(),

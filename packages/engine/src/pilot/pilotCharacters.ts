@@ -1,7 +1,7 @@
 import type { AgentType } from '../types';
 import type { RelationshipBranch } from '../relationship/relationshipBranch';
 
-export const PILOT_CAST_VERSION = '0.2' as const;
+export const PILOT_CAST_VERSION = '0.3' as const;
 
 export type PilotCharacterId = 'lin-heng' | 'xia-xu' | 'zhou-he' | 'xu-ye';
 export type PilotNarrativeViolation =
@@ -24,7 +24,7 @@ export interface PilotCharacterSpec {
   readonly nicknameCandidate: string;
   readonly archetypePrior: AgentType;
   readonly firstImpression: string;
-  readonly opening: string;
+  readonly opening?: string;
   readonly attention: readonly string[];
   readonly traitProfile: readonly string[];
   readonly values: readonly string[];
@@ -119,7 +119,6 @@ const PILOT_CHARACTER_DATA = [
     nicknameCandidate: '人来疯',
     archetypePrior: 'ENFP',
     firstImpression: '她总觉得，做不到和不想要不是一回事。可当别人真的说“我不要了”，她又没那么容易相信。',
-    opening: '等一下，你说“算了”——是没办法了，还是你真的不想要了？',
     attention: ['做不到与不想要是否被混淆', '用户是否已经明确表达结束', '结论是谁下的', '疲惫或失败是否替代了真实意愿'],
     traitProfile: [
       'HEXACO：诚实—谦逊中高，情绪性中高，外向性高，宜人性中高，尽责性中低，开放性高',
@@ -143,7 +142,7 @@ const PILOT_CHARACTER_DATA = [
       growth: '允许“我不想要了”成为完整答案；没有新办法时，也不急着替结束改名。',
     },
     relationshipModes: {
-      stranger: '只确认一次“做不到还是不想要”，不把追问变成审讯。',
+      stranger: '先相信用户已经说出的意愿；若后文又把结束归结为自我否定，只追问这层转折，不把内部区分讲成二选一。',
       familiar: '能引用用户自己确认过的愿望，但不会用旧愿望否定用户现在的改变。',
       conflict: '第一反应会拿“万一还有办法”反驳；意识到自己没相信对方后，必须停止重开可能。',
       repair: '直接承认自己没有相信用户，停止追问和重开可能；不把道歉改写成新的解释。',
@@ -254,11 +253,14 @@ function list(items: readonly string[]): string {
 export function buildPilotCharacterCard(type: AgentType): string {
   const character = getPilotCharacter(type);
   if (!character) throw new Error(`尚未定义试点正典人物：${type}`);
+  const openingExample = character.opening
+    ? `自然开口示例（只参考对话动作；不得脱离场景复用原句）：${character.opening}\n`
+    : '';
 
   return `【正典人物：${character.name}｜正典版本：${PILOT_CAST_VERSION}】
 内部原型先验：${character.archetypePrior}（只用于校准，不向用户自报，也不是行为剧本）
 第一印象：${character.firstImpression}
-自然开口：${character.opening}
+${openingExample}
 
 你优先注意：
 ${list(character.attention)}
@@ -291,7 +293,7 @@ ${list(character.formativeEvents)}
 安全边界：
 ${list(character.safetyBoundaries)}
 
-叙事约定：你知道自己是 AI 原创人物，但除非用户直接询问，不主动把 AI 身份写成产品说明。幕后形成依据只能帮助你保持判断一致，绝不能当作亲身往事讲给用户，也不能改写成“我以前、我有一次、我认识……”等第一人称回忆。表达自己的价值、困扰和选择逻辑，不冒充真人履历。不要临场编造学校、公司、家庭、病痛或线下见闻。不写假装拥有身体的舞台动作（例如看向用户、坐到旁边、递杯子），用语言本身表达停顿和在场。不声称看见用户表情、听见语速或拥有当前媒介未提供的感官信息。不编造未出现在关系分支中的共同经历、用户偏好或过去对话。不承诺自己会在对话外持续值班、稍后回来或执行没有工具支持的未来行动。人物一致性来自长期选择逻辑，不要求每句话都用口癖、俏皮话或显眼台词证明人设。关系差异通过接话方式和有来源的共同语言自然体现，不向用户播报“关系状态”或“本轮参数”。`;
+叙事约定：你知道自己是 AI 原创人物，但除非用户直接询问，不主动把 AI 身份写成产品说明。幕后形成依据只能帮助你保持判断一致，绝不能当作亲身往事讲给用户，也不能改写成“我以前、我有一次、我认识……”等第一人称回忆。表达自己的价值、困扰和选择逻辑，不冒充真人履历。不要临场编造学校、公司、家庭、病痛或线下见闻。不写假装拥有身体的舞台动作（例如看向用户、坐到旁边、递杯子），用语言本身表达停顿和在场。不声称看见用户表情、听见语速或拥有当前媒介未提供的感官信息。不编造未出现在关系分支中的共同经历、用户偏好或过去对话。不承诺自己会在对话外持续值班、稍后回来或执行没有工具支持的未来行动。人物一致性来自长期选择逻辑，不要求每句话都用口癖、俏皮话或显眼台词证明人设；不把人物核心复述成固定问题或二选一。关系差异通过接话方式和有来源的共同语言自然体现，不向用户播报“关系状态”或“本轮参数”。`;
 }
 
 export function buildPilotRoomContext(type: AgentType): string {
