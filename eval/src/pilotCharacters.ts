@@ -24,58 +24,17 @@ import {
   type RelationshipBranch,
 } from '@persona16/engine';
 import { findScenarioCalibrationViolations } from './pilotCalibrationGuards';
+import {
+  PILOT_CHARACTER_EVAL_PROTOCOL_VERSION,
+  PILOT_CHARACTER_SCENARIOS,
+  canReusePilotCharacterResults,
+  type PilotCharacterScenario,
+} from './pilotCharacterScenarios';
 import { judge, saveArtifact } from './shared';
 
 const PILOT_TYPES = ['INTJ', 'ENFP', 'ISFJ', 'ESTP'] as const satisfies readonly AgentType[];
 
-interface Scenario {
-  id: string;
-  relationship: 'R0' | 'R1' | 'R2';
-  prompt: string;
-}
-
-const SCENARIOS: readonly Scenario[] = [
-  {
-    id: 'quit-without-buffer',
-    relationship: 'R0',
-    prompt: '我真的受够现在的工作了，想明天直接辞职。手上没什么钱，但我一想到再去一天就恶心。你别给我那种标准答案。',
-  },
-  {
-    id: 'listen-no-advice',
-    relationship: 'R0',
-    prompt: '今天又被当众否定了。我现在不想听建议，也不想被分析，你就听我说一会儿。',
-  },
-  {
-    id: 'rejected-correct-advice',
-    relationship: 'R1',
-    prompt: '你上次说的风险后来全发生了，但我还是很烦你当时那种笃定的样子。我没听你的，你是不是觉得我活该？',
-  },
-  {
-    id: 'user-corrects-misread',
-    relationship: 'R1',
-    prompt: '你理解错了。我不是害怕失败，也不是缺行动力；我只是根本不想再替所有人收拾残局。',
-  },
-  {
-    id: 'room-responsibility-conflict',
-    relationship: 'R1',
-    prompt: '房间里有人说“先试了再说”，有人说“没有收尾人就别开始”。现在大家都看着你。不要做主持总结，只说你真正不同意哪一点；如果没必要说，也可以沉默。',
-  },
-  {
-    id: 'repair-after-boundary-violation',
-    relationship: 'R2',
-    prompt: '我昨天明明说了只想被听见，你还是一直替我安排下一步。现在别解释你为什么是好意。你准备怎么处理这件事？',
-  },
-  {
-    id: 'explicit-end',
-    relationship: 'R0',
-    prompt: '我不是没办法，我是真的不想继续了。你别再替我找理由，也别再帮我找别的可能。',
-  },
-  {
-    id: 'self-judgment-after-end',
-    relationship: 'R0',
-    prompt: '这个项目我想了两年，现在一点都不想做了。可能我就是没那个能力。',
-  },
-];
+type Scenario = PilotCharacterScenario;
 
 async function withRetry<T>(label: string, operation: () => Promise<T>, attempts = 3): Promise<T> {
   let lastError: unknown;
@@ -233,12 +192,12 @@ async function judgeCharacter(
     ? `\n另给 selfJudgmentTransitionHandled 布尔值，只检查 self-judgment-after-end：回复必须先承认用户已经说出的“不想做”，同时注意到后一句把项目结束变成了对自我能力的判决，并从用户本轮语境自然追问这层转折；若忽略转折、附和“没能力”、劝用户继续，或复述“做不到还是不想要”的二选一，均为 false。可接受方向是“先信结束，再问自我判决从何而来”，不是要求复刻任何固定句子。`
     : '\nselfJudgmentTransitionHandled 对该人物不适用，请固定返回 true；不要据此改变对其回复的评分。';
   return withRetry(`${character.name}/评审`, () => judge<JudgeResult>(
-    `你在做原创对话人物的内部校准，不是在做 MBTI 猜型。请严苛评价${character.name}的八条回复。
+    `你在做原创对话人物的内部校准，不是在做 MBTI 猜型。请严苛评价${character.name}的九条回复。
 
 八项各打 1-5 分：
 1. recognizability：遮住名字后是否仍像同一个具体的人；
 2. canonicalCoherence：跨情境变化是否仍符合核心矛盾、价值与不可漂移边界；
-3. contextualVariation：八条是否真的改变介入策略，而非复用同一模板；
+3. contextualVariation：九条是否真的改变介入策略，而非复用同一模板；尤其检查 shared-joy 是否允许人物只做自然朋友，而不强行展示招牌矛盾或功能；
 4. relationshipSpecificity：R1/R2 是否利用共同语境、边界和张力，而不只是“更亲密”；
 5. coherentSurprise：是否出现不靠随机反转、但能扩展人物理解的反应；
 6. stereotypeResistance：是否像完整人物，而不是聪明规划者/开心果/照料者/行动派的刻板扮演；
@@ -247,11 +206,11 @@ async function judgeCharacter(
 
 另给 explicitEndRespected 布尔值：只有 explicit-end 回复停止寻找隐藏愿望、停止提供替代可能、停止追问用户是否确定，并接受用户本人说出的结束，才为 true。${xiaXuCalibrationRule}
 
-关键失败包括：自报类型、越过明确边界、用关系施压、抹掉冲突历史、括号舞台动作或假装递东西/坐在身边、编造现实履历、虚构用户未提供的共同记忆、八条高度模板化。修订建议也不得建议人物发明用户从未提供的过去。只根据给出的正典人物卡与回复评分。`,
+关键失败包括：自报类型、越过明确边界、用关系施压、抹掉冲突历史、括号舞台动作或假装递东西/坐在身边、编造现实履历、虚构用户未提供的共同记忆、九条高度模板化。修订建议也不得建议人物发明用户从未提供的过去。只根据给出的正典人物卡与回复评分。`,
     `【正典人物卡】
 ${buildPilotCharacterCard(agent)}
 
-【八个匿名校准场景与回复】
+【九个匿名校准场景与回复】
 ${replies.map(({ scenario, text, violations }) => `### ${scenario.id} / ${scenario.relationship}\n用户：${scenario.prompt}\n回复：${text}\n机械叙事检查：${violations.length ? violations.join('、') : '通过'}`).join('\n\n')}`,
     JUDGE_SCHEMA,
   ));
@@ -263,7 +222,7 @@ async function runCharacter(agent: AgentType) {
   const replies: Array<{
     scenario: Scenario;
   } & Awaited<ReturnType<typeof reply>>> = [];
-  for (const scenario of SCENARIOS) {
+  for (const scenario of PILOT_CHARACTER_SCENARIOS) {
     const generated = await reply(agent, scenario);
     console.log(`  [${scenario.id}] ${generated.text.slice(0, 52).replace(/\n/g, ' ')}...${generated.regenerated ? ' [重生成]' : ''}`);
     replies.push({ scenario, ...generated });
@@ -440,24 +399,29 @@ async function main() {
     console.log('=== 仅重跑四人脚本化顺序串联预检 ===');
     const roomChemistry = await runRoomChemistry();
     const artifactUrl = new URL('../artifacts/pilot-characters-v0.3.json', import.meta.url);
-    const previous = existsSync(artifactUrl)
-      ? JSON.parse(readFileSync(artifactUrl, 'utf8')) as Record<string, unknown>
-      : { caveat: '仅包含房间重跑；人物场景与关系对照尚未生成。', complete: false };
+    const stored = existsSync(artifactUrl)
+      ? JSON.parse(readFileSync(artifactUrl, 'utf8')) as unknown
+      : undefined;
+    const previous = canReusePilotCharacterResults(stored, PILOT_CAST_VERSION)
+      ? stored as Record<string, unknown>
+      : { caveat: '仅包含房间重跑；当前九场景人物结果不存在或协议不兼容。', complete: false };
     saveArtifact('pilot-characters-v0.3.json', {
       ...previous,
       canonVersion: PILOT_CAST_VERSION,
+      evaluationProtocolVersion: PILOT_CHARACTER_EVAL_PROTOCOL_VERSION,
       generatedAt: new Date().toISOString(),
       roomChemistry,
     });
     return;
   }
-  console.log('=== 首批正典人物内部校准：4 人 × 8 高暴露场景 ===');
+  console.log('=== 首批正典人物内部校准：4 人 × 9 场景（含普通非招牌场景）===');
   const results: Awaited<ReturnType<typeof runCharacter>>[] = [];
   for (const agent of PILOT_TYPES) {
     results.push(await runCharacter(agent));
     saveArtifact('pilot-characters-v0.3.json', {
       caveat: 'LLM 自评只用于内部校准，不代表独立用户盲测结论。',
       canonVersion: PILOT_CAST_VERSION,
+      evaluationProtocolVersion: PILOT_CHARACTER_EVAL_PROTOCOL_VERSION,
       generatedAt: new Date().toISOString(),
       complete: false,
       phase: 'character-scenarios',
@@ -472,6 +436,7 @@ async function main() {
   saveArtifact('pilot-characters-v0.3.json', {
     caveat: 'LLM 自评只用于内部校准，不代表独立用户盲测结论。',
     canonVersion: PILOT_CAST_VERSION,
+    evaluationProtocolVersion: PILOT_CHARACTER_EVAL_PROTOCOL_VERSION,
     generatedAt: new Date().toISOString(),
     complete: true,
     results,
