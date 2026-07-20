@@ -3,7 +3,7 @@
 > 版本：v0.5（原创人物与关系养成方向）
 > 更新日期：2026-07-20
 > 当前阶段：首位用户人物/关系盲校准已完成，夏栩 v0.2 核心已选；下一步以固定 rubric 做四人跨场景复测并累计 5 位形成性样本，再重开 L1 身份发现。
-> 相关文档：[MVP 开发路径与技术方案](MVP-development-plan.md)
+> 文档导航：[文档导航](README.md)；历史实施计划见 [MVP 开发路径与技术方案](MVP-development-plan.md)
 > 人物与关系模型：[人物与关系模型](character-relationship-model.md)
 
 ## 0. 文档使用方式
@@ -518,8 +518,7 @@ Permission、RoomPolicy 和并发控制必须分层：Permission 判断发起方
 
 1. 本 PRD 中标记为“已确认”的产品逻辑；
 2. 本 PRD 的 L1–L8 主链路和评测口径；
-3. [MVP 开发路径与技术方案](MVP-development-plan.md)中的工程边界与阶段门；
-4. ADR 与实际测试证据；
-5. 2026-07-05 原始 PRD 与 persona spec，作为研究与历史背景。
+3. ADR 与实际测试证据；
+4. [MVP 开发路径与技术方案](MVP-development-plan.md)等历史资料，仅用于追溯当时的工程背景。
 
 开放问题和方向偏好不构成最终需求，不得由实现者自行补全。

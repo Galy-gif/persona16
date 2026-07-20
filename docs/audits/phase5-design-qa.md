@@ -1,8 +1,7 @@
 # Phase 5 房间界面设计验收
 
 - 验收日期：2026-07-11
-- 参考设计：`/var/folders/5c/srj63hjs1213l4n6rzt6kv5r0000gn/T/codex-clipboard-5b7bb2bc-35af-4f07-a3f0-e3ed55a608a2.png`
-- 实现截图：`docs/audits/phase5-current-ui/phase5-final-implementation.png`
+- 实现截图：`phase5-current-ui/phase5-final-implementation.png`
 - 验收视口：390 × 844（移动端主路径）
 - 验收状态：双 Agent 已完成一轮回复
 
@@ -31,5 +30,3 @@
 - 页面语义结构、成员操作、反馈、总结和输入控件均存在。
 - 干净加载后的浏览器 `error` / `warn` 日志为 0。
 - 当前 Web 生产构建通过。
-
-final result: passed
