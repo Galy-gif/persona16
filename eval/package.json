@@ -8,6 +8,7 @@
     "smoke": "tsx src/smoke.ts",
     "blindtest": "tsx src/blindtest.ts",
     "dynamics": "tsx src/dynamics.ts",
+    "pilot:characters": "tsx src/pilotCharacters.ts",
     "rooms": "tsx src/rooms.ts",
     "room:adversarial": "tsx src/roomAdversarial.ts",
     "safety": "tsx src/safety.ts",

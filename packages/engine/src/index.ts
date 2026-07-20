@@ -86,3 +86,37 @@ export type {
   MemoryKind,
   MemoryStatus,
 } from './memory/memoryPolicy';
+export {
+  applyRelationshipEvent,
+  createRelationshipBranch,
+  forgetRelationshipEvidence,
+  resetRelationshipBranch,
+  setRelationshipMemoryEnabled,
+} from './relationship/relationshipBranch';
+export {
+  buildPilotCharacterCard,
+  buildPilotRelationshipContext,
+  buildPilotRoomContext,
+  findPilotNarrativeViolations,
+  findPilotRoomProtocolViolations,
+  findPilotRoomTranscriptViolations,
+  getPilotCharacter,
+} from './pilot/pilotCharacters';
+export type {
+  PilotCharacterId,
+  PilotCharacterSpec,
+  PilotNarrativeSources,
+  PilotNarrativeViolation,
+  PilotRoomChemistry,
+  PilotRoomProtocolViolation,
+  PilotRoomTranscriptViolation,
+} from './pilot/pilotCharacters';
+export type {
+  RelationshipBoundary,
+  RelationshipBranch,
+  RelationshipClimate,
+  RelationshipEvent,
+  RelationshipEvidence,
+  RelationshipTension,
+  RelationshipTurningPoint,
+} from './relationship/relationshipBranch';
