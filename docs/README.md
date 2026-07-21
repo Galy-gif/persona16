@@ -11,6 +11,7 @@
 | [人物与关系模型](character-relationship-model.md) | 正典人物核心、私有关系分支和关系事件模型 |
 | [首批四位人物 v0.3](characters/pilot-cast-v0.3.md) | 当前对话投影版本；人物核心继承 v0.2 |
 | [自然口语与人物感 Rubric](evals/naturalness-personhood-rubric-v0.1.md) | 当前人工评测尺度和硬门 |
+| [试点组件校准协议 0.6](evals/pilot-character-protocol-v0.6-semantic-gates.md) | 当前自动复测阶段门、版本和产物合同 |
 
 出现产品冲突时，以 PRD 中标记为“已确认”的结论为准；领域术语以根目录 `CONTEXT.md` 为准。
 
@@ -28,6 +29,8 @@
 - [关系事件持久化与影子 Branch](adr/0008-persist-relationship-events-and-shadow-branches.md)
 - [试点 Prompt 生命周期与评测硬门](adr/0009-assemble-pilot-prompts-and-enforce-eval-gates.md)
 - [Runtime 错误恢复路由](adr/0010-route-runtime-failures-before-retry.md)
+- [动态试点房间参与](adr/0011-dynamic-pilot-room-participation.md)
+- [跨样本与语义评测阶段门](adr/0012-add-batch-and-semantic-evaluation-gates.md)
 
 ADR 记录决策当时的背景。新结论若改变既有决策，应新增 ADR，而不是改写旧文档。
 
@@ -39,6 +42,7 @@ ADR 记录决策当时的背景。新结论若改变既有决策，应新增 ADR
 - [自动预检](evals/pilot-character-preflight-2026-07-20.md)
 - [首位用户人物校准](evals/pilot-human-calibration-2026-07-20.md)
 - [v0.3 九场景复测报告](evals/pilot-character-retest-2026-07-21.md)
+- [协议 0.6 全量复测报告](evals/pilot-character-retest-protocol-v0.6-2026-07-21.md)
 - [人物上下文与关系 Memory 修复周期](evals/active-context-memory-cycle-2026-07-21.md)
 - [Bad case 修复实验卡](evals/intervention-card-template.md)
 

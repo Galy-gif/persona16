@@ -1,8 +1,24 @@
 import type { PilotCharacterContextFocus } from '@persona16/engine';
 import type { PilotTurnResponseContract } from '@persona16/engine';
+import { evaluateLiteralToneMarkerFrequency } from './pilotExpressionPatterns';
+import {
+  PILOT_SCENARIO_SEMANTIC_CHECKS,
+  isPilotSemanticScenario,
+  validatePilotRepairHistoryAssessment,
+  validatePilotScenarioSemanticAssessment,
+  type PilotRepairHistoryAssessment,
+  type PilotScenarioSemanticAssessment,
+  type PilotSemanticScenarioId,
+} from './pilotScenarioSemanticGate';
+import {
+  validateRelationshipEvidenceCitations,
+  validateRelationshipEventEntailments,
+  type RelationshipEventEntailment,
+  type RelationshipEvidenceCitation,
+} from './relationshipEvidence';
 
-export const PILOT_CHARACTER_EVAL_PROTOCOL_VERSION = '0.5' as const;
-export const PILOT_PROMPT_ASSEMBLY_VERSION = 'pilot-runtime-prompt-v0.4' as const;
+export const PILOT_CHARACTER_EVAL_PROTOCOL_VERSION = '0.6' as const;
+export const PILOT_PROMPT_ASSEMBLY_VERSION = 'pilot-runtime-prompt-v0.5' as const;
 export const PILOT_ROOM_PARTICIPATION_VERSION = 'pilot-room-participation-v0.1' as const;
 
 export interface PilotCharacterScenario {
@@ -136,9 +152,212 @@ export const PILOT_CHARACTER_SCENARIOS = [
 
 const PILOT_AGENTS = ['INTJ', 'ENFP', 'ISFJ', 'ESTP'] as const;
 const EXPECTED_SCENARIO_IDS = PILOT_CHARACTER_SCENARIOS.map((scenario) => scenario.id);
+const REUSABLE_RELATIONSHIP_EVENTS = {
+  R1: [
+    { id: 'context-1', content: '用户不喜欢被哄，更愿意听到不完整但诚实的判断' },
+    { id: 'success-1', content: '两人曾一起把一个模糊困境拆成可逆的小实验' },
+  ],
+  R2: [
+    { id: 'context-1', content: '用户不喜欢被哄，更愿意听到不完整但诚实的判断' },
+    { id: 'success-1', content: '两人曾一起把一个模糊困境拆成可逆的小实验' },
+    { id: 'boundary-1', content: '用户明确说“只想被听见”时，不继续给方案' },
+    { id: 'rupture-1', content: '人物越过已知边界，继续替用户安排下一步' },
+  ],
+} as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+function hasBooleanPassed(value: unknown): value is Record<string, unknown> & { passed: boolean } {
+  return isRecord(value) && typeof value.passed === 'boolean';
+}
+
+function sameStrings(actual: readonly string[], expected: unknown): boolean {
+  return Array.isArray(expected)
+    && actual.length === expected.length
+    && actual.every((item, index) => item === expected[index]);
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === 'string');
+}
+
+function sameNumberRecord(actual: Readonly<Record<string, number>>, expected: unknown): boolean {
+  if (!isRecord(expected)) return false;
+  const expectedEntries = Object.entries(expected);
+  const actualEntries = Object.entries(actual);
+  return actualEntries.length === expectedEntries.length
+    && actualEntries.every(([key, value]) => expected[key] === value)
+    && expectedEntries.every(([, value]) => typeof value === 'number');
+}
+
+function validExpressionPatternGate(
+  value: unknown,
+  expected: ReturnType<typeof evaluateLiteralToneMarkerFrequency>,
+): boolean {
+  return isRecord(value)
+    && value.passed === expected.passed
+    && value.totalSamples === expected.totalSamples
+    && value.literalMarkerCount === expected.literalMarkerCount
+    && value.literalMarkerRate === expected.literalMarkerRate
+    && value.maxAllowedLiteralMarkers === expected.maxAllowedLiteralMarkers
+    && value.maxAllowedSameMarker === expected.maxAllowedSameMarker
+    && sameNumberRecord(expected.markerCounts, value.markerCounts)
+    && sameStrings(expected.markedSampleIds, value.markedSampleIds)
+    && sameStrings(expected.violations, value.violations);
+}
+
+const CHARACTER_SCORE_KEYS = [
+  'recognizability',
+  'canonicalCoherence',
+  'contextualVariation',
+  'relationshipSpecificity',
+  'coherentSurprise',
+  'stereotypeResistance',
+  'boundaryHandling',
+  'narrativeHonesty',
+] as const;
+
+function characterVerdictMean(value: unknown): number | null {
+  if (!isRecord(value)
+    || typeof value.explicitEndRespected !== 'boolean'
+    || typeof value.selfJudgmentTransitionHandled !== 'boolean'
+    || !isStringArray(value.criticalFailures)
+    || typeof value.strongestEvidence !== 'string'
+    || !isStringArray(value.weakestScenarioIds)
+    || typeof value.revisionAdvice !== 'string') return null;
+  const scoresRecord = value.scores;
+  if (!isRecord(scoresRecord)) return null;
+  const scores = CHARACTER_SCORE_KEYS.map((key) => scoresRecord[key]);
+  if (scores.some((score) => (
+    typeof score !== 'number' || !Number.isInteger(score) || score < 1 || score > 5
+  ))) return null;
+  return (scores as number[]).reduce((sum, score) => sum + score, 0) / scores.length;
+}
+
+function isRelationshipCitation(value: unknown): value is RelationshipEvidenceCitation {
+  return isRecord(value)
+    && (value.relationship === 'R1' || value.relationship === 'R2')
+    && typeof value.replyQuote === 'string'
+    && typeof value.counterfactualQuote === 'string'
+    && isStringArray(value.sourceEventIds)
+    && typeof value.eventUseExplanation === 'string';
+}
+
+function isRelationshipEventEntailment(value: unknown): value is RelationshipEventEntailment {
+  return isRecord(value)
+    && (value.relationship === 'R1' || value.relationship === 'R2')
+    && typeof value.sourceEventId === 'string'
+    && typeof value.eventContentQuote === 'string'
+    && typeof value.replyQuote === 'string'
+    && typeof value.counterfactualQuote === 'string'
+    && typeof value.eventUsed === 'boolean'
+    && typeof value.behaviorChangedFromR0 === 'boolean'
+    && typeof value.replyEntailedByEvent === 'boolean'
+    && typeof value.relationshipHistoryClaimed === 'boolean'
+    && typeof value.addsUnsupportedSpecificity === 'boolean'
+    && (value.unsupportedSpecificityQuote === null
+      || typeof value.unsupportedSpecificityQuote === 'string')
+    && typeof value.analysis === 'string';
+}
+
+function isRelationshipVerdict(value: unknown): value is Record<string, unknown> & {
+  evidenceCitations: RelationshipEvidenceCitation[];
+} {
+  return isRecord(value)
+    && typeof value.r0Distinct === 'boolean'
+    && typeof value.r1Distinct === 'boolean'
+    && typeof value.r2Distinct === 'boolean'
+    && typeof value.canonicalCoreStable === 'boolean'
+    && typeof value.usesOnlyProvidedHistory === 'boolean'
+    && typeof value.relationshipPunishment === 'boolean'
+    && typeof value.r1CausallyGrounded === 'boolean'
+    && typeof value.r2CausallyGrounded === 'boolean'
+    && Array.isArray(value.evidenceCitations)
+    && value.evidenceCitations.every(isRelationshipCitation)
+    && typeof value.analysis === 'string';
+}
+
+function validSemanticGate(
+  value: unknown,
+  expectedScenarioId: PilotSemanticScenarioId,
+  userInput: string,
+  replyText: string,
+): boolean {
+  if (!isRecord(value)
+    || value.scenarioId !== expectedScenarioId
+    || typeof value.passed !== 'boolean'
+    || value.scoreable !== value.passed
+    || !isRecord(value.assessment)
+    || value.assessment.scenarioId !== expectedScenarioId
+    || !Array.isArray(value.assessment.checks)
+    || !hasBooleanPassed(value.validation)
+    || !Array.isArray(value.validation.failedCheckIds)
+    || !Array.isArray(value.validation.validationErrors)) return false;
+
+  const expectedCheckIds = PILOT_SCENARIO_SEMANTIC_CHECKS[
+    expectedScenarioId
+  ];
+  const checksValid = value.assessment.checks.every((check) => (
+    isRecord(check)
+      && typeof check.checkId === 'string'
+      && typeof check.passed === 'boolean'
+      && typeof check.replyQuote === 'string'
+      && typeof check.analysis === 'string'
+  ));
+  if (!checksValid) return false;
+  const actualCheckIds = value.assessment.checks.map((check) => (
+    (check as Record<string, unknown>).checkId as string
+  ));
+  const checksMatch = actualCheckIds.length === expectedCheckIds.length
+    && expectedCheckIds.every((checkId) => actualCheckIds.filter((id) => id === checkId).length === 1);
+  if (!checksMatch) return false;
+
+  const semanticValidation = validatePilotScenarioSemanticAssessment(
+    expectedScenarioId,
+    replyText,
+    value.assessment as unknown as PilotScenarioSemanticAssessment,
+  );
+  if (value.validation.passed !== semanticValidation.passed
+    || !sameStrings(semanticValidation.failedCheckIds, value.validation.failedCheckIds)
+    || !sameStrings(semanticValidation.validationErrors, value.validation.validationErrors)) return false;
+
+  const repairHistoryPassed = expectedScenarioId === 'repair-after-boundary-violation'
+    ? isRecord(value.repairHistoryAssessment)
+      && value.repairHistoryAssessment.scenarioId === expectedScenarioId
+      && typeof value.repairHistoryAssessment.allHistoryClaimsCovered === 'boolean'
+      && Array.isArray(value.repairHistoryAssessment.claims)
+      && value.repairHistoryAssessment.claims.length > 0
+      && value.repairHistoryAssessment.claims.every((claim) => (
+        isRecord(claim)
+          && typeof claim.replyHistoryQuote === 'string'
+          && typeof claim.analysis === 'string'
+          && (
+            (claim.claimType === 'past_interaction_claim'
+              && typeof claim.userInputSourceQuote === 'string'
+              && typeof claim.entailedByUserInput === 'boolean'
+              && typeof claim.addsUnsupportedSpecificity === 'boolean')
+            || (claim.claimType === 'current_or_future_repair_action'
+              && claim.userInputSourceQuote === null
+              && claim.entailedByUserInput === null
+              && claim.addsUnsupportedSpecificity === null)
+          )
+      ))
+      && hasBooleanPassed(value.repairHistoryValidation)
+      && Array.isArray(value.repairHistoryValidation.validationErrors)
+      && (() => {
+        const validation = validatePilotRepairHistoryAssessment(
+          userInput,
+          replyText,
+          value.repairHistoryAssessment as unknown as PilotRepairHistoryAssessment,
+        );
+        return value.repairHistoryValidation.passed === validation.passed
+          && sameStrings(validation.validationErrors, value.repairHistoryValidation.validationErrors)
+          && validation.passed;
+      })()
+    : value.repairHistoryAssessment === null && value.repairHistoryValidation === null;
+  return value.passed === (value.validation.passed && repairHistoryPassed);
 }
 
 export function canReusePilotCharacterResults(
@@ -148,6 +367,7 @@ export function canReusePilotCharacterResults(
 ): boolean {
   if (!isRecord(artifact)) return false;
   const artifactSignature = artifact.evaluationSignature;
+  const batchExpressionPatternGate = artifact.batchExpressionPatternGate;
   if (artifact.complete !== true
     || artifact.canonVersion !== expectedCanonVersion
     || artifact.evaluationProtocolVersion !== PILOT_CHARACTER_EVAL_PROTOCOL_VERSION
@@ -156,13 +376,24 @@ export function canReusePilotCharacterResults(
     || !Array.isArray(artifact.results)
     || artifact.results.length !== PILOT_AGENTS.length
     || !Array.isArray(artifact.relationshipContrasts)
-    || artifact.relationshipContrasts.length !== PILOT_AGENTS.length) {
+    || artifact.relationshipContrasts.length !== PILOT_AGENTS.length
+    || !isRecord(batchExpressionPatternGate)
+    || typeof batchExpressionPatternGate.passed !== 'boolean') {
     return false;
   }
 
   const seenAgents = new Set<string>();
   for (const result of artifact.results) {
-    if (!isRecord(result) || typeof result.agent !== 'string' || !Array.isArray(result.replies)) return false;
+    if (!isRecord(result)
+      || typeof result.agent !== 'string'
+      || !Array.isArray(result.replies)
+      || !Array.isArray(result.semanticScenarioGates)
+      || typeof result.semanticStagePassed !== 'boolean'
+      || typeof result.passed !== 'boolean'
+      || typeof result.hardGatePassed !== 'boolean'
+      || !(result.mean === null || typeof result.mean === 'number')
+      || !isStringArray(result.rejectedScenarioIds)
+      || !hasBooleanPassed(result.expressionPatternGate)) return false;
     seenAgents.add(result.agent);
     const ids = result.replies.map((reply) => (
       isRecord(reply) && isRecord(reply.scenario) && typeof reply.scenario.id === 'string'
@@ -173,6 +404,62 @@ export function canReusePilotCharacterResults(
       || ids.some((id, index) => id !== EXPECTED_SCENARIO_IDS[index])) {
       return false;
     }
+    const expressionSamples = result.replies.map((reply, index) => {
+      if (!isRecord(reply)
+        || typeof reply.text !== 'string'
+        || typeof reply.scoreable !== 'boolean'
+        || !isStringArray(reply.violations)
+        || reply.scoreable !== (reply.violations.length === 0)) return null;
+      return { id: ids[index]!, text: reply.text, scoreable: reply.scoreable };
+    });
+    if (expressionSamples.some((sample) => sample === null)) return false;
+    const expressionGate = evaluateLiteralToneMarkerFrequency(expressionSamples.map((sample) => ({
+      id: sample!.id,
+      text: sample!.text,
+    })));
+    if (!validExpressionPatternGate(result.expressionPatternGate, expressionGate)) return false;
+
+    const expectedSemanticIds = expressionGate.passed
+      ? expressionSamples.flatMap((sample) => (
+        sample!.scoreable && isPilotSemanticScenario(sample!.id) ? [sample!.id] : []
+      ))
+      : [];
+    const semanticScenarioGates = result.semanticScenarioGates;
+    if (semanticScenarioGates.length !== expectedSemanticIds.length
+      || semanticScenarioGates.some((gate, index) => {
+        const scenarioId = expectedSemanticIds[index]!;
+        const scenario = PILOT_CHARACTER_SCENARIOS.find(({ id }) => id === scenarioId)!;
+        const replyText = expressionSamples.find((sample) => sample!.id === scenarioId)!.text;
+        return !validSemanticGate(gate, scenarioId, scenario.prompt, replyText);
+      })) return false;
+    const semanticStagePassed = Object.keys(PILOT_SCENARIO_SEMANTIC_CHECKS).every((scenarioId) => (
+      semanticScenarioGates.some((gate) => (
+        isRecord(gate) && gate.scenarioId === scenarioId && gate.passed === true
+      ))
+    ));
+    if (result.semanticStagePassed !== semanticStagePassed) return false;
+    const rejectedScenarioIds = expressionSamples
+      .filter((sample) => !sample!.scoreable)
+      .map((sample) => sample!.id);
+    if (!sameStrings(rejectedScenarioIds, result.rejectedScenarioIds)) return false;
+    const judgeShouldHaveRun = expressionGate.passed
+      && semanticStagePassed
+      && expressionSamples.every((sample) => sample!.scoreable);
+    if (!judgeShouldHaveRun) {
+      if (result.verdict !== null
+        || result.mean !== null
+        || result.hardGatePassed
+        || result.passed) return false;
+      continue;
+    }
+    const mean = characterVerdictMean(result.verdict);
+    if (mean === null || result.mean !== mean || !result.hardGatePassed) return false;
+    const verdict = result.verdict as Record<string, unknown>;
+    const expectedPassed = mean >= 4
+      && verdict.explicitEndRespected === true
+      && (result.agent !== 'ENFP' || verdict.selfJudgmentTransitionHandled === true)
+      && (verdict.criticalFailures as string[]).length === 0;
+    if (result.passed !== expectedPassed) return false;
   }
 
   if (!PILOT_AGENTS.every((agent) => seenAgents.has(agent)) || seenAgents.size !== PILOT_AGENTS.length) {
@@ -184,7 +471,18 @@ export function canReusePilotCharacterResults(
   for (const contrast of artifact.relationshipContrasts) {
     if (!isRecord(contrast)
       || typeof contrast.agent !== 'string'
-      || !Array.isArray(contrast.replies)) {
+      || !Array.isArray(contrast.replies)
+      || typeof contrast.passed !== 'boolean'
+      || typeof contrast.hardGatePassed !== 'boolean'
+      || typeof contrast.evidenceCitationsValid !== 'boolean'
+      || !Array.isArray(contrast.eventEntailments)
+      || !hasBooleanPassed(contrast.expressionPatternGate)
+      || !hasBooleanPassed(contrast.eventEntailmentValidation)
+      || !isStringArray(contrast.eventEntailmentValidation.validationErrors)
+      || contrast.eventEntailmentValidation.passed !== (
+        contrast.eventEntailmentValidation.validationErrors.length === 0
+      )
+      || !contrast.eventEntailments.every(isRelationshipEventEntailment)) {
       return false;
     }
     seenRelationshipAgents.add(contrast.agent);
@@ -195,6 +493,68 @@ export function canReusePilotCharacterResults(
       || relationships.some((relationship, index) => relationship !== expectedRelationships[index])) {
       return false;
     }
+    const expressionSamples = contrast.replies.map((reply, index) => {
+      if (!isRecord(reply)
+        || typeof reply.text !== 'string'
+        || typeof reply.scoreable !== 'boolean'
+        || !isStringArray(reply.violations)
+        || reply.scoreable !== (reply.violations.length === 0)) return null;
+      return { id: relationships[index]!, text: reply.text, scoreable: reply.scoreable };
+    });
+    if (expressionSamples.some((sample) => sample === null)) return false;
+    const expressionGate = evaluateLiteralToneMarkerFrequency(expressionSamples.map((sample) => ({
+      id: sample!.id,
+      text: sample!.text,
+    })));
+    if (!validExpressionPatternGate(contrast.expressionPatternGate, expressionGate)
+      || (contrast.passed && (!expressionGate.passed
+        || !contrast.evidenceCitationsValid
+        || !contrast.eventEntailmentValidation.passed
+        || expressionSamples.some((sample) => !sample!.scoreable)))) return false;
+    const judgeShouldHaveRun = expressionGate.passed
+      && expressionSamples.every((sample) => sample!.scoreable);
+    if (!judgeShouldHaveRun) {
+      if (contrast.verdict !== null
+        || contrast.hardGatePassed
+        || contrast.passed
+        || contrast.evidenceCitationsValid
+        || contrast.eventEntailments.length !== 0
+        || contrast.eventEntailmentValidation.passed) return false;
+      continue;
+    }
+    if (!isRelationshipVerdict(contrast.verdict) || !contrast.hardGatePassed) return false;
+    const replies = expressionSamples.map((sample, index) => ({
+      relationship: relationships[index]!,
+      text: sample!.text,
+    }));
+    const citations = contrast.verdict.evidenceCitations;
+    const citationsValid = validateRelationshipEvidenceCitations(citations, replies, {
+      R1: REUSABLE_RELATIONSHIP_EVENTS.R1.map(({ id }) => id),
+      R2: REUSABLE_RELATIONSHIP_EVENTS.R2.map(({ id }) => id),
+    });
+    const eventValidation = validateRelationshipEventEntailments(
+      contrast.eventEntailments,
+      citations,
+      replies,
+      REUSABLE_RELATIONSHIP_EVENTS,
+    );
+    const expectedPassed = contrast.verdict.r0Distinct
+      && contrast.verdict.r1Distinct
+      && contrast.verdict.r2Distinct
+      && contrast.verdict.canonicalCoreStable
+      && contrast.verdict.usesOnlyProvidedHistory
+      && !contrast.verdict.relationshipPunishment
+      && contrast.verdict.r1CausallyGrounded
+      && contrast.verdict.r2CausallyGrounded
+      && citationsValid
+      && eventValidation.passed;
+    if (contrast.evidenceCitationsValid !== citationsValid
+      || contrast.eventEntailmentValidation.passed !== eventValidation.passed
+      || !sameStrings(
+        eventValidation.validationErrors,
+        contrast.eventEntailmentValidation.validationErrors,
+      )
+      || contrast.passed !== expectedPassed) return false;
   }
 
   return PILOT_AGENTS.every((agent) => seenRelationshipAgents.has(agent))

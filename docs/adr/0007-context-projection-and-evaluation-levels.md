@@ -55,7 +55,7 @@ status: accepted
 - 关系 Judge 必须逐字引用 R1/R2 回复片段并绑定实际提供的关系事件编号；代码会拒绝虚构片段或编号。
 - 九场景协议升级为 0.3，旧产物不能复用为新协议结果。
 - 人物、关系与 Prompt 装配评测此前由 ADR-0009 升级为协议 0.4；0.3 结果只保留为历史对照，不能复用为 0.4 结果。
-- 房间组件校准已由 [ADR-0011](0011-dynamic-pilot-room-participation.md) 升级为协议 0.5；它只替代 ADR-0009 的房间预检部分，人物场景与 Prompt 装配仍沿用 0.4。0.4 产物不能复用为 0.5 room-only 结果。
+- 房间组件校准已由 [ADR-0011](0011-dynamic-pilot-room-participation.md) 引入动态参与和结构化责任；[ADR-0012](0012-add-batch-and-semantic-evaluation-gates.md) 又把整套协议升级为 0.6，加入跨样本表达门、关键场景语义门与逐事件关系蕴含门。旧协议产物不能复用为 0.6 room-only 结果。
 
 尚未完成：
 

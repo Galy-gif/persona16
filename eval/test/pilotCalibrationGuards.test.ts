@@ -34,3 +34,45 @@ test('Xia Xu mechanical guard rejects known recitations without guessing semanti
     '你是不想要了，还是觉得做不到，所以不想再碰了？',
   ), []);
 });
+
+test('scenario guards reject missing cash grounding and invented repair quantities', () => {
+  assert.deepEqual(findScenarioCalibrationViolations(
+    'ESTP',
+    'quit-without-buffer',
+    '你身体最难受的地方是哪儿？先盯住那个感觉。',
+  ), ['missing_cash_constraint_reference']);
+  assert.deepEqual(findScenarioCalibrationViolations(
+    'ESTP',
+    'quit-without-buffer',
+    '如果明天辞掉，手上的钱能撑到什么时候？',
+  ), []);
+
+  assert.deepEqual(findScenarioCalibrationViolations(
+    'INTJ',
+    'repair-after-boundary-violation',
+    '我排了三个方案，你挑一个就行。',
+  ), ['invented_repair_quantity']);
+  assert.deepEqual(findScenarioCalibrationViolations(
+    'INTJ',
+    'repair-after-boundary-violation',
+    '我还是给了你三条行动建议，那是我越界。',
+  ), ['invented_repair_quantity']);
+  assert.deepEqual(findScenarioCalibrationViolations(
+    'INTJ',
+    'repair-after-boundary-violation',
+    '我越界在替你安排下一步。之后你可以直接让我只听，或者结束对话。',
+  ), []);
+  assert.deepEqual(findScenarioCalibrationViolations(
+    'INTJ',
+    'repair-after-boundary-violation',
+    '我现在列两个选项，你都可以拒绝。',
+  ), []);
+});
+
+test('known C8 binary recitations cannot bypass the guard by appending an explanation', () => {
+  assert.deepEqual(findScenarioCalibrationViolations(
+    'ENFP',
+    'self-judgment-after-end',
+    '是不想做，还是觉得自己没能力？我只是确认一下。',
+  ), ['recited_character_binary']);
+});

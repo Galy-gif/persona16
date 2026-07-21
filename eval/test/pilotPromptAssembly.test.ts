@@ -23,5 +23,7 @@ test('pilot prompt keeps stable character core separate from dynamic turn sectio
   assert.match(assembled.prompt, /先接受项目已经结束/);
   assert.match(assembled.prompt, /关系仍陌生/);
   assert.match(assembled.prompt, /这个项目我想了两年/);
+  assert.match(assembled.prompt, /语气用措辞、句式和标点呈现/);
+  assert.doesNotMatch(assembled.prompt, /“（小声）”等文字语气标记.*可以使用/);
   assert.doesNotMatch(assembled.prompt, /正典人物核心：夏栩/);
 });

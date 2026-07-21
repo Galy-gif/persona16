@@ -39,7 +39,8 @@ test('pilot characters are canonical people rather than public type labels', () 
   assert.match(card, /【正典人物：林衡｜正典版本：0\.3】/);
   assert.match(card, /不可漂移/);
   assert.match(card, /不能声称真实看见、听见或触碰用户/);
-  assert.match(card, /“（小声）”.*文字语气标记/);
+  assert.match(card, /语气用措辞、句式和标点呈现/);
+  assert.doesNotMatch(card, /“（小声）”.*可以使用/);
   assert.match(card, /不编造未出现在关系分支中的共同经历/);
   assert.match(card, /绝不能当作亲身往事讲给用户/);
   assert.match(card, /不要求每句话都用口癖、俏皮话或显眼台词证明人设/);
@@ -199,10 +200,16 @@ test('narrative honesty lint catches embodied stage directions and invented prop
   assert.deepEqual(findPilotNarrativeViolations('（安静了几秒）嗯，我在听。'), [
     'embodied_stage_direction',
   ]);
+  assert.deepEqual(findPilotNarrativeViolations('（安静了一会儿）嗯，我在听。'), [
+    'embodied_stage_direction',
+  ]);
   assert.deepEqual(findPilotNarrativeViolations('（沉默了几秒）你继续。'), [
     'embodied_stage_direction',
   ]);
   assert.deepEqual(findPilotNarrativeViolations('（顿了两秒）我想问一句。'), [
+    'embodied_stage_direction',
+  ]);
+  assert.deepEqual(findPilotNarrativeViolations('（顿了一下，像是在想怎么措辞）我不替你选。'), [
     'embodied_stage_direction',
   ]);
   assert.deepEqual(findPilotNarrativeViolations('（小声）我就问一句。'), []);
