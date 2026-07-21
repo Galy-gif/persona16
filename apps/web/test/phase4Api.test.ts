@@ -135,7 +135,25 @@ test('an uncertain completeTurn result must refresh the original turn instead of
 
 test('relationship shadow read timeout never blocks the production turn', async () => {
   const room = await createOwnedRoom();
-  room.store.listRelationshipBranches = async () => new Promise<never>(() => undefined);
+  let aborted = false;
+  const shadowStore = room.store as InMemoryPersonaStore & {
+    listRelationshipBranchSummaries: (
+      userId: string,
+      agents: string[],
+      options?: { signal?: AbortSignal },
+    ) => Promise<never>;
+  };
+  shadowStore.listRelationshipBranchSummaries = async (_userId, _agents, options) => new Promise<never>(
+    (_resolve, reject) => {
+      options?.signal?.addEventListener('abort', () => {
+        aborted = true;
+        reject(options.signal?.reason);
+      }, { once: true });
+    },
+  );
+  room.store.listRelationshipBranches = async () => {
+    throw new Error('turn preflight must not load full relationship branches');
+  };
 
   const startedAt = Date.now();
   const response = await runTurn(turnRequest(room, crypto.randomUUID()));
@@ -143,6 +161,29 @@ test('relationship shadow read timeout never blocks the production turn', async 
   assert.equal(response.status, 200);
   assert.match(await response.text(), /"type":"done"/);
   assert.ok(Date.now() - startedAt < 1_000);
+  assert.equal(aborted, true);
+});
+
+test('malformed relationship shadow data is ignored instead of failing the production turn', async () => {
+  const room = await createOwnedRoom();
+  const shadowStore = room.store as unknown as {
+    listRelationshipBranchSummaries: () => Promise<unknown>;
+  };
+  shadowStore.listRelationshipBranchSummaries = async () => [{
+    agent: 'INTJ',
+    version: 1,
+    climate: 'steady',
+  }];
+  room.store.listRelationshipBranches = async () => [{
+    agent: 'INTJ',
+    version: 1,
+    branch: { recentClimate: 'steady' },
+  }] as never;
+
+  const response = await runTurn(turnRequest(room, crypto.randomUUID()));
+
+  assert.equal(response.status, 200);
+  assert.match(await response.text(), /"type":"done"/);
 });
 
 test('another anonymous session cannot read a room', async () => {

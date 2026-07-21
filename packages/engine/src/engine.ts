@@ -7,6 +7,7 @@ import { createLlmRoomController } from './room/roomController';
 import { runRoomLoop } from './room/roomLoop';
 import type { RoomAction, RoomController, RoomLoopBudget } from './room/types';
 import { runRuntimeText } from './runtime/runRuntimeText';
+import { RuntimeExecutionError } from './runtime/recoveryPolicy';
 import { advanceRoomState, resolveTurnPlan } from './scoring';
 import { createTracer, type Tracer } from './trace';
 import type {
@@ -27,6 +28,7 @@ import {
   invokeObserver,
   type ObserverErrorHandler,
 } from './lifecycleHooks';
+import { relationshipEvidenceProtectsDecisionAutonomy } from './relationship/relationshipContext';
 
 export interface RunTurnOptions {
   /** 用户本轮点名的 Agent */
@@ -110,6 +112,10 @@ async function generateUtterance(
   maxCharacters: number,
 ): Promise<AgentUtterance> {
   const agentState = room.agents.find((a) => a.type === speaker.type)!;
+  const relationshipContext = agentState.relationship.promptContext;
+  const protectsDecisionAutonomy = relationshipContext
+    ? relationshipEvidenceProtectsDecisionAutonomy(relationshipContext.evidence)
+    : false;
   const system = buildSystemBlocks(speaker.type);
   const requestedTokens = speaker.speechType === '长发言' ? 1200 : 400;
 
@@ -131,7 +137,7 @@ async function generateUtterance(
     const isFinalAttempt = attempt === 1;
     const reservation = modelBudget.reserve(`persona:${speaker.type}:attempt:${attempt}`, requestedTokens);
     let streamedCharacters = 0;
-    const onDelta = isFinalAttempt
+    const onDelta = isFinalAttempt && !protectsDecisionAutonomy
       ? (delta: string) => {
           const remaining = maxCharacters - streamedCharacters;
           if (remaining <= 0) return;
@@ -184,8 +190,12 @@ async function generateUtterance(
     const boundedText = text.slice(0, maxCharacters);
     tracer.emit('agent_output', { agent: speaker.type, attempt, text: boundedText });
 
-    const verdict = checkUtterance(boundedText, agentState.recentOpenings);
-    if (verdict.ok || isFinalAttempt) {
+    const verdict = checkUtterance(
+      boundedText,
+      agentState.recentOpenings,
+      relationshipContext,
+    );
+    if (verdict.ok || (isFinalAttempt && verdict.kind !== 'relationship_boundary')) {
       if (!isFinalAttempt) invokeDelivery('delta', opts.onDelta, [speaker.type, boundedText]);
       else if (streamedCharacters < boundedText.length) {
         invokeDelivery('delta', opts.onDelta, [speaker.type, boundedText.slice(streamedCharacters)]);
@@ -193,8 +203,19 @@ async function generateUtterance(
       agentState.recentOpenings = recordOpening(boundedText, agentState.recentOpenings);
       return { type: speaker.type, speechType: speaker.speechType, text: boundedText, regenerated };
     }
+    if (isFinalAttempt) {
+      throw new RuntimeExecutionError({
+        code: 'relationship_boundary_violation',
+        message: verdict.reason ?? '回复违反已确认的关系边界',
+        recoverable: true,
+        stopReason: 'error',
+        hadPartialText: false,
+      });
+    }
     tracer.emit('anti_template_reject', { agent: speaker.type, reason: verdict.reason });
-    antiTemplateNote = `反模板警告：你上一版回复因为"${verdict.reason}"被驳回。换一种完全不同的开场和结构重说，保持人格不变。`;
+    antiTemplateNote = verdict.kind === 'relationship_boundary'
+      ? `硬约束重写：上一版回复因为“${verdict.reason}”被拒绝。不能说“选 X”“就选 X”或“你应该选 X”；改为指出关键变量、比较标准、条件性后果或提出一个问题，把决定权留给用户。`
+      : `反模板警告：你上一版回复因为"${verdict.reason}"被驳回。换一种完全不同的开场和结构重说，保持人格不变。`;
     regenerated = true;
   }
   throw new Error('unreachable');

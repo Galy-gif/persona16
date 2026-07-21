@@ -15,6 +15,8 @@ import type {
   FailedTurnObservability,
   MemoryRecord,
   RelationshipBranchRecord,
+  RelationshipBranchSummary,
+  RelationshipSummaryReadOptions,
   RelationshipEventRecord,
   LookupTurnInput,
   PersistedTurnEvent,
@@ -31,6 +33,7 @@ import { StoreError } from './types';
 import {
   rebuildRelationshipBranch,
   relationshipCharacterId,
+  relationshipEvidenceIdFromMemory,
   sameRelationshipEvent,
   relationshipEventFromMemory,
 } from './relationshipProjection';
@@ -79,6 +82,10 @@ function cloneFeedback(feedback: FeedbackRecord): FeedbackRecord {
     createdAt: new Date(feedback.createdAt),
     updatedAt: new Date(feedback.updatedAt),
   };
+}
+
+function relationshipEventKey(userId: string, agent: AgentType, eventId: string): string {
+  return JSON.stringify([userId, agent, eventId]);
 }
 
 export class InMemoryPersonaStore implements PersonaStore {
@@ -239,15 +246,39 @@ export class InMemoryPersonaStore implements PersonaStore {
       || ((memory.status === 'confirmed' || memory.status === 'rejected') && status === 'deleted');
     if (!allowed) throw new StoreError('MEMORY_STATUS_CONFLICT', '记忆状态不能这样变更');
     const previousStatus = memory.status;
+    let deletedBranch: RelationshipBranchRecord | undefined;
+    let retainedEventIds: Set<string> | undefined;
+    if (status === 'deleted' && previousStatus === 'confirmed') {
+      const key = `${memory.userId}:${memory.agent}`;
+      const previous = this.relationshipBranches.get(key);
+      if (previous) {
+        const branch = forgetBranchEvidence(previous.branch, relationshipEvidenceIdFromMemory(memory));
+        retainedEventIds = new Set(branch.eventLog.map((event) => event.id));
+        deletedBranch = {
+          ...previous,
+          branch,
+          version: previous.version + 1,
+          updatedAt: new Date(this.now()),
+        };
+      }
+    }
     memory.status = status;
     memory.version += 1;
     memory.updatedAt = new Date();
     if (status === 'confirmed') this.projectConfirmedMemory(memory);
     if (status === 'deleted' && previousStatus === 'confirmed') {
       for (const [eventId, record] of this.relationshipEvents) {
-        if (record.sourceMemoryId === memory.id) this.relationshipEvents.delete(eventId);
+        if (
+          record.userId === memory.userId
+          && record.agent === memory.agent
+          && (retainedEventIds ? !retainedEventIds.has(record.id) : record.sourceMemoryId === memory.id)
+        ) this.relationshipEvents.delete(eventId);
       }
-      this.rebuildBranch(memory.userId, memory.agent);
+      if (deletedBranch) {
+        this.relationshipBranches.set(`${memory.userId}:${memory.agent}`, deletedBranch);
+      } else {
+        this.rebuildBranch(memory.userId, memory.agent);
+      }
     }
     return cloneMemory(memory);
   }
@@ -293,6 +324,24 @@ export class InMemoryPersonaStore implements PersonaStore {
       .map(cloneRelationshipBranch);
   }
 
+  async listRelationshipBranchSummaries(
+    userId: string,
+    agents: AgentType[],
+    options: RelationshipSummaryReadOptions = {},
+  ): Promise<RelationshipBranchSummary[]> {
+    if (options.signal?.aborted) throw options.signal.reason;
+    const branches = await this.listRelationshipBranches(userId, agents);
+    if (options.signal?.aborted) throw options.signal.reason;
+    return branches.map(({ agent, version, branch }) => ({
+      agent,
+      version,
+      climate: branch.recentClimate,
+      eventCount: branch.eventLog.length,
+      boundaryCount: branch.boundaries.length,
+      tensionCount: branch.tensions.filter((tension) => tension.status !== 'resolved').length,
+    }));
+  }
+
   async appendRelationshipEvent(input: AppendRelationshipEventInput): Promise<RelationshipEventRecord> {
     if (input.event.id.startsWith('memory:')) {
       throw new StoreError('RELATIONSHIP_EVENT_CONFLICT', 'memory: 前缀仅供已确认 Memory 投影使用');
@@ -301,7 +350,8 @@ export class InMemoryPersonaStore implements PersonaStore {
     if (!sourceTurn || sourceTurn.userId !== input.userId || sourceTurn.status !== 'completed') {
       throw new StoreError('RELATIONSHIP_EVENT_CONFLICT', '关系事件必须来自该用户已完成的回合');
     }
-    const existing = this.relationshipEvents.get(input.event.id);
+    const eventKey = relationshipEventKey(input.userId, input.agent, input.event.id);
+    const existing = this.relationshipEvents.get(eventKey);
     if (existing) {
       if (
         existing.userId === input.userId
@@ -326,7 +376,7 @@ export class InMemoryPersonaStore implements PersonaStore {
       event: structuredClone(input.event),
       createdAt: new Date(this.now()),
     };
-    this.relationshipEvents.set(record.id, record);
+    this.relationshipEvents.set(eventKey, record);
     this.relationshipBranches.set(key, {
       userId: input.userId,
       agent: input.agent,
@@ -354,7 +404,7 @@ export class InMemoryPersonaStore implements PersonaStore {
     }
     const retainedEventIds = new Set(branch.eventLog.map((event) => event.id));
     for (const [eventId, record] of this.relationshipEvents) {
-      if (record.userId !== userId || record.agent !== agent || retainedEventIds.has(eventId)) continue;
+      if (record.userId !== userId || record.agent !== agent || retainedEventIds.has(record.id)) continue;
       this.relationshipEvents.delete(eventId);
       if (record.sourceMemoryId) {
         const memory = this.memories.get(record.sourceMemoryId);
@@ -411,7 +461,8 @@ export class InMemoryPersonaStore implements PersonaStore {
 
   private projectConfirmedMemory(memory: MemoryRecord): void {
     const record = relationshipEventFromMemory(memory);
-    const existing = this.relationshipEvents.get(record.id);
+    const eventKey = relationshipEventKey(record.userId, record.agent, record.id);
+    const existing = this.relationshipEvents.get(eventKey);
     if (existing) {
       if (
         existing.userId === record.userId
@@ -422,8 +473,21 @@ export class InMemoryPersonaStore implements PersonaStore {
       ) return;
       throw new StoreError('RELATIONSHIP_EVENT_CONFLICT', 'Memory 对应的关系事件已被其他内容占用');
     }
-    this.relationshipEvents.set(record.id, record);
-    this.rebuildBranch(memory.userId, memory.agent);
+    const key = `${memory.userId}:${memory.agent}`;
+    const previous = this.relationshipBranches.get(key);
+    const branch = applyRelationshipEvent(
+      previous?.branch ?? createRelationshipBranch(record.characterId),
+      record.event,
+    );
+    this.relationshipEvents.set(eventKey, record);
+    this.relationshipBranches.set(key, {
+      userId: memory.userId,
+      agent: memory.agent,
+      characterId: record.characterId,
+      branch,
+      version: (previous?.version ?? 0) + 1,
+      updatedAt: new Date(this.now()),
+    });
   }
 
   private rebuildBranch(userId: string, agent: AgentType): void {
