@@ -33,6 +33,7 @@ interface RelationshipEventBase {
 
 export type RelationshipEvent =
   | (RelationshipEventBase & { type: 'context_shared' })
+  | (RelationshipEventBase & { type: 'pattern_confirmed' })
   | (RelationshipEventBase & { type: 'preference_stated' })
   | (RelationshipEventBase & { type: 'boundary_set' })
   | (RelationshipEventBase & { type: 'boundary_revised'; boundaryId: string })
@@ -186,6 +187,14 @@ export function applyRelationshipEvent(
         disclosure: branch.trust.disclosure === 'guarded' ? 'selective' : branch.trust.disclosure,
       },
       recentClimate: branch.recentClimate === 'unfamiliar' ? 'steady' : branch.recentClimate,
+      eventLog: recordEvent(branch, event),
+    };
+  }
+
+  if (event.type === 'pattern_confirmed') {
+    return {
+      ...branch,
+      sharedContext: [...branch.sharedContext, evidence('context', event)],
       eventLog: recordEvent(branch, event),
     };
   }

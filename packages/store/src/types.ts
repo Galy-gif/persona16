@@ -3,6 +3,8 @@ import type {
   MemoryCandidateDraft,
   MemoryKind,
   MemoryStatus,
+  RelationshipBranch,
+  RelationshipEvent,
   RoomState,
   TurnStreamEvent,
   TurnStopReason,
@@ -32,6 +34,25 @@ export interface MemoryRecord extends MemoryCandidateDraft {
   sourceMessageId?: string;
   version: number;
   createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface RelationshipEventRecord {
+  id: string;
+  userId: string;
+  agent: AgentType;
+  characterId: string;
+  event: RelationshipEvent;
+  sourceMemoryId?: string;
+  createdAt: Date;
+}
+
+export interface RelationshipBranchRecord {
+  userId: string;
+  agent: AgentType;
+  characterId: string;
+  branch: RelationshipBranch;
+  version: number;
   updatedAt: Date;
 }
 
@@ -119,6 +140,12 @@ export interface CreateMemoryCandidatesInput {
   candidates: MemoryCandidateDraft[];
 }
 
+export interface AppendRelationshipEventInput {
+  userId: string;
+  agent: AgentType;
+  event: RelationshipEvent;
+}
+
 export interface UpsertFeedbackInput {
   userId: string;
   roomId: string;
@@ -140,6 +167,10 @@ export interface PersonaStore {
   updateMemoryStatus(userId: string, memoryId: string, status: Exclude<MemoryStatus, 'candidate'>): Promise<MemoryRecord>;
   listConfirmedMemories(userId: string, agents: AgentType[], limitPerAgent?: number): Promise<MemoryRecord[]>;
   listMemories(userId: string, status?: MemoryStatus, roomId?: string): Promise<MemoryRecord[]>;
+  listRelationshipEvents(userId: string, agent: AgentType): Promise<RelationshipEventRecord[]>;
+  listRelationshipBranches(userId: string, agents: AgentType[]): Promise<RelationshipBranchRecord[]>;
+  appendRelationshipEvent(input: AppendRelationshipEventInput): Promise<RelationshipEventRecord>;
+  forgetRelationshipEvidence(userId: string, agent: AgentType, evidenceId: string): Promise<RelationshipBranchRecord>;
   upsertFeedback(input: UpsertFeedbackInput): Promise<FeedbackRecord>;
   listFeedback(userId: string, roomId: string): Promise<FeedbackRecord[]>;
   consumeRateLimit(key: string, limit: number, windowMs: number): Promise<{ allowed: boolean; retryAfterSeconds: number }>;
@@ -147,7 +178,7 @@ export interface PersonaStore {
 
 export class StoreError extends Error {
   constructor(
-    public readonly code: 'ROOM_NOT_FOUND' | 'MEMORY_NOT_FOUND' | 'MEMORY_STATUS_CONFLICT' | 'ROOM_VERSION_CONFLICT' | 'TURN_NOT_ACTIVE' | 'MESSAGE_NOT_FOUND',
+    public readonly code: 'ROOM_NOT_FOUND' | 'MEMORY_NOT_FOUND' | 'MEMORY_STATUS_CONFLICT' | 'RELATIONSHIP_EVENT_CONFLICT' | 'ROOM_VERSION_CONFLICT' | 'TURN_NOT_ACTIVE' | 'MESSAGE_NOT_FOUND',
     message: string,
   ) {
     super(message);

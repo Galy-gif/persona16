@@ -1,14 +1,24 @@
 import { randomUUID } from 'node:crypto';
-import type { AgentType, MemoryStatus, RoomState } from '@persona16/engine';
+import type {
+  AgentType,
+  MemoryStatus,
+  RelationshipBranch,
+  RelationshipEvent,
+  RoomState,
+} from '@persona16/engine';
+import { forgetRelationshipEvidence as forgetBranchEvidence } from '@persona16/engine';
 import { Pool, type PoolClient } from 'pg';
 import type {
   CompleteTurnInput,
+  AppendRelationshipEventInput,
   CreateMemoryCandidatesInput,
   CreateRoomInput,
   FeedbackRecord,
   FeedbackTag,
   FailedTurnObservability,
   MemoryRecord,
+  RelationshipBranchRecord,
+  RelationshipEventRecord,
   LookupTurnInput,
   PersistedTurnEvent,
   PersonaStore,
@@ -20,6 +30,13 @@ import type {
   UpdateRoomInput,
 } from './types';
 import { StoreError } from './types';
+import {
+  rebuildRelationshipBranch,
+  relationshipCharacterId,
+  relationshipEventTarget,
+  sameRelationshipEvent,
+  relationshipEventFromMemory,
+} from './relationshipProjection';
 
 const TURN_LEASE_MS = 180_000;
 
@@ -59,6 +76,28 @@ interface MemoryRow {
   updated_at: Date;
 }
 
+interface RelationshipEventRow {
+  id: string;
+  user_id: string;
+  agent_type: AgentType;
+  character_id: string;
+  event_type: RelationshipEvent['type'];
+  content: string;
+  source_turn_id: string;
+  source_memory_id: string | null;
+  target_event_id: string | null;
+  created_at: Date;
+}
+
+interface RelationshipBranchRow {
+  user_id: string;
+  agent_type: AgentType;
+  character_id: string;
+  state_json: RelationshipBranch;
+  version: number;
+  updated_at: Date;
+}
+
 interface FeedbackRow {
   id: string;
   user_id: string;
@@ -86,6 +125,44 @@ function mapMemory(row: MemoryRow): MemoryRecord {
     content: row.content, status: row.status, sourceTurnId: row.source_turn_id,
     sourceMessageId: row.source_message_id ?? undefined, version: row.version,
     createdAt: row.created_at, updatedAt: row.updated_at,
+  };
+}
+
+function mapRelationshipEvent(row: RelationshipEventRow): RelationshipEventRecord {
+  const base = { id: row.id, sourceTurnId: row.source_turn_id, content: row.content };
+  let event: RelationshipEvent;
+  if (row.event_type === 'boundary_revised') {
+    if (!row.target_event_id) throw new Error('boundary_revised 缺少 target_event_id');
+    event = { ...base, type: row.event_type, boundaryId: row.target_event_id };
+  } else if (
+    row.event_type === 'repair_attempted'
+    || row.event_type === 'repair_accepted'
+    || row.event_type === 'repair_declined'
+  ) {
+    if (!row.target_event_id) throw new Error(`${row.event_type} 缺少 target_event_id`);
+    event = { ...base, type: row.event_type, tensionId: row.target_event_id };
+  } else {
+    event = { ...base, type: row.event_type };
+  }
+  return {
+    id: row.id,
+    userId: row.user_id,
+    agent: row.agent_type,
+    characterId: row.character_id,
+    event,
+    sourceMemoryId: row.source_memory_id ?? undefined,
+    createdAt: row.created_at,
+  };
+}
+
+function mapRelationshipBranch(row: RelationshipBranchRow): RelationshipBranchRecord {
+  return {
+    userId: row.user_id,
+    agent: row.agent_type,
+    characterId: row.character_id,
+    branch: row.state_json,
+    version: row.version,
+    updatedAt: row.updated_at,
   };
 }
 
@@ -374,10 +451,15 @@ export class PostgresPersonaStore implements PersonaStore {
     for (const candidate of input.candidates) {
       const result = await this.pool.query<MemoryRow>(
         `INSERT INTO memories (id, user_id, agent_type, kind, content, status, source_turn_id)
-         VALUES ($1, $2, $3, $4, $5, 'candidate', $6)
+         SELECT $1, $2, $3, $4, $5, 'candidate', $6
+         FROM turn_runs
+         WHERE id = $6 AND user_id = $2 AND status IN ('active', 'completed')
          RETURNING id, user_id, agent_type, kind, content, status, source_turn_id, source_message_id, version, created_at, updated_at`,
         [randomUUID(), input.userId, candidate.agent, candidate.kind, candidate.content, input.sourceTurnId],
       );
+      if (!result.rows[0]) {
+        throw new StoreError('MEMORY_STATUS_CONFLICT', '记忆候选必须来自该用户的有效回合');
+      }
       created.push(mapMemory(result.rows[0]!));
     }
     return created;
@@ -388,24 +470,48 @@ export class PostgresPersonaStore implements PersonaStore {
     memoryId: string,
     status: Exclude<MemoryStatus, 'candidate'>,
   ): Promise<MemoryRecord> {
-    const result = await this.pool.query<MemoryRow>(
-      `UPDATE memories SET status = $3::memory_status, version = version + 1, updated_at = now()
-       WHERE id = $1 AND user_id = $2 AND status <> 'deleted'
-         AND EXISTS (SELECT 1 FROM turn_runs WHERE turn_runs.id = memories.source_turn_id AND turn_runs.status = 'completed')
-         AND (
-           status::text = $3
-           OR status = 'candidate'
-           OR (status IN ('confirmed', 'rejected') AND $3::text = 'deleted')
-         )
-       RETURNING id, user_id, agent_type, kind, content, status, source_turn_id, source_message_id, version, created_at, updated_at`,
-      [memoryId, userId, status],
-    );
-    if (!result.rows[0]) {
-      const existing = await this.pool.query('SELECT 1 FROM memories WHERE id = $1 AND user_id = $2', [memoryId, userId]);
-      if (existing.rowCount) throw new StoreError('MEMORY_STATUS_CONFLICT', '记忆状态不能这样变更');
-      throw new StoreError('MEMORY_NOT_FOUND', '记忆不存在');
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const relationshipOwner = await client.query<{ agent_type: AgentType }>(
+        `SELECT agent_type FROM memories WHERE id = $1 AND user_id = $2`,
+        [memoryId, userId],
+      );
+      if (relationshipOwner.rows[0]) {
+        await this.lockRelationship(client, userId, relationshipOwner.rows[0].agent_type);
+      }
+      const result = await client.query<MemoryRow>(
+        `UPDATE memories SET status = $3::memory_status, version = version + 1, updated_at = now()
+         WHERE id = $1 AND user_id = $2 AND status <> 'deleted'
+           AND EXISTS (
+             SELECT 1 FROM turn_runs
+             WHERE turn_runs.id = memories.source_turn_id
+               AND turn_runs.user_id = memories.user_id
+               AND turn_runs.status = 'completed'
+           )
+           AND (
+             status::text = $3
+             OR status = 'candidate'
+             OR (status IN ('confirmed', 'rejected') AND $3::text = 'deleted')
+           )
+         RETURNING id, user_id, agent_type, kind, content, status, source_turn_id, source_message_id, version, created_at, updated_at`,
+        [memoryId, userId, status],
+      );
+      if (!result.rows[0]) {
+        const existing = await client.query('SELECT 1 FROM memories WHERE id = $1 AND user_id = $2', [memoryId, userId]);
+        if (existing.rowCount) throw new StoreError('MEMORY_STATUS_CONFLICT', '记忆状态不能这样变更');
+        throw new StoreError('MEMORY_NOT_FOUND', '记忆不存在');
+      }
+      const memory = mapMemory(result.rows[0]);
+      if (status === 'confirmed') await this.projectConfirmedMemory(client, memory);
+      if (status === 'deleted') await this.removeMemoryRelationshipEvent(client, memory);
+      await client.query('COMMIT');
+      return memory;
+    } catch (error) {
+      return this.rollbackAndRethrow(client, error);
+    } finally {
+      client.release();
     }
-    return mapMemory(result.rows[0]);
   }
 
   async listConfirmedMemories(userId: string, agents: AgentType[], limitPerAgent = 5): Promise<MemoryRecord[]> {
@@ -437,6 +543,170 @@ export class PostgresPersonaStore implements PersonaStore {
       [userId, status ?? null, roomId ?? null],
     );
     return result.rows.map(mapMemory);
+  }
+
+  async listRelationshipEvents(userId: string, agent: AgentType): Promise<RelationshipEventRecord[]> {
+    const result = await this.pool.query<RelationshipEventRow>(
+      `SELECT id, user_id, agent_type, character_id, event_type, content, source_turn_id,
+              source_memory_id, target_event_id, created_at
+       FROM relationship_events
+       WHERE user_id = $1 AND agent_type = $2
+       ORDER BY created_at ASC, id ASC`,
+      [userId, agent],
+    );
+    return result.rows.map(mapRelationshipEvent);
+  }
+
+  async listRelationshipBranches(userId: string, agents: AgentType[]): Promise<RelationshipBranchRecord[]> {
+    if (agents.length === 0) return [];
+    const result = await this.pool.query<RelationshipBranchRow>(
+      `SELECT user_id, agent_type, character_id, state_json, version, updated_at
+       FROM relationship_branches
+       WHERE user_id = $1 AND agent_type = ANY($2::text[])
+       ORDER BY agent_type ASC`,
+      [userId, agents],
+    );
+    return result.rows.map(mapRelationshipBranch);
+  }
+
+  async appendRelationshipEvent(input: AppendRelationshipEventInput): Promise<RelationshipEventRecord> {
+    if (input.event.id.startsWith('memory:')) {
+      throw new StoreError('RELATIONSHIP_EVENT_CONFLICT', 'memory: 前缀仅供已确认 Memory 投影使用');
+    }
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const sourceTurn = await client.query(
+        `SELECT 1 FROM turn_runs WHERE id = $1 AND user_id = $2 AND status = 'completed'`,
+        [input.event.sourceTurnId, input.userId],
+      );
+      if (!sourceTurn.rowCount) {
+        throw new StoreError('RELATIONSHIP_EVENT_CONFLICT', '关系事件必须来自该用户已完成的回合');
+      }
+      await this.lockRelationship(client, input.userId, input.agent);
+      const characterId = relationshipCharacterId(input.agent);
+      const inserted = await client.query<RelationshipEventRow>(
+        `INSERT INTO relationship_events (
+           id, user_id, agent_type, character_id, event_type, content,
+           source_turn_id, target_event_id
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT DO NOTHING
+         RETURNING id, user_id, agent_type, character_id, event_type, content, source_turn_id,
+                   source_memory_id, target_event_id, created_at`,
+        [
+          input.event.id,
+          input.userId,
+          input.agent,
+          characterId,
+          input.event.type,
+          input.event.content,
+          input.event.sourceTurnId,
+          relationshipEventTarget(input.event),
+        ],
+      );
+      if (inserted.rows[0]) {
+        const record = mapRelationshipEvent(inserted.rows[0]);
+        await this.rebuildRelationshipBranch(client, input.userId, input.agent, characterId);
+        await client.query('COMMIT');
+        return record;
+      }
+
+      const existing = await client.query<RelationshipEventRow>(
+        `SELECT id, user_id, agent_type, character_id, event_type, content, source_turn_id,
+                source_memory_id, target_event_id, created_at
+         FROM relationship_events WHERE id = $1`,
+        [input.event.id],
+      );
+      const record = existing.rows[0] ? mapRelationshipEvent(existing.rows[0]) : undefined;
+      if (
+        !record
+        || record.userId !== input.userId
+        || record.agent !== input.agent
+        || !sameRelationshipEvent(record.event, input.event)
+      ) {
+        throw new StoreError('RELATIONSHIP_EVENT_CONFLICT', '关系事件 id 已被其他内容占用');
+      }
+      await client.query('COMMIT');
+      return record;
+    } catch (error) {
+      return this.rollbackAndRethrow(client, error);
+    } finally {
+      client.release();
+    }
+  }
+
+  async forgetRelationshipEvidence(
+    userId: string,
+    agent: AgentType,
+    evidenceId: string,
+  ): Promise<RelationshipBranchRecord> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await this.lockRelationship(client, userId, agent);
+      let current = await client.query<RelationshipBranchRow>(
+        `SELECT user_id, agent_type, character_id, state_json, version, updated_at
+         FROM relationship_branches
+         WHERE user_id = $1 AND agent_type = $2 FOR UPDATE`,
+        [userId, agent],
+      );
+      if (!current.rows[0]) {
+        const source = await client.query<{ character_id: string }>(
+          `SELECT character_id FROM relationship_events
+           WHERE user_id = $1 AND agent_type = $2
+           ORDER BY created_at ASC, id ASC LIMIT 1`,
+          [userId, agent],
+        );
+        if (!source.rows[0]) throw new StoreError('RELATIONSHIP_EVENT_CONFLICT', '关系分支不存在');
+        await this.rebuildRelationshipBranch(client, userId, agent, source.rows[0].character_id);
+        current = await client.query<RelationshipBranchRow>(
+          `SELECT user_id, agent_type, character_id, state_json, version, updated_at
+           FROM relationship_branches
+           WHERE user_id = $1 AND agent_type = $2 FOR UPDATE`,
+          [userId, agent],
+        );
+      }
+      const previous = mapRelationshipBranch(current.rows[0]!);
+      let branch: RelationshipBranch;
+      try {
+        branch = forgetBranchEvidence(previous.branch, evidenceId);
+      } catch {
+        throw new StoreError('RELATIONSHIP_EVENT_CONFLICT', '找不到要遗忘的关系依据');
+      }
+      const retainedEventIds = new Set(branch.eventLog.map((event) => event.id));
+      const removedEventIds = previous.branch.eventLog
+        .map((event) => event.id)
+        .filter((eventId) => !retainedEventIds.has(eventId));
+      if (removedEventIds.length > 0) {
+        await client.query(
+          `UPDATE memories SET status = 'deleted', version = version + 1, updated_at = now()
+           WHERE user_id = $1 AND status <> 'deleted' AND id IN (
+             SELECT source_memory_id FROM relationship_events
+             WHERE user_id = $1 AND agent_type = $2 AND id = ANY($3::text[])
+               AND source_memory_id IS NOT NULL
+           )`,
+          [userId, agent, removedEventIds],
+        );
+        await client.query(
+          `DELETE FROM relationship_events
+           WHERE user_id = $1 AND agent_type = $2 AND id = ANY($3::text[])`,
+          [userId, agent, removedEventIds],
+        );
+      }
+      const updated = await client.query<RelationshipBranchRow>(
+        `UPDATE relationship_branches
+         SET state_json = $3::jsonb, version = version + 1, updated_at = now()
+         WHERE user_id = $1 AND agent_type = $2
+         RETURNING user_id, agent_type, character_id, state_json, version, updated_at`,
+        [userId, agent, JSON.stringify(branch)],
+      );
+      await client.query('COMMIT');
+      return mapRelationshipBranch(updated.rows[0]!);
+    } catch (error) {
+      return this.rollbackAndRethrow(client, error);
+    } finally {
+      client.release();
+    }
   }
 
   async upsertFeedback(input: UpsertFeedbackInput): Promise<FeedbackRecord> {
@@ -502,6 +772,102 @@ export class PostgresPersonaStore implements PersonaStore {
 
   async close(): Promise<void> {
     await this.pool.end();
+  }
+
+  private async lockRelationship(client: PoolClient, userId: string, agent: AgentType): Promise<void> {
+    await client.query(
+      `SELECT pg_advisory_xact_lock(hashtext($1))`,
+      [`relationship:${userId}:${agent}`],
+    );
+  }
+
+  private async projectConfirmedMemory(client: PoolClient, memory: MemoryRecord): Promise<void> {
+    const record = relationshipEventFromMemory(memory);
+    const targetEventId = relationshipEventTarget(record.event);
+    const inserted = await client.query(
+      `INSERT INTO relationship_events (
+         id, user_id, agent_type, character_id, event_type, content,
+         source_turn_id, source_memory_id, target_event_id, created_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       ON CONFLICT DO NOTHING
+       RETURNING id`,
+      [
+        record.id,
+        record.userId,
+        record.agent,
+        record.characterId,
+        record.event.type,
+        record.event.content,
+        record.event.sourceTurnId,
+        record.sourceMemoryId ?? null,
+        targetEventId,
+        record.createdAt,
+      ],
+    );
+    if (inserted.rowCount) {
+      await this.rebuildRelationshipBranch(client, record.userId, record.agent, record.characterId);
+      return;
+    }
+
+    const existing = await client.query<RelationshipEventRow>(
+      `SELECT id, user_id, agent_type, character_id, event_type, content, source_turn_id,
+              source_memory_id, target_event_id, created_at
+       FROM relationship_events
+       WHERE id = $1 OR source_memory_id = $2`,
+      [record.id, record.sourceMemoryId],
+    );
+    const collision = existing.rows[0] ? mapRelationshipEvent(existing.rows[0]) : undefined;
+    if (
+      !collision
+      || collision.userId !== record.userId
+      || collision.agent !== record.agent
+      || collision.characterId !== record.characterId
+      || collision.sourceMemoryId !== record.sourceMemoryId
+      || !sameRelationshipEvent(collision.event, record.event)
+    ) {
+      throw new StoreError('RELATIONSHIP_EVENT_CONFLICT', 'Memory 对应的关系事件已被其他内容占用');
+    }
+  }
+
+  private async removeMemoryRelationshipEvent(client: PoolClient, memory: MemoryRecord): Promise<void> {
+    const removed = await client.query(
+      `DELETE FROM relationship_events
+       WHERE user_id = $1 AND agent_type = $2 AND source_memory_id = $3
+       RETURNING character_id`,
+      [memory.userId, memory.agent, memory.id],
+    );
+    const characterId = removed.rows[0]?.character_id as string | undefined;
+    if (characterId) {
+      await this.rebuildRelationshipBranch(client, memory.userId, memory.agent, characterId);
+    }
+  }
+
+  private async rebuildRelationshipBranch(
+    client: PoolClient,
+    userId: string,
+    agent: AgentType,
+    characterId: string,
+  ): Promise<void> {
+    const result = await client.query<RelationshipEventRow>(
+      `SELECT id, user_id, agent_type, character_id, event_type, content, source_turn_id,
+              source_memory_id, target_event_id, created_at
+       FROM relationship_events
+       WHERE user_id = $1 AND agent_type = $2
+       ORDER BY created_at ASC, id ASC`,
+      [userId, agent],
+    );
+    const records = result.rows.map(mapRelationshipEvent);
+    const branch = rebuildRelationshipBranch(characterId, records);
+    await client.query(
+      `INSERT INTO relationship_branches (user_id, agent_type, character_id, state_json)
+       VALUES ($1, $2, $3, $4::jsonb)
+       ON CONFLICT (user_id, agent_type) DO UPDATE SET
+         character_id = EXCLUDED.character_id,
+         state_json = EXCLUDED.state_json,
+         version = relationship_branches.version + 1,
+         updated_at = now()`,
+      [userId, agent, characterId, JSON.stringify(branch)],
+    );
   }
 
   private async lockRoom(client: PoolClient, roomId: string, userId: string): Promise<RoomRow> {

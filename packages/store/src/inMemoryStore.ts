@@ -1,12 +1,21 @@
 import { randomUUID } from 'node:crypto';
-import type { AgentType, MemoryStatus } from '@persona16/engine';
+import {
+  applyRelationshipEvent,
+  createRelationshipBranch,
+  forgetRelationshipEvidence as forgetBranchEvidence,
+  type AgentType,
+  type MemoryStatus,
+} from '@persona16/engine';
 import type {
+  AppendRelationshipEventInput,
   CompleteTurnInput,
   CreateMemoryCandidatesInput,
   CreateRoomInput,
   FeedbackRecord,
   FailedTurnObservability,
   MemoryRecord,
+  RelationshipBranchRecord,
+  RelationshipEventRecord,
   LookupTurnInput,
   PersistedTurnEvent,
   PersonaStore,
@@ -19,6 +28,12 @@ import type {
   UpdateRoomInput,
 } from './types';
 import { StoreError } from './types';
+import {
+  rebuildRelationshipBranch,
+  relationshipCharacterId,
+  sameRelationshipEvent,
+  relationshipEventFromMemory,
+} from './relationshipProjection';
 
 interface StoredTurn {
   id: string;
@@ -49,6 +64,14 @@ function cloneMemory(memory: MemoryRecord): MemoryRecord {
   return { ...memory, createdAt: new Date(memory.createdAt), updatedAt: new Date(memory.updatedAt) };
 }
 
+function cloneRelationshipEvent(record: RelationshipEventRecord): RelationshipEventRecord {
+  return { ...structuredClone(record), createdAt: new Date(record.createdAt) };
+}
+
+function cloneRelationshipBranch(record: RelationshipBranchRecord): RelationshipBranchRecord {
+  return { ...record, branch: structuredClone(record.branch), updatedAt: new Date(record.updatedAt) };
+}
+
 function cloneFeedback(feedback: FeedbackRecord): FeedbackRecord {
   return {
     ...feedback,
@@ -62,6 +85,8 @@ export class InMemoryPersonaStore implements PersonaStore {
   private readonly rooms = new Map<string, RoomRecord>();
   private readonly turns = new Map<string, StoredTurn>();
   private readonly memories = new Map<string, MemoryRecord>();
+  private readonly relationshipEvents = new Map<string, RelationshipEventRecord>();
+  private readonly relationshipBranches = new Map<string, RelationshipBranchRecord>();
   private readonly feedback = new Map<string, FeedbackRecord>();
   private readonly rateLimits = new Map<string, RateBucket>();
   private readonly now: () => number;
@@ -181,6 +206,10 @@ export class InMemoryPersonaStore implements PersonaStore {
   }
 
   async createMemoryCandidates(input: CreateMemoryCandidatesInput): Promise<MemoryRecord[]> {
+    const sourceTurn = this.turns.get(input.sourceTurnId);
+    if (!sourceTurn || sourceTurn.userId !== input.userId || sourceTurn.status === 'failed') {
+      throw new StoreError('MEMORY_STATUS_CONFLICT', '记忆候选必须来自该用户的有效回合');
+    }
     const now = new Date();
     return input.candidates.map((candidate) => {
       const memory: MemoryRecord = {
@@ -201,16 +230,25 @@ export class InMemoryPersonaStore implements PersonaStore {
     if (!memory || memory.userId !== userId || memory.status === 'deleted') {
       throw new StoreError('MEMORY_NOT_FOUND', '记忆不存在');
     }
-    if (this.turns.get(memory.sourceTurnId)?.status !== 'completed') {
+    const sourceTurn = this.turns.get(memory.sourceTurnId);
+    if (sourceTurn?.userId !== userId || sourceTurn.status !== 'completed') {
       throw new StoreError('MEMORY_STATUS_CONFLICT', '来源回合尚未完成');
     }
     const allowed = memory.status === status
       || memory.status === 'candidate'
       || ((memory.status === 'confirmed' || memory.status === 'rejected') && status === 'deleted');
     if (!allowed) throw new StoreError('MEMORY_STATUS_CONFLICT', '记忆状态不能这样变更');
+    const previousStatus = memory.status;
     memory.status = status;
     memory.version += 1;
     memory.updatedAt = new Date();
+    if (status === 'confirmed') this.projectConfirmedMemory(memory);
+    if (status === 'deleted' && previousStatus === 'confirmed') {
+      for (const [eventId, record] of this.relationshipEvents) {
+        if (record.sourceMemoryId === memory.id) this.relationshipEvents.delete(eventId);
+      }
+      this.rebuildBranch(memory.userId, memory.agent);
+    }
     return cloneMemory(memory);
   }
 
@@ -237,6 +275,104 @@ export class InMemoryPersonaStore implements PersonaStore {
         && (!status || memory.status === status))
       .sort((left, right) => right.updatedAt.getTime() - left.updatedAt.getTime())
       .map(cloneMemory);
+  }
+
+  async listRelationshipEvents(userId: string, agent: AgentType): Promise<RelationshipEventRecord[]> {
+    return [...this.relationshipEvents.values()]
+      .filter((record) => record.userId === userId && record.agent === agent)
+      .sort((left, right) => (
+        left.createdAt.getTime() - right.createdAt.getTime() || left.id.localeCompare(right.id)
+      ))
+      .map(cloneRelationshipEvent);
+  }
+
+  async listRelationshipBranches(userId: string, agents: AgentType[]): Promise<RelationshipBranchRecord[]> {
+    const allowed = new Set(agents);
+    return [...this.relationshipBranches.values()]
+      .filter((record) => record.userId === userId && allowed.has(record.agent))
+      .map(cloneRelationshipBranch);
+  }
+
+  async appendRelationshipEvent(input: AppendRelationshipEventInput): Promise<RelationshipEventRecord> {
+    if (input.event.id.startsWith('memory:')) {
+      throw new StoreError('RELATIONSHIP_EVENT_CONFLICT', 'memory: 前缀仅供已确认 Memory 投影使用');
+    }
+    const sourceTurn = this.turns.get(input.event.sourceTurnId);
+    if (!sourceTurn || sourceTurn.userId !== input.userId || sourceTurn.status !== 'completed') {
+      throw new StoreError('RELATIONSHIP_EVENT_CONFLICT', '关系事件必须来自该用户已完成的回合');
+    }
+    const existing = this.relationshipEvents.get(input.event.id);
+    if (existing) {
+      if (
+        existing.userId === input.userId
+        && existing.agent === input.agent
+        && sameRelationshipEvent(existing.event, input.event)
+      ) return cloneRelationshipEvent(existing);
+      throw new StoreError('RELATIONSHIP_EVENT_CONFLICT', '关系事件 id 已被其他内容占用');
+    }
+
+    const key = `${input.userId}:${input.agent}`;
+    const previous = this.relationshipBranches.get(key);
+    const characterId = previous?.characterId ?? relationshipCharacterId(input.agent);
+    const branch = applyRelationshipEvent(
+      previous?.branch ?? createRelationshipBranch(characterId),
+      input.event,
+    );
+    const record: RelationshipEventRecord = {
+      id: input.event.id,
+      userId: input.userId,
+      agent: input.agent,
+      characterId,
+      event: structuredClone(input.event),
+      createdAt: new Date(this.now()),
+    };
+    this.relationshipEvents.set(record.id, record);
+    this.relationshipBranches.set(key, {
+      userId: input.userId,
+      agent: input.agent,
+      characterId,
+      branch,
+      version: (previous?.version ?? 0) + 1,
+      updatedAt: new Date(this.now()),
+    });
+    return cloneRelationshipEvent(record);
+  }
+
+  async forgetRelationshipEvidence(
+    userId: string,
+    agent: AgentType,
+    evidenceId: string,
+  ): Promise<RelationshipBranchRecord> {
+    const key = `${userId}:${agent}`;
+    const previous = this.relationshipBranches.get(key);
+    if (!previous) throw new StoreError('RELATIONSHIP_EVENT_CONFLICT', '关系分支不存在');
+    let branch;
+    try {
+      branch = forgetBranchEvidence(previous.branch, evidenceId);
+    } catch {
+      throw new StoreError('RELATIONSHIP_EVENT_CONFLICT', '找不到要遗忘的关系依据');
+    }
+    const retainedEventIds = new Set(branch.eventLog.map((event) => event.id));
+    for (const [eventId, record] of this.relationshipEvents) {
+      if (record.userId !== userId || record.agent !== agent || retainedEventIds.has(eventId)) continue;
+      this.relationshipEvents.delete(eventId);
+      if (record.sourceMemoryId) {
+        const memory = this.memories.get(record.sourceMemoryId);
+        if (memory) {
+          memory.status = 'deleted';
+          memory.version += 1;
+          memory.updatedAt = new Date(this.now());
+        }
+      }
+    }
+    const next: RelationshipBranchRecord = {
+      ...previous,
+      branch,
+      version: previous.version + 1,
+      updatedAt: new Date(this.now()),
+    };
+    this.relationshipBranches.set(key, next);
+    return cloneRelationshipBranch(next);
   }
 
   async upsertFeedback(input: UpsertFeedbackInput): Promise<FeedbackRecord> {
@@ -271,6 +407,41 @@ export class InMemoryPersonaStore implements PersonaStore {
     };
     this.feedback.set(key, record);
     return cloneFeedback(record);
+  }
+
+  private projectConfirmedMemory(memory: MemoryRecord): void {
+    const record = relationshipEventFromMemory(memory);
+    const existing = this.relationshipEvents.get(record.id);
+    if (existing) {
+      if (
+        existing.userId === record.userId
+        && existing.agent === record.agent
+        && existing.characterId === record.characterId
+        && existing.sourceMemoryId === record.sourceMemoryId
+        && sameRelationshipEvent(existing.event, record.event)
+      ) return;
+      throw new StoreError('RELATIONSHIP_EVENT_CONFLICT', 'Memory 对应的关系事件已被其他内容占用');
+    }
+    this.relationshipEvents.set(record.id, record);
+    this.rebuildBranch(memory.userId, memory.agent);
+  }
+
+  private rebuildBranch(userId: string, agent: AgentType): void {
+    const records = [...this.relationshipEvents.values()]
+      .filter((record) => record.userId === userId && record.agent === agent);
+    const key = `${userId}:${agent}`;
+    const previous = this.relationshipBranches.get(key);
+    const characterId = previous?.characterId
+      ?? records[0]?.characterId
+      ?? relationshipCharacterId(agent);
+    this.relationshipBranches.set(key, {
+      userId,
+      agent,
+      characterId,
+      branch: rebuildRelationshipBranch(characterId, records),
+      version: (previous?.version ?? 0) + 1,
+      updatedAt: new Date(this.now()),
+    });
   }
 
   async listFeedback(userId: string, roomId: string): Promise<FeedbackRecord[]> {

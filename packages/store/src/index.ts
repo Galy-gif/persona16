@@ -5,6 +5,7 @@ export * as schema from './schema';
 export { StoreError } from './types';
 export type {
   CompleteTurnInput,
+  AppendRelationshipEventInput,
   CreateMemoryCandidatesInput,
   CreateRoomInput,
   FeedbackRating,
@@ -12,6 +13,8 @@ export type {
   FeedbackTag,
   FailedTurnObservability,
   MemoryRecord,
+  RelationshipBranchRecord,
+  RelationshipEventRecord,
   LookupTurnInput,
   PersistedTurnEvent,
   PersonaStore,

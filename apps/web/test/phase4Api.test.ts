@@ -83,6 +83,18 @@ test('completed turn returns the persisted event stream for the same idempotency
   assert.equal(await replay.text(), firstText);
 });
 
+test('relationship shadow read timeout never blocks the production turn', async () => {
+  const room = await createOwnedRoom();
+  room.store.listRelationshipBranches = async () => new Promise<never>(() => undefined);
+
+  const startedAt = Date.now();
+  const response = await runTurn(turnRequest(room, crypto.randomUUID()));
+
+  assert.equal(response.status, 200);
+  assert.match(await response.text(), /"type":"done"/);
+  assert.ok(Date.now() - startedAt < 1_000);
+});
+
 test('another anonymous session cannot read a room', async () => {
   const room = await createOwnedRoom();
   const response = await getRoom(
@@ -113,6 +125,13 @@ test('memory confirmation endpoint moves a candidate into prompt-eligible status
   assert.equal(response.status, 200);
   const confirmed = await room.store.listConfirmedMemories(candidate.userId, ['INTJ']);
   assert.equal(confirmed[0]?.content, '先给结论');
+  const [branch] = await room.store.listRelationshipBranches(candidate.userId, ['INTJ']);
+  assert.equal(branch?.branch.interactionStyle[0]?.content, '先给结论');
+
+  const currentRoom = await room.store.getRoom(room.id, candidate.userId);
+  const shadowTurn = await runTurn(turnRequest({ ...room, version: currentRoom.version }, crypto.randomUUID()));
+  assert.equal(shadowTurn.status, 200);
+  await shadowTurn.text();
 });
 
 test('memory endpoint restores only pending decisions from the requested room', async () => {

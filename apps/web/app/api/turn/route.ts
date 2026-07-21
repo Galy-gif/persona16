@@ -41,7 +41,25 @@ const requestSchema = z.object({
 const engineConfig = defaultConfig();
 const PROMPT_VERSION = 'web-mvp-v2';
 const BUILD_VERSION = (process.env.PERSONA16_BUILD_VERSION ?? process.env.VERCEL_GIT_COMMIT_SHA ?? 'development').slice(0, 80);
+const RELATIONSHIP_SHADOW_READ_TIMEOUT_MS = 100;
 let piRuntimePromise: Promise<AgentRuntime | undefined> | undefined;
+
+async function observeWithin<T>(promise: Promise<T>, timeoutMs: number): Promise<
+  { ok: true; value: T } | { ok: false }
+> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const observed = promise
+    .then((value) => ({ ok: true as const, value }))
+    .catch(() => ({ ok: false as const }));
+  const timeout = new Promise<{ ok: false }>((resolve) => {
+    timer = setTimeout(() => resolve({ ok: false }), timeoutMs);
+  });
+  try {
+    return await Promise.race([observed, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 function getRuntime(): Promise<AgentRuntime | undefined> {
   if (engineConfig.runtime !== 'pi') return Promise.resolve(undefined);
@@ -163,6 +181,18 @@ export async function POST(request: Request): Promise<Response> {
 
   let room: RoomState;
   let safety: Awaited<ReturnType<typeof classifySafety>>;
+  let relationshipShadow: {
+    mode: 'observe_only';
+    status: 'loaded' | 'unavailable';
+    branches: Array<{
+      agent: string;
+      version: number;
+      climate: string;
+      eventCount: number;
+      boundaryCount: number;
+      tensionCount: number;
+    }>;
+  } = { mode: 'observe_only', status: 'loaded', branches: [] };
   const modelBudget = createModelBudget();
   try {
     room = structuredClone(reservation.room.state);
@@ -172,8 +202,27 @@ export async function POST(request: Request): Promise<Response> {
       if (session.setCookie) response.headers.set('Set-Cookie', session.setCookie);
       return response;
     }
-    const confirmed = await store.listConfirmedMemories(session.userId, room.agents.map((agent) => agent.type));
+    const roomAgentTypes = room.agents.map((agent) => agent.type);
+    const [confirmed, shadowResult] = await Promise.all([
+      store.listConfirmedMemories(session.userId, roomAgentTypes),
+      observeWithin(
+        store.listRelationshipBranches(session.userId, roomAgentTypes),
+        RELATIONSHIP_SHADOW_READ_TIMEOUT_MS,
+      ),
+    ]);
     applyConfirmedMemories(room, confirmed);
+    relationshipShadow = {
+      mode: 'observe_only',
+      status: shadowResult.ok ? 'loaded' : 'unavailable',
+      branches: (shadowResult.ok ? shadowResult.value : []).map(({ agent, branch, version }) => ({
+        agent,
+        version,
+        climate: branch.recentClimate,
+        eventCount: branch.eventLog.length,
+        boundaryCount: branch.boundaries.length,
+        tensionCount: branch.tensions.filter((tension) => tension.status !== 'resolved').length,
+      })),
+    };
     safety = await classifySafety(body.command.text, engineConfig.directorModel, undefined, modelBudget, request.signal);
   } catch {
     const budgetSnapshot = modelBudget.snapshot();
@@ -316,6 +365,7 @@ export async function POST(request: Request): Promise<Response> {
             safety: { level: safety.level, reason: safety.reason, bypassRoom: safety.bypassRoom },
             plan: tracePlan,
             roomActions,
+            relationshipShadow,
             observerFailures,
             loop,
           },

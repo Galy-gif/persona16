@@ -107,6 +107,120 @@ test('memory confirmation lifecycle excludes rejected and deleted records', asyn
   assert.deepEqual(await store.listConfirmedMemories('user-a', ['INTJ']), []);
 });
 
+test('memory candidates cannot borrow another user\'s source turn', async () => {
+  const store = new InMemoryPersonaStore();
+  await completedTurn(store, 'user-b', 'turn-b');
+
+  await assert.rejects(
+    () => store.createMemoryCandidates({
+      userId: 'user-a',
+      sourceTurnId: 'turn-b',
+      candidates: [{ agent: 'INTJ', kind: 'preference', content: '先给结论' }],
+    }),
+    (error: unknown) => (error as StoreError).code === 'MEMORY_STATUS_CONFLICT',
+  );
+});
+
+test('confirmed memories project idempotently into relationship events and rebuild branch state', async () => {
+  const store = new InMemoryPersonaStore();
+  await completedTurn(store, 'user-a', 'turn-relationship');
+  const [preference, boundary, pattern] = await store.createMemoryCandidates({
+    userId: 'user-a',
+    sourceTurnId: 'turn-relationship',
+    candidates: [
+      { agent: 'INTJ', kind: 'preference', content: '先给结论' },
+      { agent: 'INTJ', kind: 'boundary', content: '不要连续追问' },
+      { agent: 'INTJ', kind: 'repeated_pattern', content: '遇到压力时会先消失' },
+    ],
+  });
+
+  await store.updateMemoryStatus('user-a', preference!.id, 'confirmed');
+  const firstBranch = (await store.listRelationshipBranches('user-a', ['INTJ']))[0]!;
+  assert.equal(firstBranch.characterId, 'lin-heng');
+  assert.equal(firstBranch.branch.interactionStyle[0]?.content, '先给结论');
+  assert.equal(firstBranch.branch.interactionStyle[0]?.sourceTurnId, 'turn-relationship');
+  assert.equal(firstBranch.branch.eventLog[0]?.id, `memory:${preference!.id}`);
+
+  await store.updateMemoryStatus('user-a', preference!.id, 'confirmed');
+  assert.equal((await store.listRelationshipEvents('user-a', 'INTJ')).length, 1);
+  assert.equal((await store.listRelationshipBranches('user-a', ['INTJ']))[0]!.version, firstBranch.version);
+
+  await store.updateMemoryStatus('user-a', boundary!.id, 'confirmed');
+  await store.updateMemoryStatus('user-a', pattern!.id, 'confirmed');
+  const populated = (await store.listRelationshipBranches('user-a', ['INTJ']))[0]!;
+  assert.equal(populated.branch.boundaries[0]?.content, '不要连续追问');
+  assert.equal(populated.branch.sharedContext[0]?.content, '遇到压力时会先消失');
+  assert.equal(populated.branch.recentClimate, 'unfamiliar');
+  assert.equal(populated.branch.eventLog.length, 3);
+
+  await store.updateMemoryStatus('user-a', preference!.id, 'deleted');
+  const remainingEvents = await store.listRelationshipEvents('user-a', 'INTJ');
+  const rebuilt = (await store.listRelationshipBranches('user-a', ['INTJ']))[0]!;
+  assert.equal(remainingEvents.some((record) => record.sourceMemoryId === preference!.id), false);
+  assert.equal(rebuilt.branch.interactionStyle.length, 0);
+  assert.equal(rebuilt.branch.boundaries.length, 1);
+  assert.equal(rebuilt.branch.eventLog.length, 2);
+});
+
+test('relationship events from completed turns advance the persisted branch idempotently', async () => {
+  const store = new InMemoryPersonaStore();
+  await completedTurn(store, 'user-a', 'turn-conflict');
+  const rupture = {
+    id: 'rupture-1',
+    type: 'meaningful_disagreement' as const,
+    sourceTurnId: 'turn-conflict',
+    content: '人物越过边界，继续替用户安排下一步',
+  };
+
+  await assert.rejects(
+    () => store.appendRelationshipEvent({
+      userId: 'user-a',
+      agent: 'INTJ',
+      event: { ...rupture, id: 'memory:reserved' },
+    }),
+    (error: unknown) => (error as StoreError).code === 'RELATIONSHIP_EVENT_CONFLICT',
+  );
+
+  await store.appendRelationshipEvent({ userId: 'user-a', agent: 'INTJ', event: rupture });
+  const tense = (await store.listRelationshipBranches('user-a', ['INTJ']))[0]!;
+  assert.equal(tense.branch.recentClimate, 'tense');
+  assert.equal(tense.branch.tensions[0]?.id, 'tension:rupture-1');
+
+  await store.appendRelationshipEvent({ userId: 'user-a', agent: 'INTJ', event: rupture });
+  assert.equal((await store.listRelationshipEvents('user-a', 'INTJ')).length, 1);
+  assert.equal((await store.listRelationshipBranches('user-a', ['INTJ']))[0]?.version, tense.version);
+
+  await store.appendRelationshipEvent({
+    userId: 'user-a',
+    agent: 'INTJ',
+    event: {
+      id: 'repair-1',
+      type: 'repair_attempted',
+      sourceTurnId: 'turn-conflict',
+      content: '人物承认越界并停止继续安排',
+      tensionId: 'tension:rupture-1',
+    },
+  });
+  assert.equal(
+    (await store.listRelationshipBranches('user-a', ['INTJ']))[0]?.branch.recentClimate,
+    'repairing',
+  );
+
+  await assert.rejects(
+    () => store.appendRelationshipEvent({
+      userId: 'user-a',
+      agent: 'INTJ',
+      event: { ...rupture, content: '同一 id 的另一件事' },
+    }),
+    (error: unknown) => (error as StoreError).code === 'RELATIONSHIP_EVENT_CONFLICT',
+  );
+
+  const forgotten = await store.forgetRelationshipEvidence('user-a', 'INTJ', 'tension:rupture-1');
+  assert.equal(forgotten.branch.eventLog.length, 0);
+  assert.equal(forgotten.branch.recentClimate, 'unfamiliar');
+  assert.equal((await store.listRelationshipEvents('user-a', 'INTJ')).length, 0);
+});
+
 test('rejected memory cannot later be silently confirmed', async () => {
   const store = new InMemoryPersonaStore();
   await completedTurn(store, 'user-a', 'turn-a');

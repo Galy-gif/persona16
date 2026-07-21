@@ -76,6 +76,60 @@ test('PostgreSQL migration supports cross-connection turn locking and replay', {
     await firstStore.failTurn(userId, room.id, accepted.turnId);
     await secondStore.updateMemoryStatus(userId, candidate.id, 'confirmed');
     assert.equal((await firstStore.listConfirmedMemories(userId, ['INTJ']))[0]?.content, '先给结论');
+    const relationshipEvent = (await firstStore.listRelationshipEvents(userId, 'INTJ'))[0]!;
+    const relationshipBranch = (await secondStore.listRelationshipBranches(userId, ['INTJ']))[0]!;
+    assert.equal(relationshipEvent.sourceMemoryId, candidate.id);
+    assert.equal(relationshipEvent.event.type, 'preference_stated');
+    assert.equal(relationshipBranch.characterId, 'lin-heng');
+    assert.equal(relationshipBranch.branch.interactionStyle[0]?.content, '先给结论');
+    const initialBranchVersion = relationshipBranch.version;
+    await firstStore.updateMemoryStatus(userId, candidate.id, 'confirmed');
+    assert.equal((await secondStore.listRelationshipEvents(userId, 'INTJ')).length, 1);
+    assert.equal(
+      (await secondStore.listRelationshipBranches(userId, ['INTJ']))[0]?.version,
+      initialBranchVersion,
+    );
+    await assert.rejects(
+      () => firstStore.appendRelationshipEvent({
+        userId,
+        agent: 'INTJ',
+        event: {
+          id: 'memory:reserved',
+          type: 'preference_stated',
+          sourceTurnId: accepted.turnId,
+          content: '不能占用投影前缀',
+        },
+      }),
+      (error: unknown) => (error as { code?: string }).code === 'RELATIONSHIP_EVENT_CONFLICT',
+    );
+    await firstStore.updateMemoryStatus(userId, candidate.id, 'deleted');
+    assert.equal((await secondStore.listRelationshipEvents(userId, 'INTJ')).length, 0);
+    assert.equal(
+      (await secondStore.listRelationshipBranches(userId, ['INTJ']))[0]?.branch.eventLog.length,
+      0,
+    );
+    const rupture = {
+      id: `rupture:${crypto.randomUUID()}`,
+      type: 'meaningful_disagreement' as const,
+      sourceTurnId: accepted.turnId,
+      content: '人物越过了用户刚刚表达的边界',
+    };
+    await firstStore.appendRelationshipEvent({ userId, agent: 'INTJ', event: rupture });
+    const tenseBranch = (await secondStore.listRelationshipBranches(userId, ['INTJ']))[0]!;
+    assert.equal(tenseBranch.branch.recentClimate, 'tense');
+    await secondStore.appendRelationshipEvent({ userId, agent: 'INTJ', event: rupture });
+    assert.equal((await firstStore.listRelationshipEvents(userId, 'INTJ')).length, 1);
+    assert.equal(
+      (await firstStore.listRelationshipBranches(userId, ['INTJ']))[0]?.version,
+      tenseBranch.version,
+    );
+    const forgotten = await firstStore.forgetRelationshipEvidence(
+      userId,
+      'INTJ',
+      `tension:${rupture.id}`,
+    );
+    assert.equal(forgotten.branch.eventLog.length, 0);
+    assert.equal((await secondStore.listRelationshipEvents(userId, 'INTJ')).length, 0);
 
     const [roomCandidate] = await firstStore.createMemoryCandidates({
       userId,
@@ -97,6 +151,25 @@ test('PostgreSQL migration supports cross-connection turn locking and replay', {
       sourceTurnId: otherTurnId,
       candidates: [{ agent: 'INTJ', kind: 'preference', content: '另一个房间先给例子' }],
     });
+    const foreignUserId = crypto.randomUUID();
+    const foreignRoom = await firstStore.createRoom({ userId: foreignUserId, state: createRoom(['INTJ']) });
+    const foreignTurnId = crypto.randomUUID();
+    await firstStore.reserveTurn({
+      userId: foreignUserId, roomId: foreignRoom.id, turnId: foreignTurnId, roomVersion: 1,
+      requestHash: 'foreign-memory', promptVersion: 'test-v1', model: 'fake:test',
+    });
+    await firstStore.completeTurn({
+      userId: foreignUserId, roomId: foreignRoom.id, turnId: foreignTurnId,
+      state: foreignRoom.state, stopReason: 'complete', events: [],
+    });
+    await assert.rejects(
+      () => firstStore.createMemoryCandidates({
+        userId,
+        sourceTurnId: foreignTurnId,
+        candidates: [{ agent: 'INTJ', kind: 'preference', content: '伪造的跨用户来源' }],
+      }),
+      (error: unknown) => (error as { code?: string }).code === 'MEMORY_STATUS_CONFLICT',
+    );
     assert.deepEqual(
       (await secondStore.listMemories(userId, 'candidate', room.id)).map((memory) => memory.id),
       [roomCandidate?.id],

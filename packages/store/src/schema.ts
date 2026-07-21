@@ -1,4 +1,4 @@
-import type { RoomState } from '@persona16/engine';
+import type { RelationshipBranch, RoomState } from '@persona16/engine';
 import {
   boolean,
   index,
@@ -102,6 +102,31 @@ export const memories = pgTable('memories', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [index('memories_user_agent_status_idx').on(table.userId, table.agentType, table.status, table.updatedAt)]);
+
+export const relationshipEvents = pgTable('relationship_events', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  agentType: text('agent_type').notNull(),
+  characterId: text('character_id').notNull(),
+  eventType: text('event_type').notNull(),
+  content: text('content').notNull(),
+  sourceTurnId: text('source_turn_id').notNull().references(() => turnRuns.id, { onDelete: 'cascade' }),
+  sourceMemoryId: text('source_memory_id').references(() => memories.id, { onDelete: 'cascade' }),
+  targetEventId: text('target_event_id'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex('relationship_events_source_memory_unique').on(table.sourceMemoryId),
+  index('relationship_events_user_agent_created_idx').on(table.userId, table.agentType, table.createdAt),
+]);
+
+export const relationshipBranches = pgTable('relationship_branches', {
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  agentType: text('agent_type').notNull(),
+  characterId: text('character_id').notNull(),
+  version: integer('version').notNull().default(1),
+  state: jsonb('state_json').$type<RelationshipBranch>().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [primaryKey({ columns: [table.userId, table.agentType] })]);
 
 export const feedback = pgTable('feedback', {
   id: text('id').primaryKey(),

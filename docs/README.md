@@ -25,6 +25,7 @@
 - [循环 Hook 与待办恢复](adr/0005-loop-hooks-and-pending-work-recovery.md)
 - [共享正典人物与私有关系](adr/0006-canonical-characters-private-relationships.md)
 - [上下文投影与评测层级](adr/0007-context-projection-and-evaluation-levels.md)
+- [关系事件持久化与影子 Branch](adr/0008-persist-relationship-events-and-shadow-branches.md)
 
 ADR 记录决策当时的背景。新结论若改变既有决策，应新增 ADR，而不是改写旧文档。
 
