@@ -83,6 +83,56 @@ test('completed turn returns the persisted event stream for the same idempotency
   assert.equal(await replay.text(), firstText);
 });
 
+test('turn conflicts return a Harness-owned recovery decision', async () => {
+  const room = await createOwnedRoom();
+  const response = await runTurn(turnRequest(room, crypto.randomUUID(), { roomVersion: room.version + 1 }));
+  const body = await response.json() as {
+    error: { code: string; recoverable: boolean; recoveryAction: string; outcome: string };
+  };
+
+  assert.equal(response.status, 409);
+  assert.deepEqual(body.error, {
+    code: 'ROOM_VERSION_CONFLICT',
+    message: '房间已在其他页面更新，请刷新后重试',
+    recoverable: true,
+    recoveryAction: 'refresh',
+    outcome: 'known_failed',
+  });
+});
+
+test('a missing room is a confirmed stop instead of an unknown turn result', async () => {
+  const room = await createOwnedRoom();
+  const response = await runTurn(turnRequest({ ...room, id: crypto.randomUUID() }, crypto.randomUUID()));
+  const body = await response.json() as {
+    error: { code: string; recoverable: boolean; recoveryAction: string; outcome: string };
+  };
+
+  assert.equal(response.status, 404);
+  assert.deepEqual(body.error, {
+    code: 'ROOM_NOT_FOUND',
+    message: '房间不存在',
+    recoverable: false,
+    recoveryAction: 'stop',
+    outcome: 'known_failed',
+  });
+});
+
+test('an uncertain completeTurn result must refresh the original turn instead of retrying', async () => {
+  const room = await createOwnedRoom();
+  room.store.completeTurn = async () => {
+    throw new Error('synthetic commit acknowledgement failure');
+  };
+
+  const response = await runTurn(turnRequest(room, crypto.randomUUID()));
+  const events = parseEvents(await response.text());
+  const failure = events.at(-1);
+
+  assert.equal(failure?.type, 'error');
+  assert.equal(failure?.code, 'TURN_RESULT_UNKNOWN');
+  assert.equal(failure?.outcome, 'unknown');
+  assert.equal(failure?.recoveryAction, 'refresh');
+});
+
 test('relationship shadow read timeout never blocks the production turn', async () => {
   const room = await createOwnedRoom();
   room.store.listRelationshipBranches = async () => new Promise<never>(() => undefined);

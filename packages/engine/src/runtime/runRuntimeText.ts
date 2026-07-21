@@ -1,4 +1,5 @@
 import type { AgentRuntime, RuntimeEvent, RuntimeRequest, RuntimeStopReason } from './agentRuntime';
+import { RuntimeExecutionError, type RuntimeFailureDetails } from './recoveryPolicy';
 
 export interface RunRuntimeTextOptions {
   signal?: AbortSignal;
@@ -13,7 +14,7 @@ export async function runRuntimeText(
 ): Promise<string> {
   let streamedText = '';
   let finalText: string | undefined;
-  let runtimeError: Error | undefined;
+  let runtimeFailure: RuntimeFailureDetails | undefined;
   let stopReason: RuntimeStopReason | undefined;
 
   for await (const event of runtime.run(request, options.signal)) {
@@ -22,18 +23,49 @@ export async function runRuntimeText(
       streamedText += event.delta;
       options.onDelta?.(event.delta);
     } else if (event.type === 'run_error') {
-      runtimeError = new Error(`${event.code}: ${event.message}`);
+      runtimeFailure = {
+        code: event.code,
+        message: event.message,
+        recoverable: event.recoverable,
+      };
     } else if (event.type === 'run_end') {
       finalText = event.text;
       stopReason = event.stopReason;
     }
   }
 
-  if (runtimeError) throw runtimeError;
+  if (runtimeFailure) {
+    throw new RuntimeExecutionError({
+      ...runtimeFailure,
+      stopReason,
+      hadPartialText: streamedText.length > 0,
+    });
+  }
+  if (!stopReason) {
+    throw new RuntimeExecutionError({
+      code: 'runtime_missing_terminal',
+      message: 'runtime ended without a terminal event',
+      recoverable: true,
+      hadPartialText: streamedText.length > 0,
+    });
+  }
   if (stopReason && stopReason !== 'complete') {
-    throw new Error(`runtime stopped: ${stopReason}`);
+    throw new RuntimeExecutionError({
+      code: `runtime_${stopReason}`,
+      message: `runtime stopped: ${stopReason}`,
+      recoverable: stopReason !== 'aborted' && stopReason !== 'error',
+      stopReason,
+      hadPartialText: streamedText.length > 0,
+    });
   }
   const text = (finalText ?? streamedText).trim();
-  if (!text) throw new Error('runtime returned no text');
+  if (!text) {
+    throw new RuntimeExecutionError({
+      code: 'runtime_no_text',
+      message: 'runtime returned no text',
+      recoverable: true,
+      stopReason,
+    });
+  }
   return text;
 }

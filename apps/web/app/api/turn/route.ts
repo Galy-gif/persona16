@@ -2,6 +2,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import {
   AGENT_TYPES,
   DeliveryCallbackError,
+  ModelBudgetExceededError,
+  RuntimeExecutionError,
   TURN_EVENT_VERSION,
   applyConfirmedMemories,
   classifySafety,
@@ -9,10 +11,13 @@ import {
   createModelBudget,
   defaultConfig,
   extractMemoryCandidate,
+  decideRecoveryAction,
   runTurn,
   safetyResponse,
   type AgentType,
   type AgentRuntime,
+  type FailureOutcome,
+  type RecoveryAction,
   type RoomState,
   type TurnStopReason,
 } from '@persona16/engine';
@@ -43,6 +48,42 @@ const PROMPT_VERSION = 'web-mvp-v3';
 const BUILD_VERSION = (process.env.PERSONA16_BUILD_VERSION ?? process.env.VERCEL_GIT_COMMIT_SHA ?? 'development').slice(0, 80);
 const RELATIONSHIP_SHADOW_READ_TIMEOUT_MS = 100;
 let piRuntimePromise: Promise<AgentRuntime | undefined> | undefined;
+
+interface TurnRecoveryDetails extends Record<string, unknown> {
+  recoverable: boolean;
+  recoveryAction: RecoveryAction;
+  outcome: FailureOutcome;
+  retryAfterMs?: number;
+}
+
+function turnRecoveryDetails(
+  code: string,
+  status: number,
+  options: { outcome?: FailureOutcome; retryAfterMs?: number } = {},
+): TurnRecoveryDetails {
+  const outcome = options.outcome ?? (code === 'TURN_IN_PROGRESS' ? 'unknown' : 'known_failed');
+  const recoverable = outcome === 'unknown'
+    || code === 'ROOM_VERSION_CONFLICT'
+    || code === 'TURN_IN_PROGRESS'
+    || code === 'TURN_FAILED'
+    || code === 'RATE_LIMITED'
+    || status === 408
+    || status === 429
+    || status >= 500;
+  return {
+    recoverable,
+    recoveryAction: decideRecoveryAction({ code, recoverable, outcome }),
+    outcome,
+    ...(options.retryAfterMs !== undefined ? { retryAfterMs: options.retryAfterMs } : {}),
+  };
+}
+
+function unknownTurnStoreRecovery(code: string, status: number): TurnRecoveryDetails {
+  if (code === 'INTERNAL_ERROR') {
+    return turnRecoveryDetails(code, status, { outcome: 'unknown' });
+  }
+  return turnRecoveryDetails(code, status);
+}
 
 async function observeWithin<T>(promise: Promise<T>, timeoutMs: number): Promise<
   { ok: true; value: T } | { ok: false }
@@ -93,7 +134,13 @@ function conflictResponse(code: string, setCookie?: string): Response {
     IDEMPOTENCY_MISMATCH: '同一个 turnId 不能用于不同请求',
     TURN_FAILED: '这个 turnId 已失败，请使用新的 turnId 重试',
   };
-  const response = jsonError(code, messages[code] ?? '请求冲突', 409);
+  const response = jsonError(
+    code,
+    messages[code] ?? '请求冲突',
+    409,
+    undefined,
+    turnRecoveryDetails(code, 409),
+  );
   if (setCookie) response.headers.set('Set-Cookie', setCookie);
   return response;
 }
@@ -117,7 +164,11 @@ function safetyBypass(
 }
 
 export async function POST(request: Request): Promise<Response> {
-  const body = await parseJson(request, requestSchema);
+  const body = await parseJson(
+    request,
+    requestSchema,
+    turnRecoveryDetails('INVALID_REQUEST', 400),
+  );
   if (body instanceof Response) return body;
   const turnStartedAt = Date.now();
   const session = resolveAnonymousSession(request);
@@ -132,7 +183,7 @@ export async function POST(request: Request): Promise<Response> {
       requestHash: hash,
     });
   } catch (error) {
-    const response = storeErrorResponse(error);
+    const response = storeErrorResponse(error, unknownTurnStoreRecovery);
     if (session.setCookie) response.headers.set('Set-Cookie', session.setCookie);
     return response;
   }
@@ -146,13 +197,25 @@ export async function POST(request: Request): Promise<Response> {
     ipRate = await store.consumeRateLimit(`ip:${clientIpKey(request)}`, 100, 60_000);
     if (ipRate.allowed) userRate = await store.consumeRateLimit(`user:${session.userId}`, 20, 60_000);
   } catch {
-    const response = jsonError('RATE_LIMIT_UNAVAILABLE', '请求预处理失败，请稍后重试', 503);
+    const response = jsonError(
+      'RATE_LIMIT_UNAVAILABLE',
+      '请求预处理失败，请稍后重试',
+      503,
+      undefined,
+      turnRecoveryDetails('RATE_LIMIT_UNAVAILABLE', 503),
+    );
     if (session.setCookie) response.headers.set('Set-Cookie', session.setCookie);
     return response;
   }
   if (!ipRate.allowed || !userRate?.allowed) {
     const retryAfterSeconds = Math.max(userRate?.retryAfterSeconds ?? 0, ipRate.retryAfterSeconds);
-    const response = jsonError('RATE_LIMITED', '发送得太快，请稍后再试', 429, { 'Retry-After': String(retryAfterSeconds) });
+    const response = jsonError(
+      'RATE_LIMITED',
+      '发送得太快，请稍后再试',
+      429,
+      { 'Retry-After': String(retryAfterSeconds) },
+      turnRecoveryDetails('RATE_LIMITED', 429, { retryAfterMs: retryAfterSeconds * 1_000 }),
+    );
     if (session.setCookie) response.headers.set('Set-Cookie', session.setCookie);
     return response;
   }
@@ -172,7 +235,7 @@ export async function POST(request: Request): Promise<Response> {
       model: `agent=${engineConfig.provider}:${engineConfig.agentModel};director=${engineConfig.provider}:${engineConfig.directorModel}`,
     });
   } catch (error) {
-    const response = storeErrorResponse(error);
+    const response = storeErrorResponse(error, unknownTurnStoreRecovery);
     if (session.setCookie) response.headers.set('Set-Cookie', session.setCookie);
     return response;
   }
@@ -198,7 +261,13 @@ export async function POST(request: Request): Promise<Response> {
     room = structuredClone(reservation.room.state);
     if (body.command.calledAgent && !room.agents.some((agent) => agent.type === body.command.calledAgent)) {
       await store.failTurn(session.userId, body.roomId, body.turnId);
-      const response = jsonError('UNKNOWN_AGENT', '该 Agent 不在房间中', 400);
+      const response = jsonError(
+        'UNKNOWN_AGENT',
+        '该 Agent 不在房间中',
+        400,
+        undefined,
+        turnRecoveryDetails('UNKNOWN_AGENT', 400),
+      );
       if (session.setCookie) response.headers.set('Set-Cookie', session.setCookie);
       return response;
     }
@@ -235,7 +304,13 @@ export async function POST(request: Request): Promise<Response> {
       latency: { totalMs: Math.max(0, Date.now() - turnStartedAt), firstTokenMs: null },
       trace: { v: 1, stage: 'preprocessing', errorCode: 'PREPROCESSING_FAILED' },
     }).catch(() => undefined);
-    const response = jsonError('PREPROCESSING_FAILED', '请求预处理失败，请稍后重试', 503);
+    const response = jsonError(
+      'PREPROCESSING_FAILED',
+      '请求预处理失败，请稍后重试',
+      503,
+      undefined,
+      turnRecoveryDetails('PREPROCESSING_FAILED', 503),
+    );
     if (session.setCookie) response.headers.set('Set-Cookie', session.setCookie);
     return response;
   }
@@ -249,6 +324,7 @@ export async function POST(request: Request): Promise<Response> {
       let sentEventCount = 0;
       let firstTokenAt: number | undefined;
       let closed = false;
+      let completionAttempted = false;
       const send = (event: PersistedTurnEvent, persist = true) => {
         if (persist) events.push(event);
         if (!closed) controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
@@ -376,6 +452,7 @@ export async function POST(request: Request): Promise<Response> {
           plan: planSummary, loop, safetyLevel: safety.level,
           modelBudget: budgetSnapshot,
         });
+        completionAttempted = true;
         await store.completeTurn({
           userId: session.userId,
           roomId: body.roomId,
@@ -390,10 +467,29 @@ export async function POST(request: Request): Promise<Response> {
       } catch (error) {
         const cancelled = request.signal.aborted || (error instanceof Error && error.name === 'AbortError');
         const deliveryFailed = error instanceof DeliveryCallbackError;
-        const errorCode = cancelled ? 'CANCELLED' : deliveryFailed ? 'DELIVERY_FAILED' : 'TURN_FAILED';
+        const resultUnknown = deliveryFailed || completionAttempted;
+        const effectiveCancellation = cancelled && !resultUnknown;
+        const runtimeFailure = error instanceof RuntimeExecutionError ? error : undefined;
+        const budgetExceeded = error instanceof ModelBudgetExceededError;
+        const errorCode = resultUnknown
+          ? 'TURN_RESULT_UNKNOWN'
+          : effectiveCancellation
+            ? 'CANCELLED'
+            : budgetExceeded
+              ? 'MODEL_BUDGET_EXHAUSTED'
+              : runtimeFailure?.code.toUpperCase() ?? 'TURN_FAILED';
+        const recoverable = effectiveCancellation || budgetExceeded ? false : runtimeFailure?.recoverable ?? true;
+        const failureOutcome = resultUnknown ? 'unknown' : 'known_failed';
+        const recoveryAction = decideRecoveryAction({
+          code: errorCode,
+          recoverable,
+          outcome: failureOutcome,
+          stopReason: runtimeFailure?.stopReason,
+          userCancelled: effectiveCancellation,
+        });
         const budgetSnapshot = modelBudget.snapshot();
         await store.failTurn(session.userId, body.roomId, body.turnId, {
-          stopReason: cancelled ? 'cancelled' : 'error',
+          stopReason: effectiveCancellation ? 'cancelled' : 'error',
           usage: {
             status: budgetSnapshot.actualUsage.calls > 0 ? 'actual_provider_usage' : 'no_provider_usage',
             ...budgetSnapshot.actualUsage,
@@ -419,12 +515,20 @@ export async function POST(request: Request): Promise<Response> {
           turnId: body.turnId,
           type: 'error',
           code: errorCode,
-          message: cancelled
-            ? '生成已取消'
-            : deliveryFailed
-              ? '回复投递失败，请刷新房间查看最终状态'
-              : '生成失败，请使用新的请求重试',
-          recoverable: true,
+          message: resultUnknown
+            ? '本轮结果尚未确认，请先检查原 Turn 的最终状态'
+            : effectiveCancellation
+              ? '生成已取消'
+              : budgetExceeded
+                ? '本轮已达到运行预算，已停止生成'
+                : recoveryAction === 'transform'
+                  ? '本轮输出未完整生成，请调整内容后重试'
+                  : recoveryAction === 'retry'
+                    ? '生成失败，可以重新发起这一轮'
+                    : '生成失败，当前请求不能原样重试',
+          recoverable,
+          recoveryAction,
+          outcome: failureOutcome,
         }, false);
       } finally {
         close();

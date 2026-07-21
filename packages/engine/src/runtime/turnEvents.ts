@@ -1,4 +1,5 @@
 import type { AgentType, Scene, SpeechType, UserEmotion } from '../types';
+import type { FailureOutcome, RecoveryAction } from './recoveryPolicy';
 
 export const TURN_EVENT_VERSION = 1 as const;
 
@@ -40,4 +41,12 @@ export type TurnStreamEvent =
   | (VersionedTurnEvent & { type: 'safety_notice'; level: 'crisis' | 'blocked'; text: string })
   | (VersionedTurnEvent & { type: 'memory_candidate'; candidate: MemoryCandidateEvent })
   | (VersionedTurnEvent & { type: 'turn_end'; stopReason: TurnStopReason; roomVersion: number })
-  | (VersionedTurnEvent & { type: 'error'; code: string; message: string; recoverable: boolean });
+  | (VersionedTurnEvent & {
+      type: 'error';
+      code: string;
+      message: string;
+      recoverable: boolean;
+      recoveryAction: RecoveryAction;
+      outcome: FailureOutcome;
+      retryAfterMs?: number;
+    });

@@ -14,7 +14,7 @@ MVP 要验证的不是“能不能同时调用多个 LLM”，而是下面这条
 
 技术上采用两层循环：
 
-1. **Pi 单 Agent Loop**：负责模型、上下文、流式事件、工具、取消、重试和运行时状态。
+1. **Pi 单 Agent Loop**：负责模型、上下文、流式事件、工具、取消、typed stop reason 和底层可恢复提示；恢复路由由 persona16 Harness 负责。
 2. **persona16 房间循环**：负责谁说话、为什么说、是否沉默、是否回应分歧、何时总结和何时结束。
 
 MVP 预计按单人开发节奏分 6 个阶段、约 5–6 周完成。每个阶段有独立验收门；上一阶段未达标，不堆后续功能。
@@ -196,7 +196,7 @@ type RoomAction =
 - 连续观点重复、没有新增价值或安全升级时停止。
 - 需要用户补信息时以一个追问结束，不继续自说自话。
 
-**输出、状态和边界：** 输出有序发言、评分解释、预算使用和停止原因。控制模型缺失某 Agent 评估时按 0 分；Pi 执行失败最多重试一次，仍失败则结束当前说话者并返回可恢复错误。
+**输出、状态和边界：** 输出有序发言、评分解释、预算使用和停止原因。控制模型缺失某 Agent 评估时按 0 分。Pi 执行失败不统一自动重试：Runtime 保留错误码、停止原因和可恢复提示，Harness 再根据用户取消、结果确定性、幂等状态和预算选择 `retry`、`transform`、`refresh` 或 `stop`。当前实现不自动切备用模型。
 
 ### L5 输出
 
@@ -211,10 +211,12 @@ type TurnEvent =
   | { v: 1; type: 'speaker_end'; agent: AgentType; text: string }
   | { v: 1; type: 'memory_candidate'; candidate: MemoryCandidate }
   | { v: 1; type: 'turn_end'; stopReason: StopReason; roomVersion: number }
-  | { v: 1; type: 'error'; code: string; recoverable: boolean };
+  | { v: 1; type: 'error'; code: string; recoverable: boolean; recoveryAction: RecoveryAction; outcome: 'known_failed' | 'unknown' };
 ```
 
-服务端监听 `request.signal`，客户端断开时中止 Pi Runtime。第一版不追求断线续传，但必须避免断线后后台继续无限消耗。
+恢复动作当前状态：JSON 解析和反模板失败已有改变条件后的有限重生成；部分文本不会作为成功结果；完成 Turn 支持同 `turnId` 幂等重放；投递终态未知时客户端先使用原 `turnId` 查询或重放。429/瞬态 5xx 自动退避和 `max_tokens` 自动缩短目标仍未实现，不得写成现有能力。
+
+服务端监听 `request.signal`，客户端断开时中止 Pi Runtime。第一版不追求断线续传，但必须避免断线后后台继续无限消耗。用户取消优先于底层 `recoverable`；结果未知不等于执行失败，确认失败前不得新建第二个 Turn。
 
 ### L6 反馈
 
@@ -255,7 +257,7 @@ apps/web
         │ AgentRuntime port
         ▼
 @persona16/runtime-pi
-  Pi 模型注册、Agent 生命周期、事件映射、取消/重试、成本统计
+  Pi 模型注册、Agent 生命周期、事件映射、取消、typed failure、成本统计
         │
         ▼
 @earendil-works/pi-agent-core + @earendil-works/pi-ai
@@ -587,7 +589,7 @@ Pi Runtime 上线前，同一 eval set 并跑旧执行层与新执行层：
 
 - 完善邀请、移除、暂停、点名和总结交互。
 - 增加单条反馈和原因标签。
-- 增加错误恢复、重试提示、取消按钮和生成状态。
+- 增加结构化错误恢复、按动作提示、取消按钮和生成状态；结果未知时先恢复原 Turn。
 - 结构化记录 turn latency、usage、stop reason、feedback。
 - 增加内部 trace 查看页或导出脚本，不向普通用户暴露 Prompt。
 

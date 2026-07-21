@@ -1,8 +1,11 @@
 'use client';
 
+import { decideRecoveryAction } from '@persona16/engine';
 import type {
   AgentType,
+  FailureOutcome,
   MemoryCandidateEvent,
+  RecoveryAction,
   RoomAction,
   RoomState,
   TurnStopReason,
@@ -28,7 +31,14 @@ const KEY = 'persona16.rooms.v2';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 
 export class ApiError extends Error {
-  constructor(public readonly code: string, public readonly status: number, message: string) {
+  constructor(
+    public readonly code: string,
+    public readonly status: number,
+    message: string,
+    public readonly recoveryAction: RecoveryAction = 'stop',
+    public readonly outcome: FailureOutcome = 'known_failed',
+    public readonly retryAfterMs?: number,
+  ) {
     super(message);
     this.name = 'ApiError';
   }
@@ -116,6 +126,14 @@ export interface SavedMemory extends MemoryCandidate {
   status: 'candidate' | 'confirmed' | 'rejected' | 'deleted';
 }
 
+export function canSubmitTurn(
+  pending: { turnId: string; outcome: FailureOutcome } | null,
+  originalTurn?: { turnId: string },
+): boolean {
+  if (!pending || pending.outcome !== 'unknown') return true;
+  return originalTurn?.turnId === pending.turnId;
+}
+
 export type TurnEvent =
   | { v: 1; turnId: string; type: 'turn_start' }
   | { v: 1; turnId: string; type: 'room_action'; action: RoomAction }
@@ -126,7 +144,42 @@ export type TurnEvent =
   | { v: 1; turnId: string; type: 'memory_candidate'; candidate: MemoryCandidate }
   | { v: 1; turnId: string; type: 'turn_end'; stopReason: TurnStopReason; roomVersion: number }
   | { v: 1; turnId: string; type: 'done'; room: RoomState; roomVersion: number; safetyLevel: string }
-  | { v: 1; turnId: string; type: 'error'; code: string; message: string; recoverable: boolean };
+  | {
+      v: 1;
+      turnId: string;
+      type: 'error';
+      code: string;
+      message: string;
+      recoverable: boolean;
+      recoveryAction: RecoveryAction;
+      outcome: FailureOutcome;
+      retryAfterMs?: number;
+    };
+
+function httpFailureRecovery(status: number, code: string): {
+  recoverable: boolean;
+  recoveryAction: RecoveryAction;
+  outcome: FailureOutcome;
+} {
+  const recoverable = status === 408 || status === 409 || status === 429 || status >= 500;
+  const outcome: FailureOutcome = code === 'TURN_IN_PROGRESS' ? 'unknown' : 'known_failed';
+  return {
+    recoverable,
+    recoveryAction: decideRecoveryAction({
+      code,
+      recoverable,
+      outcome,
+    }),
+    outcome,
+  };
+}
+
+function retryAfterMilliseconds(response: Response): number | undefined {
+  const value = response.headers.get('Retry-After');
+  if (!value) return undefined;
+  const seconds = Number(value);
+  return Number.isFinite(seconds) && seconds >= 0 ? Math.ceil(seconds * 1_000) : undefined;
+}
 
 export async function streamTurn(
   body: { roomId: string; turnId: string; roomVersion: number; text: string; calledAgent?: AgentType },
@@ -144,19 +197,42 @@ export async function streamTurn(
     }),
     signal,
   });
+  if (response.ok && !response.body) {
+    throw new ApiError('DELIVERY_FAILED', 502, '回复流没有返回内容，请检查本轮最终状态', 'refresh', 'unknown');
+  }
   if (!response.ok || !response.body) {
-    const payload = await response.json().catch(() => undefined) as { error?: { code?: string; message?: string } } | undefined;
+    const payload = await response.json().catch(() => undefined) as {
+      error?: {
+        code?: string;
+        message?: string;
+        recoverable?: boolean;
+        recoveryAction?: RecoveryAction;
+        outcome?: FailureOutcome;
+        retryAfterMs?: number;
+      };
+    } | undefined;
+    const code = payload?.error?.code ?? 'REQUEST_FAILED';
+    const fallback = httpFailureRecovery(response.status, code);
+    const recovery = payload?.error?.recoveryAction && payload.error.outcome
+      ? {
+          recoverable: payload.error.recoverable ?? fallback.recoverable,
+          recoveryAction: payload.error.recoveryAction,
+          outcome: payload.error.outcome,
+        }
+      : fallback;
+    const retryAfterMs = payload?.error?.retryAfterMs ?? retryAfterMilliseconds(response);
     try {
       onEvent({
         v: 1,
         turnId: body.turnId,
         type: 'error',
-        code: payload?.error?.code ?? 'REQUEST_FAILED',
+        code,
         message: payload?.error?.message ?? `请求失败（${response.status}）`,
-        recoverable: true,
+        ...recovery,
+        ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
       });
     } catch {
-      throw new ApiError('DELIVERY_FAILED', 502, '错误事件处理失败，请刷新房间');
+      throw new ApiError('DELIVERY_FAILED', 502, '错误事件处理失败，请检查本轮结果', 'refresh', 'unknown');
     }
     return;
   }
@@ -176,7 +252,7 @@ export async function streamTurn(
     try {
       onEvent(event);
     } catch {
-      throw new ApiError('DELIVERY_FAILED', 502, '回复事件处理失败，请刷新房间');
+      throw new ApiError('DELIVERY_FAILED', 502, '回复事件处理失败，请检查本轮结果', 'refresh', 'unknown');
     }
     if (event.type === 'done' || event.type === 'error') terminalReceived = true;
   };
@@ -193,10 +269,10 @@ export async function streamTurn(
     deliverLine(buffer);
   } catch (error) {
     if (signal?.aborted || (error instanceof ApiError && error.code === 'DELIVERY_FAILED')) throw error;
-    throw new ApiError('DELIVERY_FAILED', 502, '回复流中断，请刷新房间查看最终状态');
+    throw new ApiError('DELIVERY_FAILED', 502, '回复流中断，请检查本轮最终状态', 'refresh', 'unknown');
   }
   if (!terminalReceived) {
-    throw new ApiError('DELIVERY_FAILED', 502, '回复流未完整结束，请刷新房间查看最终状态');
+    throw new ApiError('DELIVERY_FAILED', 502, '回复流未完整结束，请检查本轮最终状态', 'refresh', 'unknown');
   }
 }
 

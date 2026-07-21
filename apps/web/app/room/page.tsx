@@ -20,11 +20,13 @@ import {
   X,
 } from '@phosphor-icons/react';
 import { PERSONAS, getPersona } from '@persona16/engine/personas';
+import type { FailureOutcome, RecoveryAction } from '@persona16/engine';
 import type { AgentType, Group } from '@persona16/engine/types';
 import type { FeedbackTag } from '@persona16/store';
 import {
   ApiError,
   addServerAgent,
+  canSubmitTurn,
   deleteRoom,
   fetchMemories,
   fetchRoomFeedback,
@@ -50,10 +52,15 @@ interface LiveMsg {
 }
 
 interface FailedAttempt {
+  turnId: string;
+  roomVersion: number;
   text: string;
   calledAgent?: AgentType;
   code: string;
   message: string;
+  recoveryAction: RecoveryAction;
+  outcome: FailureOutcome;
+  retryAfterMs?: number;
 }
 
 const GROUP_COLOR: Record<Group, string> = {
@@ -193,9 +200,19 @@ function RoomView() {
   const agents = state.agents.map((agent) => agent.type);
   const multi = state.agents.length > 1;
 
-  async function send(text: string, requestedAgent = called) {
+  async function send(
+    text: string,
+    requestedAgent = called,
+    originalTurn?: Pick<FailedAttempt, 'turnId' | 'roomVersion'>,
+  ) {
     const trimmed = text.trim();
+    if (!canSubmitTurn(failedAttempt, originalTurn)) {
+      setError('上一轮结果仍未确认，请先检查原结果');
+      return;
+    }
     if (busy || !trimmed) return;
+    const turnId = originalTurn?.turnId ?? crypto.randomUUID();
+    const roomVersion = originalTurn?.roomVersion ?? currentRoom.version;
     setBusy(true);
     setError(null);
     setFailedAttempt(null);
@@ -212,8 +229,8 @@ function RoomView() {
     try {
       await streamTurn({
         roomId: currentRoom.id,
-        turnId: crypto.randomUUID(),
-        roomVersion: currentRoom.version,
+        turnId,
+        roomVersion,
         text: trimmed,
         calledAgent: requestedAgent,
       }, (event) => {
@@ -253,16 +270,42 @@ function RoomView() {
           setSafetyLive(null);
           setPendingUser(null);
         } else if (event.type === 'error') {
-          setFailedAttempt({ text: trimmed, calledAgent: requestedAgent, code: event.code, message: event.message });
+          setFailedAttempt({
+            turnId,
+            roomVersion,
+            text: trimmed,
+            calledAgent: requestedAgent,
+            code: event.code,
+            message: event.message,
+            recoveryAction: event.recoveryAction,
+            outcome: event.outcome,
+            retryAfterMs: event.retryAfterMs,
+          });
           setError(event.message);
         }
       }, abort.signal);
     } catch (cause) {
       const cancelled = abort.signal.aborted;
       const failure = cancelled
-        ? { code: 'CANCELLED', message: '已停止本轮生成' }
-        : { code: cause instanceof ApiError ? cause.code : 'NETWORK_ERROR', message: cause instanceof Error ? cause.message : '网络异常，稍后重试' };
-      setFailedAttempt({ text: trimmed, calledAgent: requestedAgent, ...failure });
+        ? {
+            code: 'CANCELLED', message: '已停止本轮生成',
+            recoveryAction: 'stop' as const, outcome: 'known_failed' as const,
+          }
+        : cause instanceof ApiError
+          ? {
+              code: cause.code,
+              message: cause.message,
+              recoveryAction: cause.recoveryAction,
+              outcome: cause.outcome,
+              retryAfterMs: cause.retryAfterMs,
+            }
+          : {
+              code: 'NETWORK_ERROR',
+              message: cause instanceof Error ? cause.message : '网络异常，请先检查本轮结果',
+              recoveryAction: 'refresh' as const,
+              outcome: 'unknown' as const,
+            };
+      setFailedAttempt({ turnId, roomVersion, text: trimmed, calledAgent: requestedAgent, ...failure });
       setError(failure.message);
     } finally {
       if (!completed) {
@@ -273,6 +316,59 @@ function RoomView() {
       abortRef.current = null;
       setBusy(false);
     }
+  }
+
+  async function recoverFailedTurn(attempt: FailedAttempt) {
+    if (attempt.recoveryAction === 'refresh') {
+      if (attempt.outcome === 'unknown') {
+        await send(attempt.text, attempt.calledAgent, attempt);
+        return;
+      }
+      await loadRoom();
+      setInput(attempt.text);
+      setFailedAttempt(null);
+      setError(null);
+      setStatusText('房间已刷新，请确认后重新发送');
+      return;
+    }
+    if (attempt.recoveryAction === 'retry') {
+      await send(attempt.text, attempt.calledAgent);
+      return;
+    }
+    if (attempt.recoveryAction === 'transform') {
+      setInput(attempt.text);
+      setFailedAttempt(null);
+      setError(null);
+      setStatusText('请修改内容后重新发送');
+      return;
+    }
+    setFailedAttempt(null);
+    setError(null);
+    setStatusText('本轮已停止');
+  }
+
+  function recoveryHint(attempt: FailedAttempt): string {
+    if (attempt.recoveryAction === 'refresh') {
+      return attempt.outcome === 'unknown'
+        ? '系统还不能确认上一轮是否已经完成，请先检查原结果，避免重复回复。'
+        : '房间状态已经变化，请刷新后重新确认这条消息。';
+    }
+    if (attempt.recoveryAction === 'transform') return '原条件再次请求仍会失败，请先修改内容。';
+    if (attempt.recoveryAction === 'retry') {
+      return attempt.retryAfterMs
+        ? `可以重试；服务建议至少等待 ${Math.ceil(attempt.retryAfterMs / 1_000)} 秒。`
+        : '服务已确认本轮失败，可以重新生成。';
+    }
+    return '本轮已停止，不会自动重试。';
+  }
+
+  function recoveryLabel(attempt: FailedAttempt): string {
+    if (attempt.recoveryAction === 'refresh') {
+      return attempt.outcome === 'unknown' ? '检查本轮结果' : '刷新房间';
+    }
+    if (attempt.recoveryAction === 'transform') return '修改后重试';
+    if (attempt.recoveryAction === 'retry') return '重新生成';
+    return '关闭';
   }
 
   async function applyRoomChange(operation: () => Promise<ServerRoom>) {
@@ -354,6 +450,7 @@ function RoomView() {
   }
 
   const replied = latestReplyCount(currentRoom);
+  const hasUnknownTurn = failedAttempt?.outcome === 'unknown';
 
   return (
     <div className="room">
@@ -480,9 +577,10 @@ function RoomView() {
         )}
         {failedAttempt && (
           <section className="recovery" role="alert">
-            <div><strong>{failedAttempt.message}</strong><span>内容还在，可以重新发起这一轮。</span></div>
-            <button onClick={() => void loadRoom().then(() => setFailedAttempt(null))}>刷新房间</button>
-            <button className="primary" onClick={() => void send(failedAttempt.text, failedAttempt.calledAgent)}>重新生成</button>
+            <div><strong>{failedAttempt.message}</strong><span>{recoveryHint(failedAttempt)}</span></div>
+            <button className="primary" onClick={() => void recoverFailedTurn(failedAttempt)}>
+              {recoveryLabel(failedAttempt)}
+            </button>
           </section>
         )}
         {error && !failedAttempt && <p className="inline-error" role="alert">{error}</p>}
@@ -498,7 +596,7 @@ function RoomView() {
             {busy ? (
               <button onClick={() => abortRef.current?.abort()}><StopCircle size={18} aria-hidden />停止生成</button>
             ) : multi ? (
-              <button onClick={() => void send('总结一下你们的分歧，并给出我现在最值得做的一步。')} disabled={busy}>总结分歧</button>
+              <button onClick={() => void send('总结一下你们的分歧，并给出我现在最值得做的一步。')} disabled={busy || hasUnknownTurn}>总结分歧</button>
             ) : null}
           </div>
         )}
@@ -506,6 +604,7 @@ function RoomView() {
         <div className="composer-row">
           <textarea
             value={input}
+            disabled={hasUnknownTurn}
             rows={1}
             maxLength={2_000}
             placeholder={called ? `追问 ${getPersona(called).title}…` : '继续提问，或 @ 某位成员…'}
@@ -522,7 +621,7 @@ function RoomView() {
               }
             }}
           />
-          <button className="send" disabled={busy || !input.trim()} onClick={() => void send(input)} aria-label="发送消息">
+          <button className="send" disabled={busy || hasUnknownTurn || !input.trim()} onClick={() => void send(input)} aria-label="发送消息">
             <PaperPlaneTilt size={21} weight="fill" aria-hidden /><span>发送</span>
           </button>
         </div>

@@ -32,6 +32,13 @@ export {
 } from './runtime/turnEvents';
 export { runRuntimeText } from './runtime/runRuntimeText';
 export type { RunRuntimeTextOptions } from './runtime/runRuntimeText';
+export { decideRecoveryAction, RuntimeExecutionError } from './runtime/recoveryPolicy';
+export type {
+  FailureOutcome,
+  RecoveryAction,
+  RecoveryDecisionInput,
+  RuntimeFailureDetails,
+} from './runtime/recoveryPolicy';
 export { defineRuntimeTool } from './runtime/defineRuntimeTool';
 export type { RuntimeToolDefinition } from './runtime/defineRuntimeTool';
 export { createPauseAgentTool, PAUSE_AGENT_INPUT_SCHEMA } from './runtime/pauseAgentTool';
