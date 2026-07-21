@@ -5,9 +5,108 @@ import {
   createRelationshipBranch,
   forgetRelationshipEvidence,
   buildPilotRelationshipContext,
+  relationshipBranchToPromptContext,
+  renderRelationshipPromptContext,
   resetRelationshipBranch,
   setRelationshipMemoryEnabled,
 } from '../src';
+
+test('relationship prompt projection preserves memory evidence categories', () => {
+  const withPattern = applyRelationshipEvent(createRelationshipBranch('legacy-intj'), {
+    id: 'memory:pattern-1',
+    type: 'pattern_confirmed',
+    sourceTurnId: 'turn-pattern',
+    content: '压力大时会先暂停回复',
+  });
+  const withPreference = applyRelationshipEvent(withPattern, {
+    id: 'memory:preference-1',
+    type: 'preference_stated',
+    sourceTurnId: 'turn-preference',
+    content: '先给结论',
+  });
+  const withContext = applyRelationshipEvent(withPreference, {
+    id: 'context-1',
+    type: 'context_shared',
+    sourceTurnId: 'turn-context',
+    content: '正在准备考试',
+  });
+
+  const prompt = relationshipBranchToPromptContext(withContext, { maxEvidence: 10 });
+
+  assert.equal(prompt.evidence.find((item) => item.id === 'context:memory:pattern-1')?.kind, 'repeated_pattern');
+  assert.equal(prompt.evidence.find((item) => item.id === 'style:memory:preference-1')?.kind, 'preference');
+  assert.equal(prompt.evidence.find((item) => item.id === 'context:context-1')?.kind, 'shared_context');
+});
+
+test('relationship prompt projection keeps the newest evidence within a category', () => {
+  let branch = createRelationshipBranch('legacy-intj');
+  for (let index = 1; index <= 5; index += 1) {
+    branch = applyRelationshipEvent(branch, {
+      id: `preference-${index}`,
+      type: 'preference_stated',
+      sourceTurnId: `turn-${index}`,
+      content: `偏好 ${index}`,
+    });
+  }
+
+  const prompt = relationshipBranchToPromptContext(branch, { maxEvidence: 3 });
+
+  assert.deepEqual(prompt.evidence.map((item) => item.content), ['偏好 5', '偏好 4', '偏好 3']);
+});
+
+test('confirmed boundaries compile into a hard response contract above preferences', () => {
+  const prompt = renderRelationshipPromptContext({
+    memoryEnabled: true,
+    evidence: [
+      {
+        id: 'boundary-1',
+        kind: 'boundary',
+        content: '可以给选项，但不要替用户决定',
+        traceability: 'traceable',
+        sourceTurnId: 'turn-boundary',
+      },
+      {
+        id: 'preference-1',
+        kind: 'preference',
+        content: '先给结论',
+        traceability: 'traceable',
+        sourceTurnId: 'turn-preference',
+      },
+    ],
+  }, { focus: 'decision', maxEvidence: 3 });
+
+  assert.match(prompt, /已确认边界是本轮硬约束/);
+  assert.match(prompt, /优先级高于人格语气、用户偏好、主持器切入角度/);
+  assert.match(prompt, /不得直接说“选 X”“就选 X”或“你应该选 X”/);
+  assert.ok(prompt.indexOf('已确认边界是本轮硬约束') < prompt.indexOf('用户已确认偏好'));
+});
+
+test('decision-autonomy contracts require a respectful opening and a usable comparison method', () => {
+  const prompt = renderRelationshipPromptContext({
+    memoryEnabled: true,
+    evidence: [
+      {
+        id: 'boundary-1',
+        kind: 'boundary',
+        content: '可以给选项和分析，但不要替用户决定；最终选择由用户自己做',
+        traceability: 'traceable',
+        sourceTurnId: 'turn-boundary',
+      },
+      {
+        id: 'preference-1',
+        kind: 'preference',
+        content: '先指出关键变量和长期代价，再给比较方法',
+        traceability: 'traceable',
+        sourceTurnId: 'turn-preference',
+      },
+    ],
+  }, { focus: 'decision', maxEvidence: 3 });
+
+  assert.match(
+    prompt,
+    /不要以“你问错了”或“你问反了”否定用户的问题[\s\S]*必须给出一个用户本轮就能使用的比较方法[\s\S]*不能只改写问题或只描述长期代价/,
+  );
+});
 
 test('only a meaningful, traceable event can change a relationship branch', () => {
   const initial = createRelationshipBranch('lin-heng');

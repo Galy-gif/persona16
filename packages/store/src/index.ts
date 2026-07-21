@@ -14,6 +14,8 @@ export type {
   FailedTurnObservability,
   MemoryRecord,
   RelationshipBranchRecord,
+  RelationshipBranchSummary,
+  RelationshipSummaryReadOptions,
   RelationshipEventRecord,
   LookupTurnInput,
   PersistedTurnEvent,

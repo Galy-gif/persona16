@@ -9,7 +9,7 @@ import type { PersistedTurnEvent } from '@persona16/store';
 import { z } from 'zod';
 import { jsonError, withSessionCookie } from './http';
 
-export const TURN_PROMPT_VERSION = 'web-mvp-v4';
+export const TURN_PROMPT_VERSION = 'web-mvp-v6';
 export const TURN_BUILD_VERSION = (
   process.env.PERSONA16_BUILD_VERSION
   ?? process.env.VERCEL_GIT_COMMIT_SHA

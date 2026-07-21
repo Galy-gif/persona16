@@ -6,7 +6,10 @@ import type {
   RelationshipEvent,
   RoomState,
 } from '@persona16/engine';
-import { forgetRelationshipEvidence as forgetBranchEvidence } from '@persona16/engine';
+import {
+  applyRelationshipEvent,
+  forgetRelationshipEvidence as forgetBranchEvidence,
+} from '@persona16/engine';
 import { Pool, type PoolClient } from 'pg';
 import type {
   CompleteTurnInput,
@@ -18,6 +21,8 @@ import type {
   FailedTurnObservability,
   MemoryRecord,
   RelationshipBranchRecord,
+  RelationshipBranchSummary,
+  RelationshipSummaryReadOptions,
   RelationshipEventRecord,
   LookupTurnInput,
   PersistedTurnEvent,
@@ -33,6 +38,7 @@ import { StoreError } from './types';
 import {
   rebuildRelationshipBranch,
   relationshipCharacterId,
+  relationshipEvidenceIdFromMemory,
   relationshipEventTarget,
   sameRelationshipEvent,
   relationshipEventFromMemory,
@@ -96,6 +102,15 @@ interface RelationshipBranchRow {
   state_json: RelationshipBranch;
   version: number;
   updated_at: Date;
+}
+
+interface RelationshipBranchSummaryRow {
+  agent_type: AgentType;
+  version: number;
+  climate: RelationshipBranch['recentClimate'];
+  event_count: number;
+  boundary_count: number;
+  tension_count: number;
 }
 
 interface FeedbackRow {
@@ -594,6 +609,69 @@ export class PostgresPersonaStore implements PersonaStore {
     return result.rows.map(mapRelationshipBranch);
   }
 
+  async listRelationshipBranchSummaries(
+    userId: string,
+    agents: AgentType[],
+    options: RelationshipSummaryReadOptions = {},
+  ): Promise<RelationshipBranchSummary[]> {
+    if (agents.length === 0) return [];
+    if (options.signal?.aborted) throw options.signal.reason;
+    const client = await this.pool.connect();
+    try {
+      if (options.signal?.aborted) throw options.signal.reason;
+      await client.query('BEGIN');
+      if (options.timeoutMs !== undefined) {
+        const timeoutMs = Math.max(1, Math.floor(options.timeoutMs));
+        await client.query(`SELECT set_config('statement_timeout', $1, true)`, [`${timeoutMs}ms`]);
+      }
+      if (options.signal?.aborted) throw options.signal.reason;
+      const result = await client.query<RelationshipBranchSummaryRow>(
+        `SELECT agent_type,
+                version,
+                state_json ->> 'recentClimate' AS climate,
+                jsonb_array_length(
+                  CASE WHEN jsonb_typeof(state_json -> 'eventLog') = 'array'
+                    THEN state_json -> 'eventLog' ELSE '[]'::jsonb END
+                ) AS event_count,
+                jsonb_array_length(
+                  CASE WHEN jsonb_typeof(state_json -> 'boundaries') = 'array'
+                    THEN state_json -> 'boundaries' ELSE '[]'::jsonb END
+                ) AS boundary_count,
+                (
+                  SELECT count(*)::integer
+                  FROM jsonb_array_elements(
+                    CASE WHEN jsonb_typeof(state_json -> 'tensions') = 'array'
+                      THEN state_json -> 'tensions' ELSE '[]'::jsonb END
+                  ) AS tension
+                  WHERE tension ->> 'status' IS DISTINCT FROM 'resolved'
+                ) AS tension_count
+         FROM relationship_branches
+         WHERE user_id = $1 AND agent_type = ANY($2::text[])
+         ORDER BY agent_type ASC`,
+        [userId, agents],
+      );
+      if (options.signal?.aborted) throw options.signal.reason;
+      await client.query('COMMIT');
+      return result.rows.map((row) => ({
+        agent: row.agent_type,
+        version: row.version,
+        climate: row.climate,
+        eventCount: row.event_count,
+        boundaryCount: row.boundary_count,
+        tensionCount: row.tension_count,
+      }));
+    } catch (error) {
+      try {
+        await client.query('ROLLBACK');
+      } catch {
+        // Preserve the original timeout, cancellation, or query error.
+      }
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async appendRelationshipEvent(input: AppendRelationshipEventInput): Promise<RelationshipEventRecord> {
     if (input.event.id.startsWith('memory:')) {
       throw new StoreError('RELATIONSHIP_EVENT_CONFLICT', 'memory: 前缀仅供已确认 Memory 投影使用');
@@ -631,7 +709,7 @@ export class PostgresPersonaStore implements PersonaStore {
       );
       if (inserted.rows[0]) {
         const record = mapRelationshipEvent(inserted.rows[0]);
-        await this.rebuildRelationshipBranch(client, input.userId, input.agent, characterId);
+        await this.advanceRelationshipBranch(client, record);
         await client.query('COMMIT');
         return record;
       }
@@ -639,8 +717,8 @@ export class PostgresPersonaStore implements PersonaStore {
       const existing = await client.query<RelationshipEventRow>(
         `SELECT id, user_id, agent_type, character_id, event_type, content, source_turn_id,
                 source_memory_id, target_event_id, created_at
-         FROM relationship_events WHERE id = $1`,
-        [input.event.id],
+         FROM relationship_events WHERE user_id = $1 AND agent_type = $2 AND id = $3`,
+        [input.userId, input.agent, input.event.id],
       );
       const record = existing.rows[0] ? mapRelationshipEvent(existing.rows[0]) : undefined;
       if (
@@ -830,7 +908,7 @@ export class PostgresPersonaStore implements PersonaStore {
       ],
     );
     if (inserted.rowCount) {
-      await this.rebuildRelationshipBranch(client, record.userId, record.agent, record.characterId);
+      await this.advanceRelationshipBranch(client, record);
       return;
     }
 
@@ -838,8 +916,8 @@ export class PostgresPersonaStore implements PersonaStore {
       `SELECT id, user_id, agent_type, character_id, event_type, content, source_turn_id,
               source_memory_id, target_event_id, created_at
        FROM relationship_events
-       WHERE id = $1 OR source_memory_id = $2`,
-      [record.id, record.sourceMemoryId],
+       WHERE (user_id = $1 AND agent_type = $2 AND id = $3) OR source_memory_id = $4`,
+      [record.userId, record.agent, record.id, record.sourceMemoryId],
     );
     const collision = existing.rows[0] ? mapRelationshipEvent(existing.rows[0]) : undefined;
     if (
@@ -855,16 +933,83 @@ export class PostgresPersonaStore implements PersonaStore {
   }
 
   private async removeMemoryRelationshipEvent(client: PoolClient, memory: MemoryRecord): Promise<void> {
-    const removed = await client.query(
-      `DELETE FROM relationship_events
-       WHERE user_id = $1 AND agent_type = $2 AND source_memory_id = $3
-       RETURNING character_id`,
-      [memory.userId, memory.agent, memory.id],
+    let current = await client.query<RelationshipBranchRow>(
+      `SELECT user_id, agent_type, character_id, state_json, version, updated_at
+       FROM relationship_branches
+       WHERE user_id = $1 AND agent_type = $2 FOR UPDATE`,
+      [memory.userId, memory.agent],
     );
-    const characterId = removed.rows[0]?.character_id as string | undefined;
-    if (characterId) {
-      await this.rebuildRelationshipBranch(client, memory.userId, memory.agent, characterId);
+    if (!current.rows[0]) {
+      const source = await client.query<{ character_id: string }>(
+        `SELECT character_id FROM relationship_events
+         WHERE user_id = $1 AND agent_type = $2 AND source_memory_id = $3`,
+        [memory.userId, memory.agent, memory.id],
+      );
+      if (!source.rows[0]) return;
+      await this.rebuildRelationshipBranch(
+        client,
+        memory.userId,
+        memory.agent,
+        source.rows[0].character_id,
+      );
+      current = await client.query<RelationshipBranchRow>(
+        `SELECT user_id, agent_type, character_id, state_json, version, updated_at
+         FROM relationship_branches
+         WHERE user_id = $1 AND agent_type = $2 FOR UPDATE`,
+        [memory.userId, memory.agent],
+      );
     }
+
+    const currentRow = current.rows[0];
+    if (!currentRow) {
+      throw new StoreError('RELATIONSHIP_EVENT_CONFLICT', '关系分支重建失败');
+    }
+    const previous = mapRelationshipBranch(currentRow);
+    const branch = forgetBranchEvidence(
+      previous.branch,
+      relationshipEvidenceIdFromMemory(memory),
+    );
+    const retainedEventIds = new Set(branch.eventLog.map((event) => event.id));
+    const removedEventIds = previous.branch.eventLog
+      .map((event) => event.id)
+      .filter((eventId) => !retainedEventIds.has(eventId));
+    if (removedEventIds.length > 0) {
+      await client.query(
+        `DELETE FROM relationship_events
+         WHERE user_id = $1 AND agent_type = $2 AND id = ANY($3::text[])`,
+        [memory.userId, memory.agent, removedEventIds],
+      );
+    }
+    await client.query(
+      `UPDATE relationship_branches
+       SET state_json = $3::jsonb, version = version + 1, updated_at = now()
+       WHERE user_id = $1 AND agent_type = $2`,
+      [memory.userId, memory.agent, JSON.stringify(branch)],
+    );
+  }
+
+  private async advanceRelationshipBranch(
+    client: PoolClient,
+    record: RelationshipEventRecord,
+  ): Promise<void> {
+    const current = await client.query<RelationshipBranchRow>(
+      `SELECT user_id, agent_type, character_id, state_json, version, updated_at
+       FROM relationship_branches
+       WHERE user_id = $1 AND agent_type = $2 FOR UPDATE`,
+      [record.userId, record.agent],
+    );
+    if (!current.rows[0]) {
+      await this.rebuildRelationshipBranch(client, record.userId, record.agent, record.characterId);
+      return;
+    }
+    const previous = mapRelationshipBranch(current.rows[0]);
+    const branch = applyRelationshipEvent(previous.branch, record.event);
+    await client.query(
+      `UPDATE relationship_branches
+       SET state_json = $3::jsonb, version = version + 1, updated_at = now()
+       WHERE user_id = $1 AND agent_type = $2`,
+      [record.userId, record.agent, JSON.stringify(branch)],
+    );
   }
 
   private async rebuildRelationshipBranch(

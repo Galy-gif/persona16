@@ -8,6 +8,7 @@ import {
   type SafetyDecision,
 } from '@persona16/engine';
 import type { PersonaStore, TurnReservation } from '@persona16/store';
+import { z } from 'zod';
 import { jsonError, storeErrorResponse } from './http';
 import { clientIpKey } from './rateLimit';
 import {
@@ -23,6 +24,17 @@ import {
 
 const RELATIONSHIP_SHADOW_READ_TIMEOUT_MS = 100;
 
+const relationshipBranchSummarySchema = z.object({
+  agent: z.string().min(1),
+  version: z.number().int().nonnegative(),
+  climate: z.enum(['unfamiliar', 'steady', 'warm', 'tense', 'repairing']),
+  eventCount: z.number().int().nonnegative(),
+  boundaryCount: z.number().int().nonnegative(),
+  tensionCount: z.number().int().nonnegative(),
+}).strict();
+
+const relationshipBranchSummariesSchema = z.array(relationshipBranchSummarySchema);
+
 export interface RelationshipShadow {
   mode: 'observe_only';
   status: 'loaded' | 'unavailable';
@@ -36,15 +48,20 @@ export interface RelationshipShadow {
   }>;
 }
 
-async function observeWithin<T>(promise: Promise<T>, timeoutMs: number): Promise<
+async function observeWithin<T>(operation: (signal: AbortSignal) => Promise<T>, timeoutMs: number): Promise<
   { ok: true; value: T } | { ok: false }
 > {
+  const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const observed = promise
+  const observed = Promise.resolve()
+    .then(() => operation(controller.signal))
     .then((value) => ({ ok: true as const, value }))
     .catch(() => ({ ok: false as const }));
   const timeout = new Promise<{ ok: false }>((resolve) => {
-    timer = setTimeout(() => resolve({ ok: false }), timeoutMs);
+    timer = setTimeout(() => {
+      controller.abort(new Error('relationship shadow read timed out'));
+      resolve({ ok: false });
+    }, timeoutMs);
   });
   try {
     return await Promise.race([observed, timeout]);
@@ -166,7 +183,12 @@ export async function prepareTurn(input: {
     const [confirmed, shadowResult] = await Promise.all([
       store.listConfirmedMemories(userId, roomAgentTypes),
       observeWithin(
-        store.listRelationshipBranches(userId, roomAgentTypes),
+        async (signal) => relationshipBranchSummariesSchema.parse(
+          await store.listRelationshipBranchSummaries(userId, roomAgentTypes, {
+            timeoutMs: RELATIONSHIP_SHADOW_READ_TIMEOUT_MS,
+            signal,
+          }),
+        ),
         RELATIONSHIP_SHADOW_READ_TIMEOUT_MS,
       ),
     ]);
@@ -174,14 +196,7 @@ export async function prepareTurn(input: {
     relationshipShadow = {
       mode: 'observe_only',
       status: shadowResult.ok ? 'loaded' : 'unavailable',
-      branches: (shadowResult.ok ? shadowResult.value : []).map(({ agent, branch, version }) => ({
-        agent,
-        version,
-        climate: branch.recentClimate,
-        eventCount: branch.eventLog.length,
-        boundaryCount: branch.boundaries.length,
-        tensionCount: branch.tensions.filter((tension) => tension.status !== 'resolved').length,
-      })),
+      branches: shadowResult.ok ? shadowResult.value : [],
     };
     const safety = await classifySafety(
       body.command.text,

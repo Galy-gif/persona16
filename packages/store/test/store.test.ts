@@ -136,7 +136,7 @@ test('confirmed memories project idempotently into relationship events and rebui
 
   await store.updateMemoryStatus('user-a', preference!.id, 'confirmed');
   const firstBranch = (await store.listRelationshipBranches('user-a', ['INTJ']))[0]!;
-  assert.equal(firstBranch.characterId, 'lin-heng');
+  assert.equal(firstBranch.characterId, 'legacy-intj');
   assert.equal(firstBranch.branch.interactionStyle[0]?.content, '先给结论');
   assert.equal(firstBranch.branch.interactionStyle[0]?.sourceTurnId, 'turn-relationship');
   assert.equal(firstBranch.branch.eventLog[0]?.id, `memory:${preference!.id}`);
@@ -160,6 +160,66 @@ test('confirmed memories project idempotently into relationship events and rebui
   assert.equal(rebuilt.branch.interactionStyle.length, 0);
   assert.equal(rebuilt.branch.boundaries.length, 1);
   assert.equal(rebuilt.branch.eventLog.length, 2);
+});
+
+test('deleting a confirmed memory also removes relationship events that depend on it', async () => {
+  const store = new InMemoryPersonaStore();
+  await completedTurn(store, 'user-a', 'turn-boundary');
+  const [boundary] = await store.createMemoryCandidates({
+    userId: 'user-a',
+    sourceTurnId: 'turn-boundary',
+    candidates: [{ agent: 'INTJ', kind: 'boundary', content: '不要替我安排下一步' }],
+  });
+  await store.updateMemoryStatus('user-a', boundary!.id, 'confirmed');
+  await store.appendRelationshipEvent({
+    userId: 'user-a',
+    agent: 'INTJ',
+    event: {
+      id: 'boundary-revision-1',
+      type: 'boundary_revised',
+      sourceTurnId: 'turn-boundary',
+      content: '可以给选项，但不要替我决定',
+      boundaryId: `boundary:memory:${boundary!.id}`,
+    },
+  });
+
+  await store.updateMemoryStatus('user-a', boundary!.id, 'deleted');
+
+  assert.deepEqual(await store.listRelationshipEvents('user-a', 'INTJ'), []);
+  const branch = (await store.listRelationshipBranches('user-a', ['INTJ']))[0]!;
+  assert.deepEqual(branch.branch.boundaries, []);
+  assert.deepEqual(branch.branch.eventLog, []);
+  assert.equal(branch.branch.recentClimate, 'unfamiliar');
+});
+
+test('relationship event ids are scoped by user and agent', async () => {
+  const store = new InMemoryPersonaStore();
+  await completedTurn(store, 'user-a', 'turn-a-scoped-event');
+  await completedTurn(store, 'user-b', 'turn-b-scoped-event');
+
+  await store.appendRelationshipEvent({
+    userId: 'user-a',
+    agent: 'INTJ',
+    event: {
+      id: 'shared-local-id',
+      type: 'context_shared',
+      sourceTurnId: 'turn-a-scoped-event',
+      content: '用户 A 的上下文',
+    },
+  });
+  await store.appendRelationshipEvent({
+    userId: 'user-b',
+    agent: 'INTJ',
+    event: {
+      id: 'shared-local-id',
+      type: 'context_shared',
+      sourceTurnId: 'turn-b-scoped-event',
+      content: '用户 B 的上下文',
+    },
+  });
+
+  assert.equal((await store.listRelationshipEvents('user-a', 'INTJ'))[0]?.event.content, '用户 A 的上下文');
+  assert.equal((await store.listRelationshipEvents('user-b', 'INTJ'))[0]?.event.content, '用户 B 的上下文');
 });
 
 test('relationship events from completed turns advance the persisted branch idempotently', async () => {

@@ -1,7 +1,6 @@
 import {
   applyRelationshipEvent,
   createRelationshipBranch,
-  getPilotCharacter,
   type AgentType,
   type RelationshipBranch,
   type RelationshipEvent,
@@ -9,7 +8,14 @@ import {
 import type { MemoryRecord, RelationshipEventRecord } from './types';
 
 export function relationshipCharacterId(agent: AgentType): string {
-  return getPilotCharacter(agent)?.id ?? `legacy-${agent.toLowerCase()}`;
+  return `legacy-${agent.toLowerCase()}`;
+}
+
+export function relationshipEvidenceIdFromMemory(memory: Pick<MemoryRecord, 'id' | 'kind'>): string {
+  const prefix = memory.kind === 'boundary'
+    ? 'boundary'
+    : memory.kind === 'preference' ? 'style' : 'context';
+  return `${prefix}:memory:${memory.id}`;
 }
 
 export function relationshipEventTarget(event: RelationshipEvent): string | null {

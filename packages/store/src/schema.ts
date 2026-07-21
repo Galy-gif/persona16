@@ -95,7 +95,7 @@ export const memories = pgTable('memories', {
 }, (table) => [index('memories_user_agent_status_idx').on(table.userId, table.agentType, table.status, table.updatedAt)]);
 
 export const relationshipEvents = pgTable('relationship_events', {
-  id: text('id').primaryKey(),
+  id: text('id').notNull(),
   userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   agentType: text('agent_type').notNull(),
   characterId: text('character_id').notNull(),
@@ -106,6 +106,7 @@ export const relationshipEvents = pgTable('relationship_events', {
   targetEventId: text('target_event_id'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
+  primaryKey({ columns: [table.userId, table.agentType, table.id] }),
   uniqueIndex('relationship_events_source_memory_unique').on(table.sourceMemoryId),
   index('relationship_events_user_agent_created_idx').on(table.userId, table.agentType, table.createdAt),
 ]);

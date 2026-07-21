@@ -80,7 +80,7 @@ test('PostgreSQL migration supports cross-connection turn locking and replay', {
     const relationshipBranch = (await secondStore.listRelationshipBranches(userId, ['INTJ']))[0]!;
     assert.equal(relationshipEvent.sourceMemoryId, candidate.id);
     assert.equal(relationshipEvent.event.type, 'preference_stated');
-    assert.equal(relationshipBranch.characterId, 'lin-heng');
+    assert.equal(relationshipBranch.characterId, 'legacy-intj');
     assert.equal(relationshipBranch.branch.interactionStyle[0]?.content, '先给结论');
     const initialBranchVersion = relationshipBranch.version;
     await firstStore.updateMemoryStatus(userId, candidate.id, 'confirmed');
@@ -131,6 +131,30 @@ test('PostgreSQL migration supports cross-connection turn locking and replay', {
     assert.equal(forgotten.branch.eventLog.length, 0);
     assert.equal((await secondStore.listRelationshipEvents(userId, 'INTJ')).length, 0);
 
+    const [boundaryMemory] = await firstStore.createMemoryCandidates({
+      userId,
+      sourceTurnId: accepted.turnId,
+      candidates: [{ agent: 'INTJ', kind: 'boundary', content: '不要替我安排下一步' }],
+    });
+    await firstStore.updateMemoryStatus(userId, boundaryMemory!.id, 'confirmed');
+    await firstStore.appendRelationshipEvent({
+      userId,
+      agent: 'INTJ',
+      event: {
+        id: `boundary-revision:${crypto.randomUUID()}`,
+        type: 'boundary_revised',
+        sourceTurnId: accepted.turnId,
+        content: '可以给选项，但不要替我决定',
+        boundaryId: `boundary:memory:${boundaryMemory!.id}`,
+      },
+    });
+    await firstStore.updateMemoryStatus(userId, boundaryMemory!.id, 'deleted');
+    assert.equal((await secondStore.listRelationshipEvents(userId, 'INTJ')).length, 0);
+    assert.equal(
+      (await secondStore.listRelationshipBranches(userId, ['INTJ']))[0]?.branch.eventLog.length,
+      0,
+    );
+
     const [roomCandidate] = await firstStore.createMemoryCandidates({
       userId,
       sourceTurnId: accepted.turnId,
@@ -162,6 +186,29 @@ test('PostgreSQL migration supports cross-connection turn locking and replay', {
       userId: foreignUserId, roomId: foreignRoom.id, turnId: foreignTurnId,
       state: foreignRoom.state, stopReason: 'complete', events: [],
     });
+    const scopedEventId = `scoped-event:${crypto.randomUUID()}`;
+    await firstStore.appendRelationshipEvent({
+      userId,
+      agent: 'INTJ',
+      event: {
+        id: scopedEventId,
+        type: 'context_shared',
+        sourceTurnId: accepted.turnId,
+        content: '主用户上下文',
+      },
+    });
+    await firstStore.appendRelationshipEvent({
+      userId: foreignUserId,
+      agent: 'INTJ',
+      event: {
+        id: scopedEventId,
+        type: 'context_shared',
+        sourceTurnId: foreignTurnId,
+        content: '另一用户上下文',
+      },
+    });
+    assert.equal((await firstStore.listRelationshipEvents(userId, 'INTJ')).at(-1)?.event.content, '主用户上下文');
+    assert.equal((await firstStore.listRelationshipEvents(foreignUserId, 'INTJ')).at(-1)?.event.content, '另一用户上下文');
     await assert.rejects(
       () => firstStore.createMemoryCandidates({
         userId,

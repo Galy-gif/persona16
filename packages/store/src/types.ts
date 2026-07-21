@@ -56,6 +56,20 @@ export interface RelationshipBranchRecord {
   updatedAt: Date;
 }
 
+export interface RelationshipBranchSummary {
+  agent: AgentType;
+  version: number;
+  climate: RelationshipBranch['recentClimate'];
+  eventCount: number;
+  boundaryCount: number;
+  tensionCount: number;
+}
+
+export interface RelationshipSummaryReadOptions {
+  timeoutMs?: number;
+  signal?: AbortSignal;
+}
+
 export interface FeedbackRecord {
   id: string;
   userId: string;
@@ -169,6 +183,11 @@ export interface PersonaStore {
   listMemories(userId: string, status?: MemoryStatus, roomId?: string): Promise<MemoryRecord[]>;
   listRelationshipEvents(userId: string, agent: AgentType): Promise<RelationshipEventRecord[]>;
   listRelationshipBranches(userId: string, agents: AgentType[]): Promise<RelationshipBranchRecord[]>;
+  listRelationshipBranchSummaries(
+    userId: string,
+    agents: AgentType[],
+    options?: RelationshipSummaryReadOptions,
+  ): Promise<RelationshipBranchSummary[]>;
   appendRelationshipEvent(input: AppendRelationshipEventInput): Promise<RelationshipEventRecord>;
   forgetRelationshipEvidence(userId: string, agent: AgentType, evidenceId: string): Promise<RelationshipBranchRecord>;
   upsertFeedback(input: UpsertFeedbackInput): Promise<FeedbackRecord>;

@@ -66,6 +66,16 @@ const EVIDENCE_LABELS: Record<RelationshipContextEvidenceKind, string> = {
   repeated_pattern: '用户已确认的重复模式',
 };
 
+const DECISION_AUTONOMY_BOUNDARY = /(?:不要|不能|请别|别).{0,12}(?:替(?:我|用户)|帮我).{0,8}(?:决定|选择|拍板)|(?:决定权|选择权).{0,12}(?:归我|归用户|我自己|用户自己)/u;
+
+export function relationshipEvidenceProtectsDecisionAutonomy(
+  evidence: readonly RelationshipContextEvidence[],
+): boolean {
+  return evidence.some((item) => (
+    item.kind === 'boundary' && DECISION_AUTONOMY_BOUNDARY.test(item.content)
+  ));
+}
+
 function sourceLabel(item: RelationshipContextEvidence): string {
   if (item.traceability === 'legacy_untraceable') {
     return '旧版已确认记录，不可追溯';
@@ -104,14 +114,19 @@ export function relationshipBranchToPromptContext(
   selection: RelationshipContextSelection = {},
 ): RelationshipPromptContext {
   const evidence: RelationshipContextEvidence[] = [];
+  const sourceEvents = new Map(branch.eventLog.map((event) => [event.id, event]));
   const append = (
     kind: RelationshipContextEvidenceKind,
     values: RelationshipBranch['sharedContext'],
   ) => {
-    for (const value of values) {
+    for (const value of [...values].reverse()) {
+      const sourceType = sourceEvents.get(value.sourceEventId)?.type;
+      const projectedKind = sourceType === 'pattern_confirmed'
+        ? 'repeated_pattern'
+        : sourceType === 'preference_stated' ? 'preference' : kind;
       evidence.push({
         id: value.id,
-        kind,
+        kind: projectedKind,
         content: value.content,
         traceability: 'traceable',
         sourceEventId: value.sourceEventId,
@@ -142,9 +157,24 @@ export function renderRelationshipPromptContext(
     return '关系记忆已由用户关闭；不要使用既有关系数据推断或个性化。';
   }
 
+  const selectedEvidence = selectRelationshipEvidence(context.evidence, selection);
   const sections: string[] = [
     '来源编号只用于内部校验，不得向用户朗读。没有列出的过去，不得自行补写。',
   ];
+  if (selectedEvidence.some((item) => item.kind === 'boundary')) {
+    sections.push([
+      '【已确认边界：本轮硬约束】',
+      '已确认边界是本轮硬约束，优先级高于人格语气、用户偏好、主持器切入角度和直接给判断的冲动。',
+      '若边界与偏好冲突，先守边界，再在边界内满足偏好；不能把“先给结论”理解为可以越过用户的决定权。',
+      relationshipEvidenceProtectsDecisionAutonomy(selectedEvidence)
+        ? [
+            '这条边界保护用户的选择权：可以指出关键变量、比较标准、条件性后果或提出一个问题；不得直接说“选 X”“就选 X”或“你应该选 X”。',
+            '尊重用户提出问题的方式：不要以“你问错了”或“你问反了”否定用户的问题，可以直接指出问题里真正需要权衡的部分。',
+            '本轮不能停在重新定义问题：必须给出一个用户本轮就能使用的比较方法，说明至少一个关键变量、阈值或可逆实验该怎么帮助判断；不能只改写问题或只描述长期代价。',
+          ].join('\n')
+        : '',
+    ].filter(Boolean).join('\n'));
+  }
   if (context.climate) sections.push(CLIMATE_INSTRUCTIONS[context.climate]);
   if (context.trust) {
     sections.push(`信任结构：可靠性 ${context.trust.reliability}｜自我披露 ${context.trust.disclosure}`);
@@ -153,7 +183,6 @@ export function renderRelationshipPromptContext(
     sections.push(`旧版亲密度：${context.intimacy}/5；它只能调整表达距离，不能证明发生过任何共同经历。`);
   }
 
-  const selectedEvidence = selectRelationshipEvidence(context.evidence, selection);
   for (const kind of Object.keys(EVIDENCE_LABELS) as RelationshipContextEvidenceKind[]) {
     const values = selectedEvidence.filter((item) => item.kind === kind);
     if (values.length === 0) continue;
