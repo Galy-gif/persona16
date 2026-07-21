@@ -307,6 +307,9 @@ test('narrative honesty lint catches embodied stage directions and invented prop
   assert.deepEqual(findPilotRoomProtocolViolations('我们半小时能跑一轮测试。'), [
     'unavailable_role_commitment',
   ]);
+  assert.deepEqual(findPilotRoomProtocolViolations('目前有没有人默认我会接手维护？'), [
+    'persona_real_world_role_assumption',
+  ]);
   assert.deepEqual(findPilotRoomProtocolViolations('大家会来找周禾这样的人兜底。', '周禾'), [
     'third_person_self_reference',
   ]);

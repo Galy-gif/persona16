@@ -1,8 +1,9 @@
 import type { PilotCharacterContextFocus } from '@persona16/engine';
 import type { PilotTurnResponseContract } from '@persona16/engine';
 
-export const PILOT_CHARACTER_EVAL_PROTOCOL_VERSION = '0.4' as const;
+export const PILOT_CHARACTER_EVAL_PROTOCOL_VERSION = '0.5' as const;
 export const PILOT_PROMPT_ASSEMBLY_VERSION = 'pilot-runtime-prompt-v0.4' as const;
+export const PILOT_ROOM_PARTICIPATION_VERSION = 'pilot-room-participation-v0.1' as const;
 
 export interface PilotCharacterScenario {
   id: string;
@@ -18,6 +19,8 @@ export interface PilotEvaluationSignature {
   runtime: string;
   agentModel: string;
   judgeModel: string;
+  roomArbitratorModel: string;
+  roomParticipationVersion: typeof PILOT_ROOM_PARTICIPATION_VERSION;
 }
 
 export const PILOT_CHARACTER_SCENARIOS = [

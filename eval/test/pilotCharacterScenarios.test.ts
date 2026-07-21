@@ -4,6 +4,7 @@ import {
   PILOT_CHARACTER_EVAL_PROTOCOL_VERSION,
   PILOT_CHARACTER_SCENARIOS,
   PILOT_PROMPT_ASSEMBLY_VERSION,
+  PILOT_ROOM_PARTICIPATION_VERSION,
   canReusePilotCharacterResults,
 } from '../src/pilotCharacterScenarios';
 
@@ -25,6 +26,8 @@ const EXPECTED_SIGNATURE = {
   runtime: 'test-runtime',
   agentModel: 'test-agent',
   judgeModel: 'test-judge',
+  roomArbitratorModel: 'test-room-arbitrator',
+  roomParticipationVersion: PILOT_ROOM_PARTICIPATION_VERSION,
 } as const;
 
 function completeArtifact(scenarioIds: readonly string[] = EXPECTED_IDS) {
@@ -47,8 +50,9 @@ function completeArtifact(scenarioIds: readonly string[] = EXPECTED_IDS) {
 
 test('pilot character protocol has exactly nine unique ordered scenarios', () => {
   const ids = PILOT_CHARACTER_SCENARIOS.map((scenario) => scenario.id);
-  assert.equal(PILOT_CHARACTER_EVAL_PROTOCOL_VERSION, '0.4');
+  assert.equal(PILOT_CHARACTER_EVAL_PROTOCOL_VERSION, '0.5');
   assert.equal(PILOT_PROMPT_ASSEMBLY_VERSION, 'pilot-runtime-prompt-v0.4');
+  assert.equal(PILOT_ROOM_PARTICIPATION_VERSION, 'pilot-room-participation-v0.1');
   assert.deepEqual(ids, EXPECTED_IDS);
   assert.equal(new Set(ids).size, 9);
   assert.equal(PILOT_CHARACTER_SCENARIOS.find(({ id }) => id === 'shared-joy')?.contextFocus, 'ordinary');
