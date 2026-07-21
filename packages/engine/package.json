@@ -6,6 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./personas": "./src/personas/index.ts",
+    "./recovery": "./src/runtime/recoveryPolicy.ts",
+    "./turn-events": "./src/runtime/turnEvents.ts",
     "./types": "./src/types.ts"
   },
   "scripts": {

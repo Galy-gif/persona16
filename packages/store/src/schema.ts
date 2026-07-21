@@ -1,6 +1,5 @@
 import type { RelationshipBranch, RoomState } from '@persona16/engine';
 import {
-  boolean,
   index,
   integer,
   jsonb,
@@ -34,14 +33,6 @@ export const rooms = pgTable('rooms', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [index('rooms_user_updated_idx').on(table.userId, table.updatedAt)]);
-
-export const roomAgents = pgTable('room_agents', {
-  roomId: text('room_id').notNull().references(() => rooms.id, { onDelete: 'cascade' }),
-  agentType: text('agent_type').notNull(),
-  paused: boolean('paused').notNull().default(false),
-  joinedAt: timestamp('joined_at', { withTimezone: true }).notNull().defaultNow(),
-  state: jsonb('state_json').$type<Record<string, unknown>>().notNull().default({}),
-}, (table) => [primaryKey({ columns: [table.roomId, table.agentType] })]);
 
 export const turnRuns = pgTable('turn_runs', {
   id: text('id').primaryKey(),

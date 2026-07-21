@@ -40,8 +40,15 @@
     {
       "idx": 5,
       "version": "7",
-      "when": 1784626955603,
-      "tag": "0005_glorious_mongoose",
+      "when": 1784565814769,
+      "tag": "0005_legal_forge",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1784647245950,
+      "tag": "0006_daffy_jean_grey",
       "breakpoints": true
     }
   ]

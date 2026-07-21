@@ -1,15 +1,19 @@
 'use client';
 
-import { decideRecoveryAction } from '@persona16/engine';
+import { decideRecoveryAction } from '@persona16/engine/recovery';
+import type {
+  FailureOutcome,
+  RecoveryAction,
+} from '@persona16/engine/recovery';
 import type {
   AgentType,
-  FailureOutcome,
-  MemoryCandidateEvent,
-  RecoveryAction,
-  RoomAction,
   RoomState,
+} from '@persona16/engine/types';
+import type {
+  MemoryCandidateEvent,
+  RoomActionEvent as RoomAction,
   TurnStopReason,
-} from '@persona16/engine';
+} from '@persona16/engine/turn-events';
 import type { FeedbackRating, FeedbackTag } from '@persona16/store';
 
 export interface ServerRoom {

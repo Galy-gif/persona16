@@ -17,7 +17,8 @@ Use PostgreSQL as the production truth source behind a `PersonaStore` port. The 
 - `rooms.version` provides optimistic concurrency. A row lock plus `active_turn_id` allows one active turn per room.
 - `turnId + requestHash` is the idempotency boundary. Completed requests replay persisted v1 events; mismatched reuse and concurrent turns return explicit conflicts.
 - Active turns have a three-minute lease so a crashed worker cannot lock a room forever.
-- Versioned turn events, messages, prompt/model metadata, reserved budget and latency are persisted with the completed turn.
+- `rooms.state_json` is the single persisted source of room membership and pause state; do not maintain a second room-agent projection unless a measured query need introduces a read path for it.
+- Versioned turn events, messages, prompt/model metadata, reserved budget and latency are persisted with the completed turn. Adjacent provider deltas from the same speaker are coalesced before persistence, and completed messages/events are inserted in batches without changing replay order.
 
 ## Memory decision
 
@@ -48,7 +49,7 @@ The safety response is stored as `speaker: safety`, never as a Persona utterance
 - User input is capped at 2,000 characters; retained prompt context is capped at 12,000 characters.
 - Room output remains capped by speaker, character, controller and duration limits.
 - A shared turn model budget reserves worst-case JSON retries: at most 16 calls, 15,000 output tokens and 110 seconds across safety, Director, Controller and Persona execution.
-- PostgreSQL-backed fixed windows independently limit anonymous users and client IPs. Proxy headers are trusted only when `PERSONA16_TRUST_PROXY=1` is explicitly configured.
+- PostgreSQL-backed fixed windows always limit the anonymous session and also limit the client IP when a trusted IP is available. Proxy headers are trusted only when `PERSONA16_TRUST_PROXY=1` is explicitly configured; without a trusted IP, the IP bucket is skipped instead of collapsing all direct traffic into one shared fallback key.
 
 ## Consequences
 

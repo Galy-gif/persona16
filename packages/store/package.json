@@ -17,7 +17,7 @@
   },
   "dependencies": {
     "@persona16/engine": "workspace:*",
-    "drizzle-orm": "^0.44.0",
+    "drizzle-orm": "^0.45.2",
     "pg": "^8.16.0"
   },
   "devDependencies": {
