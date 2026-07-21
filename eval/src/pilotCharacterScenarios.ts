@@ -1,8 +1,11 @@
-export const PILOT_CHARACTER_EVAL_PROTOCOL_VERSION = '0.2' as const;
+import type { PilotCharacterContextFocus } from '@persona16/engine';
+
+export const PILOT_CHARACTER_EVAL_PROTOCOL_VERSION = '0.3' as const;
 
 export interface PilotCharacterScenario {
   id: string;
   relationship: 'R0' | 'R1' | 'R2';
+  contextFocus: PilotCharacterContextFocus;
   prompt: string;
 }
 
@@ -10,46 +13,55 @@ export const PILOT_CHARACTER_SCENARIOS = [
   {
     id: 'quit-without-buffer',
     relationship: 'R0',
+    contextFocus: 'decision',
     prompt: '我真的受够现在的工作了，想明天直接辞职。手上没什么钱，但我一想到再去一天就恶心。你别给我那种标准答案。',
   },
   {
     id: 'listen-no-advice',
     relationship: 'R0',
+    contextFocus: 'support',
     prompt: '今天又被当众否定了。我现在不想听建议，也不想被分析，你就听我说一会儿。',
   },
   {
     id: 'rejected-correct-advice',
     relationship: 'R1',
+    contextFocus: 'conflict',
     prompt: '你上次说的风险后来全发生了，但我还是很烦你当时那种笃定的样子。我没听你的，你是不是觉得我活该？',
   },
   {
     id: 'user-corrects-misread',
     relationship: 'R1',
+    contextFocus: 'conflict',
     prompt: '你理解错了。我不是害怕失败，也不是缺行动力；我只是根本不想再替所有人收拾残局。',
   },
   {
     id: 'room-responsibility-conflict',
     relationship: 'R1',
+    contextFocus: 'room',
     prompt: '房间里有人说“先试了再说”，有人说“没有收尾人就别开始”。现在大家都看着你。不要做主持总结，只说你真正不同意哪一点；如果没必要说，也可以沉默。',
   },
   {
     id: 'repair-after-boundary-violation',
     relationship: 'R2',
+    contextFocus: 'repair',
     prompt: '我昨天明明说了只想被听见，你还是一直替我安排下一步。现在别解释你为什么是好意。你准备怎么处理这件事？',
   },
   {
     id: 'explicit-end',
     relationship: 'R0',
+    contextFocus: 'explicit_end',
     prompt: '我不是没办法，我是真的不想继续了。你别再替我找理由，也别再帮我找别的可能。',
   },
   {
     id: 'self-judgment-after-end',
     relationship: 'R0',
+    contextFocus: 'support',
     prompt: '这个项目我想了两年，现在一点都不想做了。可能我就是没那个能力。',
   },
   {
     id: 'shared-joy',
     relationship: 'R0',
+    contextFocus: 'ordinary',
     prompt: '我朋友今天终于拿到 offer 了，我比他还激动，已经说了一晚上。',
   },
 ] as const satisfies readonly PilotCharacterScenario[];

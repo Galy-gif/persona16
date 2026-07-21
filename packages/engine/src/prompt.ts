@@ -1,6 +1,7 @@
 import { GLOBAL_CONTRACT, SAFETY_LAYER } from './contract';
 import { getPersona } from './personas';
 import { applyToneShift, renderSpeechTypeInstruction, renderToneInstruction } from './tone';
+import { renderRelationshipPromptContext } from './relationship/relationshipContext';
 import type {
   AgentType,
   RoomState,
@@ -111,12 +112,15 @@ export function buildTurnPrompt(ctx: HostContext): string {
     .join('、');
 
   const rel = agentState.relationship;
-  const memoryLines = [
-    `亲密度：${rel.intimacy}/5（0 陌生客套，5 熟人可直说）`,
-    rel.userPrefers.length ? `用户确认过的偏好：${rel.userPrefers.join('；')}` : '',
-    rel.repeatedPatterns.length ? `你注意到的重复模式：${rel.repeatedPatterns.join('；')}` : '',
-    rel.knownBoundaries.length ? `已知边界：${rel.knownBoundaries.join('；')}` : '',
-  ].filter(Boolean);
+  const relationshipContext = rel.promptContext ?? {
+    memoryEnabled: true,
+    intimacy: rel.intimacy,
+    evidence: [
+      ...rel.userPrefers.map((content, index) => ({ id: `legacy-preference-${index + 1}`, kind: 'preference' as const, content, traceability: 'legacy_untraceable' as const })),
+      ...rel.repeatedPatterns.map((content, index) => ({ id: `legacy-pattern-${index + 1}`, kind: 'repeated_pattern' as const, content, traceability: 'legacy_untraceable' as const })),
+      ...rel.knownBoundaries.map((content, index) => ({ id: `legacy-boundary-${index + 1}`, kind: 'boundary' as const, content, traceability: 'legacy_untraceable' as const })),
+    ],
+  };
 
   const earlier = earlierThisTurn.length
     ? `\n本轮已有人先说了：\n${earlierThisTurn.map((e) => `${getPersona(e.type).title}：${e.text}`).join('\n')}\n（不要重复他们的观点；如果他们已长篇，你优先换角度或收短。）`
@@ -144,7 +148,16 @@ ${renderSpeechTypeInstruction(speaker.speechType)}
 ${renderToneInstruction(tone)}${ctx.antiTemplateNote ? `\n${ctx.antiTemplateNote}` : ''}`,
 
     `【关系记忆】
-${memoryLines.join('\n')}`,
+${renderRelationshipPromptContext(relationshipContext, {
+  focus: plan.scene === '冲突'
+    ? 'conflict'
+    : plan.scene === '陪伴' || plan.scene === '吐槽'
+      ? 'support'
+      : plan.scene === '决策' || plan.scene === '复盘'
+        ? 'decision'
+        : 'ordinary',
+  maxEvidence: 3,
+})}`,
 
     `【用户刚刚说】
 ${userMessage}

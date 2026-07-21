@@ -24,6 +24,7 @@
 - [房间命令权限](adr/0004-room-command-permission.md)
 - [循环 Hook 与待办恢复](adr/0005-loop-hooks-and-pending-work-recovery.md)
 - [共享正典人物与私有关系](adr/0006-canonical-characters-private-relationships.md)
+- [上下文投影与评测层级](adr/0007-context-projection-and-evaluation-levels.md)
 
 ADR 记录决策当时的背景。新结论若改变既有决策，应新增 ADR，而不是改写旧文档。
 
@@ -35,6 +36,8 @@ ADR 记录决策当时的背景。新结论若改变既有决策，应新增 ADR
 - [自动预检](evals/pilot-character-preflight-2026-07-20.md)
 - [首位用户人物校准](evals/pilot-human-calibration-2026-07-20.md)
 - [v0.3 九场景复测报告](evals/pilot-character-retest-2026-07-21.md)
+- [人物上下文与关系 Memory 修复周期](evals/active-context-memory-cycle-2026-07-21.md)
+- [Bad case 修复实验卡](evals/intervention-card-template.md)
 
 自动分数只用于发现问题。真人样本量、测试条件和证据边界必须与结论一起保留。
 

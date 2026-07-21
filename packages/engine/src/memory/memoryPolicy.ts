@@ -11,6 +11,8 @@ export interface MemoryCandidateDraft {
 
 export interface InjectableMemory extends MemoryCandidateDraft {
   status: MemoryStatus;
+  id?: string;
+  sourceTurnId?: string;
 }
 
 const SENSITIVE_DATA = [
@@ -45,6 +47,23 @@ export function applyConfirmedMemories(room: RoomState, memories: InjectableMemo
         ? relationship.repeatedPatterns
         : relationship.knownBoundaries;
     if (!target.includes(memory.content)) target.push(memory.content);
+    relationship.promptContext ??= {
+      memoryEnabled: true,
+      intimacy: relationship.intimacy,
+      evidence: [],
+    };
+    if (!relationship.promptContext.evidence.some((item) => (
+      item.kind === memory.kind && item.content === memory.content
+    ))) {
+      relationship.promptContext.evidence.push({
+        id: memory.id ?? `legacy-${memory.kind}-${relationship.promptContext.evidence.length + 1}`,
+        kind: memory.kind,
+        content: memory.content,
+        ...(memory.sourceTurnId
+          ? { traceability: 'traceable' as const, sourceTurnId: memory.sourceTurnId }
+          : { traceability: 'legacy_untraceable' as const }),
+      });
+    }
   }
 }
 
@@ -54,5 +73,6 @@ export function clearInjectedMemories(room: RoomState): void {
     agent.relationship.userPrefers = [];
     agent.relationship.repeatedPatterns = [];
     agent.relationship.knownBoundaries = [];
+    delete agent.relationship.promptContext;
   }
 }

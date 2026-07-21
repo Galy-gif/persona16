@@ -37,9 +37,11 @@ function completeArtifact(scenarioIds: readonly string[] = EXPECTED_IDS) {
 
 test('pilot character protocol has exactly nine unique ordered scenarios', () => {
   const ids = PILOT_CHARACTER_SCENARIOS.map((scenario) => scenario.id);
-  assert.equal(PILOT_CHARACTER_EVAL_PROTOCOL_VERSION, '0.2');
+  assert.equal(PILOT_CHARACTER_EVAL_PROTOCOL_VERSION, '0.3');
   assert.deepEqual(ids, EXPECTED_IDS);
   assert.equal(new Set(ids).size, 9);
+  assert.equal(PILOT_CHARACTER_SCENARIOS.find(({ id }) => id === 'shared-joy')?.contextFocus, 'ordinary');
+  assert.equal(PILOT_CHARACTER_SCENARIOS.find(({ id }) => id === 'explicit-end')?.contextFocus, 'explicit_end');
 });
 
 test('room-only reuse requires a complete current-protocol nine-scenario artifact', () => {

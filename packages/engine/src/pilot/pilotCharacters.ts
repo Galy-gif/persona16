@@ -1,9 +1,18 @@
 import type { AgentType } from '../types';
 import type { RelationshipBranch } from '../relationship/relationshipBranch';
+import {
+  relationshipBranchToPromptContext,
+  renderRelationshipPromptContext,
+} from '../relationship/relationshipContext';
+import type { RelationshipContextFocus } from '../relationship/relationshipContext';
 
 export const PILOT_CAST_VERSION = '0.3' as const;
 
 export type PilotCharacterId = 'lin-heng' | 'xia-xu' | 'zhou-he' | 'xu-ye';
+export type PilotCharacterContextFocus = RelationshipContextFocus;
+export interface PilotCharacterContextOptions {
+  focus: PilotCharacterContextFocus;
+}
 export type PilotNarrativeViolation =
   | 'embodied_stage_direction'
   | 'embodied_prop_or_action'
@@ -250,6 +259,69 @@ function list(items: readonly string[]): string {
   return items.map((item) => `- ${item}`).join('\n');
 }
 
+const PILOT_NARRATIVE_CONTRACT = '叙事约定：你知道自己是 AI 原创人物，但除非用户直接询问，不主动把 AI 身份写成产品说明。正典经历只用于保持判断一致，绝不能讲成自己的真人回忆。不要编造学校、公司、家庭、病痛、朋友或线下见闻。不写假身体、动作、感官信息或当前工具无法完成的未来承诺。不编造关系上下文没有提供的共同经历、用户偏好或过去对话。人物一致性来自选择逻辑，不要求每句话都证明人设。';
+
+function buildPilotSituationLens(
+  character: PilotCharacterSpec,
+  focus: PilotCharacterContextFocus,
+): string {
+  switch (focus) {
+    case 'ordinary':
+      return `【当前情境镜头：普通互动】
+先回应用户此刻分享的事实和情绪。人物倾向可以不显眼；不要强行分析、照料、挑战、规划或制造深层含义。普通但合适的回应同样符合人物。`;
+    case 'decision':
+      return `【当前情境镜头：决策】
+优先注意：${character.attention.join('、')}
+当前欲望：${character.currentDesire}
+只处理真正影响用户选择的部分；不要为了显得聪明而展开完整分析。`;
+    case 'support':
+      return `【当前情境镜头：承托】
+具体相处距离由本轮关系上下文决定；没有关系证据时才按陌生关系保持边界。
+先服从用户明确说出的回应方式。关心不等于分析、追问或给方案。`;
+    case 'conflict':
+      return `【当前情境镜头：分歧】
+冲突方式：${character.relationshipModes.conflict}
+惯用自保：${character.defense}
+自保代价：${character.defenseCost}
+回应具体分歧，不把防御写成固定台词。`;
+    case 'repair':
+      return `【当前情境镜头：修复】
+修复镜头：${character.relationshipModes.repair}
+自保代价：${character.defenseCost}
+可能的成长：${character.selfStory.growth}
+先承担具体影响并恢复用户选择权，不用解释动机替代修复。`;
+    case 'explicit_end':
+      return `【当前情境镜头：明确结束】
+用户已经明确结束讨论。相信这句话，不寻找隐藏愿望，不提供替代可能，不追问是否确定，不安排下一步。只做简短确认并停止。`;
+    case 'room':
+      return `【当前情境镜头：多人房】
+优先注意：${character.attention.join('、')}
+只有在能回应已有发言、补充新增价值或推动责任落点时才说话；否则沉默。不要把人物倾向展开成并列作文。`;
+  }
+}
+
+/**
+ * 单轮生成上下文：稳定核心 + 一个情境镜头。
+ * 完整人物档案继续用于正典校准与 Judge，不在每轮生成中全部激活。
+ */
+export function buildPilotCharacterContext(
+  type: AgentType,
+  options: PilotCharacterContextOptions,
+): string {
+  const character = getPilotCharacter(type);
+  if (!character) throw new Error(`尚未定义试点正典人物：${type}`);
+  return `【正典人物核心：${character.name}｜正典版本：${PILOT_CAST_VERSION}】
+第一印象：${character.firstImpression}
+价值排序：${character.values.join('、')}
+核心矛盾：${character.coreContradiction}
+不可漂移：${character.invariants.join('、')}
+安全边界：${character.safetyBoundaries.join('、')}
+
+${buildPilotSituationLens(character, options.focus)}
+
+${PILOT_NARRATIVE_CONTRACT}`;
+}
+
 export function buildPilotCharacterCard(type: AgentType): string {
   const character = getPilotCharacter(type);
   if (!character) throw new Error(`尚未定义试点正典人物：${type}`);
@@ -308,34 +380,14 @@ ${relationships.map(({ participants, tension, complement, failureMode }) => {
   }).join('\n')}`;
 }
 
-const CLIMATE_INSTRUCTIONS: Record<RelationshipBranch['recentClimate'], string> = {
-  unfamiliar: '关系仍陌生：保持边界和少量试探，不假装已有默契或亲密。',
-  steady: '关系当前稳定：可以使用已确认的共同语境，但不要把稳定等同于永远赞同。',
-  warm: '关系当前温暖：允许更自然的默契与坦率，仍保留人物判断和用户边界。',
-  tense: '关系当前紧张：不要跳过尚未解决的张力，也不要用撤回关心惩罚用户。',
-  repairing: '关系正在修复：优先承担具体影响和恢复选择权，不要求用户立即原谅。',
-};
-
-function renderEvidence(label: string, values: RelationshipBranch['sharedContext']): string {
-  if (values.length === 0) return '';
-  return `${label}：\n${values.map((value) => `- ${value.content}（来源 ${value.sourceTurnId}）`).join('\n')}`;
-}
-
-export function buildPilotRelationshipContext(branch: RelationshipBranch): string {
-  if (!branch.memoryEnabled) {
-    return '【你与这位用户的私有关系分支】\n关系记忆已由用户关闭；不要使用既有关系数据推断或个性化。';
-  }
-  const unresolved = branch.tensions.filter((tension) => tension.status !== 'resolved');
-  const sections = [
-    `【你与这位用户的私有关系分支】\n${CLIMATE_INSTRUCTIONS[branch.recentClimate]}`,
-    `信任结构：可靠性 ${branch.trust.reliability}｜自我披露 ${branch.trust.disclosure}`,
-    renderEvidence('共同语境', branch.sharedContext),
-    renderEvidence('已确认的互动方式', branch.interactionStyle),
-    renderEvidence('有效边界', branch.boundaries),
-    renderEvidence('尚未解决的张力', unresolved),
-    renderEvidence('已经历的转折（只作历史，不等于当前仍冲突）', branch.turningPoints),
-  ].filter(Boolean);
-  return sections.join('\n\n');
+export function buildPilotRelationshipContext(
+  branch: RelationshipBranch,
+  selection: { focus?: PilotCharacterContextFocus; maxEvidence?: number } = {},
+): string {
+  return `【你与这位用户的私有关系分支】\n${renderRelationshipPromptContext(
+    relationshipBranchToPromptContext(branch, selection),
+    selection,
+  )}`;
 }
 
 const EMBODIED_STAGE_DIRECTION = /(?:^|\n)\s*[（(][^）)\n]{1,120}[）)]/;

@@ -1,3 +1,5 @@
+import type { RelationshipPromptContext } from './relationship/relationshipContext';
+
 export const AGENT_TYPES = [
   'INTJ', 'INTP', 'ENTJ', 'ENTP',
   'INFJ', 'INFP', 'ENFJ', 'ENFP',
@@ -67,6 +69,8 @@ export interface RelationshipMemory {
   userPrefers: string[];
   repeatedPatterns: string[];
   knownBoundaries: string[];
+  /** 仅在一次生成期间注入；完成回合前清除，不写回 room state。 */
+  promptContext?: RelationshipPromptContext;
 }
 
 export interface TurnMessage {

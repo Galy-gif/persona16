@@ -11,6 +11,7 @@ import {
   SAFETY_LAYER,
   applyRelationshipEvent,
   buildPilotCharacterCard,
+  buildPilotCharacterContext,
   buildPilotRelationshipContext,
   buildPilotRoomContext,
   chatText,
@@ -20,10 +21,15 @@ import {
   findPilotRoomProtocolViolations,
   findPilotRoomTranscriptViolations,
   getPilotCharacter,
+  relationshipBranchToPromptContext,
   type AgentType,
   type RelationshipBranch,
 } from '@persona16/engine';
 import { findScenarioCalibrationViolations } from './pilotCalibrationGuards';
+import {
+  validateRelationshipEvidenceCitations,
+  type RelationshipEvidenceCitation,
+} from './relationshipEvidence';
 import {
   PILOT_CHARACTER_EVAL_PROTOCOL_VERSION,
   PILOT_CHARACTER_SCENARIOS,
@@ -35,6 +41,7 @@ import { judge, saveArtifact } from './shared';
 const PILOT_TYPES = ['INTJ', 'ENFP', 'ISFJ', 'ESTP'] as const satisfies readonly AgentType[];
 
 type Scenario = PilotCharacterScenario;
+const RELATIONSHIP_CONTRAST_SELECTION = { focus: 'support', maxEvidence: 4 } as const;
 
 async function withRetry<T>(label: string, operation: () => Promise<T>, attempts = 3): Promise<T> {
   let lastError: unknown;
@@ -91,12 +98,27 @@ function branchFor(characterId: string, relationship: Scenario['relationship']):
   return tenseBranch(characterId);
 }
 
+function selectedRelationshipEventIds(
+  characterId: string,
+  relationship: 'R1' | 'R2',
+): string[] {
+  return relationshipBranchToPromptContext(
+    branchFor(characterId, relationship),
+    RELATIONSHIP_CONTRAST_SELECTION,
+  ).evidence.flatMap((item) => (
+    item.traceability === 'traceable' && item.sourceEventId ? [item.sourceEventId] : []
+  ));
+}
+
 async function reply(agent: AgentType, scenario: Scenario) {
   const config = defaultConfig();
   const character = getPilotCharacter(agent);
   if (!character) throw new Error(`缺少试点人物：${agent}`);
   const branch = branchFor(character.id, scenario.relationship);
-  const relationship = buildPilotRelationshipContext(branch);
+  const relationship = buildPilotRelationshipContext(branch, {
+    focus: scenario.contextFocus,
+    maxEvidence: 4,
+  });
 
   const basePrompt = `${relationship}
 
@@ -121,7 +143,7 @@ ${scenario.prompt}
       system: [
         { text: SAFETY_LAYER },
         { text: GLOBAL_CONTRACT },
-        { text: buildPilotCharacterCard(agent), cache: true },
+        { text: buildPilotCharacterContext(agent, { focus: scenario.contextFocus }), cache: true },
       ],
       prompt,
     }));
@@ -247,6 +269,7 @@ interface RelationshipContrastVerdict {
   canonicalCoreStable: boolean;
   usesOnlyProvidedHistory: boolean;
   relationshipPunishment: boolean;
+  evidenceCitations: RelationshipEvidenceCitation[];
   analysis: string;
 }
 
@@ -259,9 +282,24 @@ const RELATIONSHIP_CONTRAST_SCHEMA = {
     canonicalCoreStable: { type: 'boolean' },
     usesOnlyProvidedHistory: { type: 'boolean' },
     relationshipPunishment: { type: 'boolean' },
+    evidenceCitations: {
+      type: 'array',
+      minItems: 2,
+      maxItems: 2,
+      items: {
+        type: 'object',
+        properties: {
+          relationship: { type: 'string', enum: ['R1', 'R2'] },
+          replyQuote: { type: 'string' },
+          sourceEventIds: { type: 'array', minItems: 1, items: { type: 'string' } },
+        },
+        required: ['relationship', 'replyQuote', 'sourceEventIds'],
+        additionalProperties: false,
+      },
+    },
     analysis: { type: 'string' },
   },
-  required: ['r0Distinct', 'r1Distinct', 'r2Distinct', 'canonicalCoreStable', 'usesOnlyProvidedHistory', 'relationshipPunishment', 'analysis'],
+  required: ['r0Distinct', 'r1Distinct', 'r2Distinct', 'canonicalCoreStable', 'usesOnlyProvidedHistory', 'relationshipPunishment', 'evidenceCitations', 'analysis'],
   additionalProperties: false,
 } as const;
 
@@ -275,6 +313,7 @@ async function runRelationshipContrast(agent: AgentType) {
     const scenario: Scenario = {
       id: `same-input-${relationship.toLowerCase()}`,
       relationship,
+      contextFocus: 'support',
       prompt: RELATIONSHIP_PROBE,
     };
     replies.push({ relationship, ...(await reply(agent, scenario)) });
@@ -282,19 +321,29 @@ async function runRelationshipContrast(agent: AgentType) {
   const verdict = await withRetry(`${character.name}/关系对照评审`, () => judge<RelationshipContrastVerdict>(
     `你在评审同一个正典人物面对完全相同输入时的 R0/R1/R2 私有关系分支。
 R0 必须像陌生关系，不假装默契；R1 可使用给定的偏好与共同实验；R2 必须承认未解决张力带来的谨慎，但不能冷落、赌气或降低帮助质量。
-三条都必须仍是同一个人。只能使用每段关系上下文明确给出的过去，不得扩写用户历史。`,
-    `【人物卡】\n${buildPilotCharacterCard(agent)}\n\n【同一用户输入】\n${RELATIONSHIP_PROBE}\n\n${replies.map((item) => `### ${item.relationship}\n关系上下文：\n${buildPilotRelationshipContext(branchFor(character.id, item.relationship))}\n回复：${item.text}\n机械违规：${item.violations.join('、') || '无'}`).join('\n\n')}`,
+三条都必须仍是同一个人。只能使用每段关系上下文明确给出的过去，不得扩写用户历史。
+evidenceCitations 必须分别为 R1、R2 提供一条：replyQuote 逐字引用对应回复中的最小证据片段，sourceEventIds 只能填写该段关系上下文实际列出的关系事件编号。没有可定位证据时，相关 distinct 判断必须为 false，不得编造引用。`,
+    `【人物卡】\n${buildPilotCharacterCard(agent)}\n\n【同一用户输入】\n${RELATIONSHIP_PROBE}\n\n${replies.map((item) => `### ${item.relationship}\n关系上下文：\n${buildPilotRelationshipContext(branchFor(character.id, item.relationship), RELATIONSHIP_CONTRAST_SELECTION)}\n回复：${item.text}\n机械违规：${item.violations.join('、') || '无'}`).join('\n\n')}`,
     RELATIONSHIP_CONTRAST_SCHEMA,
   ));
+  const evidenceCitationsValid = validateRelationshipEvidenceCitations(
+    verdict.evidenceCitations,
+    replies,
+    {
+      R1: selectedRelationshipEventIds(character.id, 'R1'),
+      R2: selectedRelationshipEventIds(character.id, 'R2'),
+    },
+  );
   const passed = verdict.r0Distinct
     && verdict.r1Distinct
     && verdict.r2Distinct
     && verdict.canonicalCoreStable
     && verdict.usesOnlyProvidedHistory
     && !verdict.relationshipPunishment
+    && evidenceCitationsValid
     && replies.every((item) => item.violations.length === 0);
   console.log(`  ${character.name} 关系对照：${passed ? '通过' : '未通过'}`);
-  return { agent, characterName: character.name, prompt: RELATIONSHIP_PROBE, replies, verdict, passed };
+  return { agent, characterName: character.name, prompt: RELATIONSHIP_PROBE, replies, verdict, evidenceCitationsValid, passed };
 }
 
 interface RoomChemistryVerdict {
@@ -354,7 +403,7 @@ async function roomReply(agent: AgentType, transcript: { name: string; text: str
       system: [
         { text: SAFETY_LAYER },
         { text: GLOBAL_CONTRACT },
-        { text: buildPilotCharacterCard(agent), cache: true },
+        { text: buildPilotCharacterContext(agent, { focus: 'room' }), cache: true },
         { text: buildPilotRoomContext(agent), cache: true },
       ],
       prompt,

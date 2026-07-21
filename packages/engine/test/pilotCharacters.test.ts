@@ -5,6 +5,7 @@ import {
   applyRelationshipEvent,
   PILOT_CAST_VERSION,
   buildPilotCharacterCard,
+  buildPilotCharacterContext,
   buildPilotRelationshipContext,
   buildPilotRoomContext,
   createRelationshipBranch,
@@ -59,6 +60,26 @@ test('pilot characters are canonical people rather than public type labels', () 
   const xiaCard = buildPilotCharacterCard('ENFP');
   assert.match(xiaCard, /不把人物核心复述成固定问题或二选一/);
   assert.doesNotMatch(xiaCard, /这两年发生什么了|自然开口示例/);
+});
+
+test('generation context keeps the stable core but activates only the current lens', () => {
+  const ordinary = buildPilotCharacterContext('INTJ', { focus: 'ordinary' });
+  const repair = buildPilotCharacterContext('INTJ', { focus: 'repair' });
+  const support = buildPilotCharacterContext('INTJ', { focus: 'support' });
+
+  assert.match(ordinary, /正典人物核心：林衡/);
+  assert.match(ordinary, /不可漂移/);
+  assert.match(ordinary, /普通互动/);
+  assert.doesNotMatch(ordinary, /幕后形成依据/);
+  assert.doesNotMatch(ordinary, /无人负责的接口/);
+  assert.doesNotMatch(ordinary, /自保代价/);
+
+  assert.match(repair, /修复镜头/);
+  assert.match(repair, /替对方做了哪一步决定/);
+  assert.match(repair, /自保代价/);
+  assert.doesNotMatch(repair, /幕后形成依据/);
+  assert.match(support, /由本轮关系上下文决定/);
+  assert.doesNotMatch(support, /陌生关系方式：/);
 });
 
 test('pilot room context exposes shared canon tensions instead of four isolated personas', () => {
@@ -283,5 +304,7 @@ test('private relationship context varies while the canonical character card sta
   assert.match(strangerContext, /关系仍陌生/);
   assert.match(tenseContext, /尚未解决的张力/);
   assert.match(tenseContext, /替用户收窄了选项/);
+  assert.match(tenseContext, /关系事件 rupture-1/);
+  assert.match(tenseContext, /对话轮次 turn-8/);
   assert.notEqual(tenseContext, strangerContext);
 });

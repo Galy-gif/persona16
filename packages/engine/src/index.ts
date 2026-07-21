@@ -94,8 +94,14 @@ export {
   setRelationshipMemoryEnabled,
 } from './relationship/relationshipBranch';
 export {
+  relationshipBranchToPromptContext,
+  renderRelationshipPromptContext,
+  selectRelationshipEvidence,
+} from './relationship/relationshipContext';
+export {
   PILOT_CAST_VERSION,
   buildPilotCharacterCard,
+  buildPilotCharacterContext,
   buildPilotRelationshipContext,
   buildPilotRoomContext,
   findPilotNarrativeViolations,
@@ -105,12 +111,21 @@ export {
 } from './pilot/pilotCharacters';
 export type {
   PilotCharacterId,
+  PilotCharacterContextFocus,
+  PilotCharacterContextOptions,
   PilotCharacterSpec,
   PilotNarrativeViolation,
   PilotRoomChemistry,
   PilotRoomProtocolViolation,
   PilotRoomTranscriptViolation,
 } from './pilot/pilotCharacters';
+export type {
+  RelationshipContextEvidence,
+  RelationshipContextEvidenceKind,
+  RelationshipContextFocus,
+  RelationshipContextSelection,
+  RelationshipPromptContext,
+} from './relationship/relationshipContext';
 export type {
   RelationshipBoundary,
   RelationshipBranch,
