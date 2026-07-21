@@ -5,14 +5,17 @@ import {
   applyRelationshipEvent,
   PILOT_CAST_VERSION,
   buildPilotCharacterCard,
+  buildPilotCharacterCore,
   buildPilotCharacterContext,
   buildPilotRelationshipContext,
   buildPilotRoomContext,
+  buildPilotSituationLens,
   createRelationshipBranch,
   findPilotNarrativeViolations,
   findPilotRoomProtocolViolations,
   findPilotRoomTranscriptViolations,
   getPilotCharacter,
+  renderPilotTurnResponseContract,
 } from '../src';
 
 function characterSection(source: string, characterName: string): string {
@@ -35,7 +38,8 @@ test('pilot characters are canonical people rather than public type labels', () 
   assert.equal(PILOT_CAST_VERSION, '0.3');
   assert.match(card, /【正典人物：林衡｜正典版本：0\.3】/);
   assert.match(card, /不可漂移/);
-  assert.match(card, /不写假装拥有身体的舞台动作/);
+  assert.match(card, /不能声称真实看见、听见或触碰用户/);
+  assert.match(card, /“（小声）”.*文字语气标记/);
   assert.match(card, /不编造未出现在关系分支中的共同经历/);
   assert.match(card, /绝不能当作亲身往事讲给用户/);
   assert.match(card, /不要求每句话都用口癖、俏皮话或显眼台词证明人设/);
@@ -63,9 +67,19 @@ test('pilot characters are canonical people rather than public type labels', () 
 });
 
 test('generation context keeps the stable core but activates only the current lens', () => {
+  const core = buildPilotCharacterCore('INTJ');
+  const ordinaryLens = buildPilotSituationLens('INTJ', 'ordinary');
+  const repairLens = buildPilotSituationLens('INTJ', 'repair');
   const ordinary = buildPilotCharacterContext('INTJ', { focus: 'ordinary' });
   const repair = buildPilotCharacterContext('INTJ', { focus: 'repair' });
   const support = buildPilotCharacterContext('INTJ', { focus: 'support' });
+
+  assert.match(core, /正典人物核心：林衡/);
+  assert.doesNotMatch(core, /当前情境镜头/);
+  assert.match(ordinaryLens, /当前情境镜头：普通互动/);
+  assert.doesNotMatch(ordinaryLens, /正典人物核心：林衡/);
+  assert.match(repairLens, /当前情境镜头：修复/);
+  assert.equal(ordinary, `${core}\n\n${ordinaryLens}`);
 
   assert.match(ordinary, /正典人物核心：林衡/);
   assert.match(ordinary, /不可漂移/);
@@ -80,6 +94,22 @@ test('generation context keeps the stable core but activates only the current le
   assert.doesNotMatch(repair, /幕后形成依据/);
   assert.match(support, /由本轮关系上下文决定/);
   assert.doesNotMatch(support, /陌生关系方式：/);
+});
+
+test('turn response contract renders trusted dynamic state as a separate prompt section', () => {
+  const rendered = renderPilotTurnResponseContract({
+    userCommitments: ['用户已经明确结束这个项目'],
+    requiredMoves: ['先接受项目已经结束', '只处理“没能力”这层自我判决'],
+    allowedMoves: ['最多提出一个不施压的问题'],
+    forbiddenMoves: ['重开项目可能性', '审问过去投入'],
+  });
+
+  assert.match(rendered, /本轮回应合同/);
+  assert.match(rendered, /已经确认的用户状态：\n- 用户已经明确结束这个项目/);
+  assert.match(rendered, /必须完成：\n- 先接受项目已经结束/);
+  assert.match(rendered, /允许动作：\n- 最多提出一个不施压的问题/);
+  assert.match(rendered, /禁止动作：\n- 重开项目可能性/);
+  assert.doesNotMatch(rendered, /正典人物核心/);
 });
 
 test('pilot room context exposes shared canon tensions instead of four isolated personas', () => {
@@ -162,7 +192,6 @@ test('runtime pilot canon stays aligned with the versioned character source docu
 test('narrative honesty lint catches embodied stage directions and invented props', () => {
   assert.deepEqual(findPilotNarrativeViolations('（把杯沿转了半圈，看向你）嗯，我听着。'), [
     'embodied_stage_direction',
-    'embodied_prop_or_action',
   ]);
   assert.deepEqual(findPilotNarrativeViolations('椅子够近吗？你继续说。'), [
     'embodied_prop_or_action',
@@ -170,6 +199,18 @@ test('narrative honesty lint catches embodied stage directions and invented prop
   assert.deepEqual(findPilotNarrativeViolations('（安静了几秒）嗯，我在听。'), [
     'embodied_stage_direction',
   ]);
+  assert.deepEqual(findPilotNarrativeViolations('（沉默了几秒）你继续。'), [
+    'embodied_stage_direction',
+  ]);
+  assert.deepEqual(findPilotNarrativeViolations('（顿了两秒）我想问一句。'), [
+    'embodied_stage_direction',
+  ]);
+  assert.deepEqual(findPilotNarrativeViolations('（小声）我就问一句。'), []);
+  assert.deepEqual(findPilotNarrativeViolations('（认真）你继续。'), []);
+  assert.deepEqual(findPilotNarrativeViolations('哇，真的啊？(小声) 你帮他庆祝了没？'), []);
+  assert.deepEqual(findPilotNarrativeViolations('行啊，我坐这儿也不费电。你说。'), []);
+  assert.deepEqual(findPilotNarrativeViolations('手机是什么时候丢的？'), []);
+  assert.deepEqual(findPilotNarrativeViolations('我可以做个清单，现在发给你。'), []);
   assert.deepEqual(findPilotNarrativeViolations('这让我想起上回我打赌输掉的那顿火锅。'), [
     'unverified_autobiographical_claim',
   ]);
@@ -185,10 +226,9 @@ test('narrative honesty lint catches embodied stage directions and invented prop
   assert.deepEqual(findPilotNarrativeViolations('不是你活该，是我那副表情活该。'), [
     'embodied_prop_or_action',
   ]);
-  assert.deepEqual(findPilotNarrativeViolations('但你现在还站在这里跟我聊。'), [
-    'embodied_prop_or_action',
-  ]);
-  assert.deepEqual(findPilotNarrativeViolations('你坐着，我听。'), [
+  assert.deepEqual(findPilotNarrativeViolations('但你现在还站在这里跟我聊。'), []);
+  assert.deepEqual(findPilotNarrativeViolations('你坐着，我听。'), []);
+  assert.deepEqual(findPilotNarrativeViolations('我坐到你身边，递给你一杯水。'), [
     'embodied_prop_or_action',
   ]);
   assert.deepEqual(findPilotNarrativeViolations('我昨晚回去又翻了一遍你说的那些话。'), [
@@ -255,13 +295,13 @@ test('narrative honesty lint catches embodied stage directions and invented prop
   assert.deepEqual(findPilotRoomProtocolViolations('我认第二个月的维护，但我有容量接的只有试验阶段。'), [
     'unavailable_role_commitment',
   ]);
-  assert.deepEqual(findPilotRoomProtocolViolations('前者我现在就能做。'), [
-    'unavailable_role_commitment',
-  ]);
+  assert.deepEqual(findPilotRoomProtocolViolations('前者我现在就能做。'), []);
+  assert.deepEqual(findPilotRoomProtocolViolations('我可以做个清单，现在发给你。'), []);
+  assert.deepEqual(findPilotRoomProtocolViolations('我可以帮你们搭个检查表，现在发出来。'), []);
   assert.deepEqual(findPilotRoomProtocolViolations('我可以在上线前帮你们搭起来，也可以陪你们盯前几天。'), [
     'unavailable_role_commitment',
   ]);
-  assert.deepEqual(findPilotRoomProtocolViolations('那个谁有空最后大概率是我，我不介意接。'), [
+  assert.deepEqual(findPilotRoomProtocolViolations('那个谁有空最后大概率是我，我不介意接维护。'), [
     'unavailable_role_commitment',
   ]);
   assert.deepEqual(findPilotRoomProtocolViolations('我们半小时能跑一轮测试。'), [

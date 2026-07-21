@@ -14,6 +14,18 @@ test('rejects stage directions at the opening', () => {
   assert.equal(checkUtterance('*叹气* 这事不简单。', []).ok, false);
 });
 
+test('allows a textual tone marker without treating it as embodied stage direction', () => {
+  assert.equal(checkUtterance('（小声）我就问一句。', []).ok, true);
+  assert.equal(checkUtterance('（认真）你继续。', []).ok, true);
+});
+
+test('textual tone markers do not bypass banned opening checks', () => {
+  const verdict = checkUtterance('（小声）我理解你的感受，但我们先分析一下。', []);
+
+  assert.equal(verdict.ok, false);
+  assert.match(verdict.reason ?? '', /模板开场/);
+});
+
 test('rejects the third use of the same normalized opening', () => {
   const text = '你其实不是没想法，只是不敢选。';
   const first = recordOpening(text, []);

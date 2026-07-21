@@ -39,7 +39,7 @@ const requestSchema = z.object({
 });
 
 const engineConfig = defaultConfig();
-const PROMPT_VERSION = 'web-mvp-v2';
+const PROMPT_VERSION = 'web-mvp-v3';
 const BUILD_VERSION = (process.env.PERSONA16_BUILD_VERSION ?? process.env.VERCEL_GIT_COMMIT_SHA ?? 'development').slice(0, 80);
 const RELATIONSHIP_SHADOW_READ_TIMEOUT_MS = 100;
 let piRuntimePromise: Promise<AgentRuntime | undefined> | undefined;

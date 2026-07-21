@@ -17,8 +17,12 @@ const BANNED_OPENINGS = [
   '从以下几个方面',
 ];
 
+function stripTextualToneMarker(text: string): string {
+  return text.trim().replace(/^[（(]\s*(?:小声|轻声|认真|半开玩笑|开玩笑)\s*[）)]\s*/, '');
+}
+
 function normalizeOpening(text: string): string {
-  return text.trim().replace(/\s+/g, '').slice(0, 8);
+  return stripTextualToneMarker(text).replace(/\s+/g, '').slice(0, 8);
 }
 
 export interface AntiTemplateVerdict {
@@ -28,12 +32,13 @@ export interface AntiTemplateVerdict {
 
 export function checkUtterance(text: string, recentOpenings: string[]): AntiTemplateVerdict {
   const trimmed = text.trim();
+  const semanticOpening = stripTextualToneMarker(trimmed);
   // 舞台说明开场：（放下笔看着你）/ (sighs) / *叹气*
-  if (/^[（(*]/.test(trimmed)) {
+  if (/^[（(*]/.test(semanticOpening)) {
     return { ok: false, reason: '舞台说明/动作描写开场' };
   }
   for (const banned of BANNED_OPENINGS) {
-    if (trimmed.startsWith(banned)) {
+    if (semanticOpening.startsWith(banned)) {
       return { ok: false, reason: `模板开场"${banned}"` };
     }
   }

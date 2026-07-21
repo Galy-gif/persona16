@@ -101,19 +101,23 @@ export {
 export {
   PILOT_CAST_VERSION,
   buildPilotCharacterCard,
+  buildPilotCharacterCore,
   buildPilotCharacterContext,
   buildPilotRelationshipContext,
   buildPilotRoomContext,
+  buildPilotSituationLens,
   findPilotNarrativeViolations,
   findPilotRoomProtocolViolations,
   findPilotRoomTranscriptViolations,
   getPilotCharacter,
+  renderPilotTurnResponseContract,
 } from './pilot/pilotCharacters';
 export type {
   PilotCharacterId,
   PilotCharacterContextFocus,
   PilotCharacterContextOptions,
   PilotCharacterSpec,
+  PilotTurnResponseContract,
   PilotNarrativeViolation,
   PilotRoomChemistry,
   PilotRoomProtocolViolation,

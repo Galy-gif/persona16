@@ -26,6 +26,7 @@
 - [共享正典人物与私有关系](adr/0006-canonical-characters-private-relationships.md)
 - [上下文投影与评测层级](adr/0007-context-projection-and-evaluation-levels.md)
 - [关系事件持久化与影子 Branch](adr/0008-persist-relationship-events-and-shadow-branches.md)
+- [试点 Prompt 生命周期与评测硬门](adr/0009-assemble-pilot-prompts-and-enforce-eval-gates.md)
 
 ADR 记录决策当时的背景。新结论若改变既有决策，应新增 ADR，而不是改写旧文档。
 
