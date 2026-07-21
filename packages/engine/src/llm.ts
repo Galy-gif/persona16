@@ -5,12 +5,15 @@ import type { ModelActualUsage } from './runtime/modelBudget';
 
 /**
  * 模型调用层：提供商可切换。
- * - deepseek（默认，设了 DEEPSEEK_API_KEY 即启用）：OpenAI 兼容 API，
- *   结构化输出走 json_object 模式 + schema 注入 prompt + 解析重试。
+ * - deepseek（默认，设了 DEEPSEEK_API_KEY 即启用）：V4 Pro 非思考模式，
+ *   通过 OpenAI 兼容 API 调用；结构化输出走 json_object 模式 + schema 注入 prompt + 解析重试。
  * - anthropic：原生 structured outputs 与 prompt cache。
  */
 
 export type Provider = 'anthropic' | 'deepseek';
+
+const DEEPSEEK_DEFAULT_MODEL = 'deepseek-v4-pro';
+const DEEPSEEK_NON_THINKING = { thinking: { type: 'disabled' } } as const;
 
 export interface SystemBlock {
   text: string;
@@ -46,7 +49,7 @@ export function defaultConfig(): EngineConfig {
   const provider = currentProvider();
   const requestedRuntime = process.env.PERSONA16_RUNTIME;
   const dft = provider === 'deepseek'
-    ? { agent: 'deepseek-chat', director: 'deepseek-chat' }
+    ? { agent: DEEPSEEK_DEFAULT_MODEL, director: DEEPSEEK_DEFAULT_MODEL }
     : { agent: 'claude-sonnet-5', director: 'claude-haiku-4-5' };
   return {
     provider,
@@ -62,7 +65,7 @@ export function defaultConfig(): EngineConfig {
 export function defaultJudgeModel(): string {
   return (
     process.env.PERSONA16_JUDGE_MODEL ||
-    (currentProvider() === 'deepseek' ? 'deepseek-chat' : 'claude-sonnet-5')
+    (currentProvider() === 'deepseek' ? DEEPSEEK_DEFAULT_MODEL : 'claude-sonnet-5')
   );
 }
 
@@ -101,6 +104,7 @@ export async function chatText(opts: ChatTextOpts): Promise<string> {
       model: opts.model,
       max_tokens: opts.maxTokens,
       temperature: opts.temperature ?? 1.25,
+      ...DEEPSEEK_NON_THINKING,
       stream: true,
       stream_options: { include_usage: true },
       messages: [
@@ -188,6 +192,7 @@ ${JSON.stringify(opts.schema)}`;
         model: opts.model,
         max_tokens: opts.maxTokens,
         temperature: 0, // 导演与评审必须可复现
+        ...DEEPSEEK_NON_THINKING,
         response_format: { type: 'json_object' },
         messages: [
           { role: 'system', content: system },
