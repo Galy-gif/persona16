@@ -42,7 +42,8 @@ ADR 记录决策当时的背景。新结论若改变既有决策，应新增 ADR
 - [自动预检](evals/pilot-character-preflight-2026-07-20.md)
 - [首位用户人物校准](evals/pilot-human-calibration-2026-07-20.md)
 - [v0.3 九场景复测报告](evals/pilot-character-retest-2026-07-21.md)
-- [协议 0.6 全量复测报告](evals/pilot-character-retest-protocol-v0.6-2026-07-21.md)
+- [协议 0.6 第四轮复测报告](evals/pilot-character-retest-protocol-v0.6-rerun-2026-07-21.md)
+- [协议 0.6 首次全量复测报告](evals/pilot-character-retest-protocol-v0.6-2026-07-21.md)
 - [人物上下文与关系 Memory 修复周期](evals/active-context-memory-cycle-2026-07-21.md)
 - [Bad case 修复实验卡](evals/intervention-card-template.md)
 

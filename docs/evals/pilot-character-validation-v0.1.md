@@ -2,8 +2,9 @@
 
 > 对象：林衡、夏栩、周禾、许野
 > 前置人物稿：[首批四位正典人物 v0.3](../characters/pilot-cast-v0.3.md)（夏栩核心继承 v0.2，其余人物继承 v0.1）
-> 当前评测协议：`pilot-character-scenarios-v0.2`（九场景；与旧八场景产物不兼容）
-> 最近结果：[2026-07-21 v0.3 九场景复测](pilot-character-retest-2026-07-21.md)（自动 1/4；人工阶段门 0/4）
+> 当前评测协议：`pilot-character-scenarios-v0.6`（跨样本表达门 + 关键场景语义门 + 逐事件关系蕴含 + 动态房间）
+> 最近结果：[2026-07-21 协议 0.6 第四轮复测](pilot-character-retest-protocol-v0.6-rerun-2026-07-21.md)（自动人物 1/4、关系 0/4、动态房间通过；人工人物 0/4）
+> 同协议上一轮：[协议 0.6 全量复测](pilot-character-retest-protocol-v0.6-2026-07-21.md)（自动人物 3/4、关系 0/4、动态房间通过）
 
 ## 1. 要验证的假设
 
