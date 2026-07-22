@@ -31,6 +31,10 @@
 - [Runtime 错误恢复路由](adr/0010-route-runtime-failures-before-retry.md)
 - [动态试点房间参与](adr/0011-dynamic-pilot-room-participation.md)
 - [跨样本与语义评测阶段门](adr/0012-add-batch-and-semantic-evaluation-gates.md)
+- [决定权边界回应合同与输出硬门](adr/0013-enforce-confirmed-decision-boundaries.md)
+- [正典人物生产上下文与单聊动作](adr/0014-compile-conversation-acts-and-require-single-chat-response.md)
+- [中文自然表达与原创对照校准](adr/0015-calibrate-natural-expression-with-original-contrasts.md)
+- [生成前本轮语义控制与交付验证](adr/0016-compile-semantic-turn-control-before-generation.md)
 
 ADR 记录决策当时的背景。新结论若改变既有决策，应新增 ADR，而不是改写旧文档。
 
@@ -42,6 +46,7 @@ ADR 记录决策当时的背景。新结论若改变既有决策，应新增 ADR
 - [自动预检](evals/pilot-character-preflight-2026-07-20.md)
 - [首位用户人物校准](evals/pilot-human-calibration-2026-07-20.md)
 - [v0.3 九场景复测报告](evals/pilot-character-retest-2026-07-21.md)
+- [DeepSeek V4 Pro 基线样本 1](evals/pilot-character-retest-v4-pro-sample-1-2026-07-21.md)
 - [协议 0.6 第四轮复测报告](evals/pilot-character-retest-protocol-v0.6-rerun-2026-07-21.md)
 - [协议 0.6 首次全量复测报告](evals/pilot-character-retest-protocol-v0.6-2026-07-21.md)
 - [人物上下文与关系 Memory 修复周期](evals/active-context-memory-cycle-2026-07-21.md)

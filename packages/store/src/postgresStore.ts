@@ -597,16 +597,41 @@ export class PostgresPersonaStore implements PersonaStore {
     return result.rows.map(mapRelationshipEvent);
   }
 
-  async listRelationshipBranches(userId: string, agents: AgentType[]): Promise<RelationshipBranchRecord[]> {
+  async listRelationshipBranches(
+    userId: string,
+    agents: AgentType[],
+    options: RelationshipSummaryReadOptions = {},
+  ): Promise<RelationshipBranchRecord[]> {
     if (agents.length === 0) return [];
-    const result = await this.pool.query<RelationshipBranchRow>(
-      `SELECT user_id, agent_type, character_id, state_json, version, updated_at
-       FROM relationship_branches
-       WHERE user_id = $1 AND agent_type = ANY($2::text[])
-       ORDER BY agent_type ASC`,
-      [userId, agents],
-    );
-    return result.rows.map(mapRelationshipBranch);
+    if (options.signal?.aborted) throw options.signal.reason;
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      if (options.timeoutMs !== undefined) {
+        const timeoutMs = Math.max(1, Math.floor(options.timeoutMs));
+        await client.query(`SELECT set_config('statement_timeout', $1, true)`, [`${timeoutMs}ms`]);
+      }
+      if (options.signal?.aborted) throw options.signal.reason;
+      const result = await client.query<RelationshipBranchRow>(
+        `SELECT user_id, agent_type, character_id, state_json, version, updated_at
+         FROM relationship_branches
+         WHERE user_id = $1 AND agent_type = ANY($2::text[])
+         ORDER BY agent_type ASC`,
+        [userId, agents],
+      );
+      if (options.signal?.aborted) throw options.signal.reason;
+      await client.query('COMMIT');
+      return result.rows.map(mapRelationshipBranch);
+    } catch (error) {
+      try {
+        await client.query('ROLLBACK');
+      } catch {
+        // Preserve the original timeout, cancellation, or query error.
+      }
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async listRelationshipBranchSummaries(

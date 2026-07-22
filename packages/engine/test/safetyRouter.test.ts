@@ -26,6 +26,18 @@ test('ordinary product questions stay on the normal route', () => {
   assert.equal(routeSafety('我应该接受这个 offer 吗？').level, 'normal');
 });
 
+test('a direct insult remains an ordinary conversation turn instead of being safety-blocked', async () => {
+  let classifierCalled = false;
+  const decision = await classifySafety('傻逼', 'fake', async () => {
+    classifierCalled = true;
+    return { level: 'blocked', reason: 'incorrect_overreach' };
+  });
+
+  assert.equal(classifierCalled, false);
+  assert.equal(decision.level, 'normal');
+  assert.equal(decision.bypassRoom, false);
+});
+
 test('structured classifier can escalate an input missed by fast rules', async () => {
   const decision = await classifySafety('这件事马上就要发生', 'fake', async () => ({
     level: 'crisis', reason: 'immediate_harm_context',

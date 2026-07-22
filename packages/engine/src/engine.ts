@@ -28,7 +28,13 @@ import {
   invokeObserver,
   type ObserverErrorHandler,
 } from './lifecycleHooks';
-import { relationshipEvidenceProtectsDecisionAutonomy } from './relationship/relationshipContext';
+import {
+  compileTurnFrame,
+  compileSemanticTurnControl,
+  nextPendingUserRequest,
+  semanticTurnFallback,
+  validateUtteranceAgainstTurnPlan,
+} from './semanticTurnControl';
 
 export interface RunTurnOptions {
   /** 用户本轮点名的 Agent */
@@ -113,10 +119,18 @@ async function generateUtterance(
 ): Promise<AgentUtterance> {
   const agentState = room.agents.find((a) => a.type === speaker.type)!;
   const relationshipContext = agentState.relationship.promptContext;
-  const protectsDecisionAutonomy = relationshipContext
-    ? relationshipEvidenceProtectsDecisionAutonomy(relationshipContext.evidence)
-    : false;
+  const previousUserMessage = [...room.history.slice(0, -1)]
+    .reverse()
+    .find((message) => message.speaker === 'user')?.text;
+  const semanticControl = compileSemanticTurnControl({
+    userMessage,
+    relationshipContext,
+    previousUserMessage,
+    safetyMode: opts.safetyMode === 'sensitive' ? 'sensitive' : 'normal',
+    pendingRequestedMode: room.pendingUserRequest?.mode,
+  });
   const system = buildSystemBlocks(speaker.type);
+  const temperature = semanticControl.plan.conversationAct === 'respond' ? 1.25 : 0.7;
   const requestedTokens = speaker.speechType === '长发言' ? 1200 : 400;
 
   let antiTemplateNote: string | undefined;
@@ -131,28 +145,21 @@ async function generateUtterance(
       userMessage,
       antiTemplateNote,
       safetyMode: opts.safetyMode,
+      semanticControl,
     });
     tracer.emit('agent_prompt', { agent: speaker.type, attempt, prompt });
 
     const isFinalAttempt = attempt === 1;
     const reservation = modelBudget.reserve(`persona:${speaker.type}:attempt:${attempt}`, requestedTokens);
-    let streamedCharacters = 0;
-    const onDelta = isFinalAttempt && !protectsDecisionAutonomy
-      ? (delta: string) => {
-          const remaining = maxCharacters - streamedCharacters;
-          if (remaining <= 0) return;
-          const bounded = delta.slice(0, remaining);
-          streamedCharacters += bounded.length;
-          if (bounded) invokeDelivery('delta', opts.onDelta, [speaker.type, bounded]);
-        }
-      : undefined;
+    // 人物文本必须先完成最终动作校验；provider delta 不能绕过 delivery gate。
+    const onDelta = undefined;
     const text = runtime
       ? await runRuntimeText(runtime, {
           runId: `${turnId}:${speaker.type}:${attempt}:${randomUUID()}`,
           model: { provider: config.provider, id: config.agentModel },
           system,
           messages: [{ role: 'user', content: prompt }],
-          temperature: 1.25,
+          temperature,
           limits: { maxTurns: 1, maxTokens: reservation.maxTokens, timeoutMs: 60_000 },
           metadata: {
             roomId: opts.roomId ?? 'ephemeral-room',
@@ -181,6 +188,7 @@ async function generateUtterance(
       : await chatText({
           model: config.agentModel,
           maxTokens: reservation.maxTokens,
+          temperature,
           system,
           prompt,
           onDelta,
@@ -194,14 +202,46 @@ async function generateUtterance(
       boundedText,
       agentState.recentOpenings,
       relationshipContext,
+      userMessage,
     );
-    if (verdict.ok || (isFinalAttempt && verdict.kind !== 'relationship_boundary')) {
-      if (!isFinalAttempt) invokeDelivery('delta', opts.onDelta, [speaker.type, boundedText]);
-      else if (streamedCharacters < boundedText.length) {
-        invokeDelivery('delta', opts.onDelta, [speaker.type, boundedText.slice(streamedCharacters)]);
-      }
+    const semanticViolations = validateUtteranceAgainstTurnPlan(
+      boundedText,
+      semanticControl.plan,
+    );
+    const existingGatePassed = verdict.ok
+      || (isFinalAttempt && !['relationship_boundary', 'conversation_naturalness'].includes(verdict.kind ?? ''));
+    if (existingGatePassed && semanticViolations.length === 0) {
+      invokeDelivery('delta', opts.onDelta, [speaker.type, boundedText]);
       agentState.recentOpenings = recordOpening(boundedText, agentState.recentOpenings);
       return { type: speaker.type, speechType: speaker.speechType, text: boundedText, regenerated };
+    }
+    if (isFinalAttempt && semanticViolations.length > 0) {
+      const fallback = semanticTurnFallback(semanticControl);
+      if (fallback && validateUtteranceAgainstTurnPlan(fallback, semanticControl.plan).length === 0) {
+        tracer.emit('semantic_turn_fallback', {
+          agent: speaker.type,
+          violations: semanticViolations.map((violation) => violation.code),
+        });
+        invokeDelivery('delta', opts.onDelta, [speaker.type, fallback]);
+        agentState.recentOpenings = recordOpening(fallback, agentState.recentOpenings);
+        return { type: speaker.type, speechType: speaker.speechType, text: fallback, regenerated: true };
+      }
+      throw new RuntimeExecutionError({
+        code: 'semantic_turn_violation',
+        message: semanticViolations.map((violation) => violation.repairInstruction).join('；'),
+        recoverable: true,
+        stopReason: 'error',
+        hadPartialText: false,
+      });
+    }
+    if (isFinalAttempt && verdict.kind === 'conversation_naturalness') {
+      const fallback = semanticTurnFallback(semanticControl);
+      if (fallback) {
+        tracer.emit('conversation_repair_fallback', { agent: speaker.type, reason: verdict.reason });
+        invokeDelivery('delta', opts.onDelta, [speaker.type, fallback]);
+        agentState.recentOpenings = recordOpening(fallback, agentState.recentOpenings);
+        return { type: speaker.type, speechType: speaker.speechType, text: fallback, regenerated: true };
+      }
     }
     if (isFinalAttempt) {
       throw new RuntimeExecutionError({
@@ -212,10 +252,22 @@ async function generateUtterance(
         hadPartialText: false,
       });
     }
-    tracer.emit('anti_template_reject', { agent: speaker.type, reason: verdict.reason });
-    antiTemplateNote = verdict.kind === 'relationship_boundary'
+    if (semanticViolations.length > 0) {
+      tracer.emit('semantic_turn_reject', {
+        agent: speaker.type,
+        violations: semanticViolations,
+      });
+      antiTemplateNote = `语义控制重写：${semanticViolations
+        .map((violation) => violation.repairInstruction)
+        .join('；')}保留未违规内容，只输出重写后的直接回应。`;
+    } else {
+      tracer.emit('anti_template_reject', { agent: speaker.type, reason: verdict.reason });
+      antiTemplateNote = verdict.kind === 'relationship_boundary'
       ? `硬约束重写：上一版回复因为“${verdict.reason}”被拒绝。不能说“选 X”“就选 X”或“你应该选 X”；改为指出关键变量、比较标准、条件性后果或提出一个问题，把决定权留给用户。`
+      : verdict.kind === 'conversation_naturalness'
+        ? `对话修复重写：上一版回复因为“${verdict.reason}”被拒绝。${semanticControl.plan.conversationInstruction}只说重写后那一句，不解释你为什么会这样回复。`
       : `反模板警告：你上一版回复因为"${verdict.reason}"被驳回。换一种完全不同的开场和结构重说，保持人格不变。`;
+    }
     regenerated = true;
   }
   throw new Error('unreachable');
@@ -294,6 +346,18 @@ export async function runTurn(
     speakers: loop.speakers,
   };
   advanceRoomState(room, actualPlan, decision.conflictTopic, loop.report.summaryCount > 0);
+  const turnFrame = compileTurnFrame(
+    userMessage,
+    undefined,
+    room.pendingUserRequest?.mode,
+  );
+  const pendingUserRequest = nextPendingUserRequest(
+    room.pendingUserRequest,
+    turnFrame,
+    turnId,
+  );
+  if (pendingUserRequest) room.pendingUserRequest = pendingUserRequest;
+  else delete room.pendingUserRequest;
   invokeDelivery('turn_end', opts.onTurnEnd, [loop.report.stopReason]);
   tracer.emit('turn_done', {
     stopReason: loop.report.stopReason,

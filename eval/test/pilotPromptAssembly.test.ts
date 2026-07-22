@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { PILOT_CHARACTER_SCENARIOS } from '../src/pilotCharacterScenarios';
 import { assemblePilotScenarioPrompt } from '../src/pilotPromptAssembly';
+import { compileSemanticTurnControl } from '../../packages/engine/src/semanticTurnControl';
 
 test('pilot prompt keeps stable character core separate from dynamic turn sections', () => {
   const scenario = PILOT_CHARACTER_SCENARIOS.find(({ id }) => id === 'self-judgment-after-end')!;
@@ -9,6 +10,10 @@ test('pilot prompt keeps stable character core separate from dynamic turn sectio
     'ENFP',
     scenario,
     '【你与这位用户的私有关系分支】\n关系仍陌生。',
+    compileSemanticTurnControl({
+      userMessage: scenario.prompt,
+      responseContract: scenario.responseContract,
+    }),
   );
   const stable = assembled.system.map(({ text }) => text).join('\n');
 
@@ -20,6 +25,9 @@ test('pilot prompt keeps stable character core separate from dynamic turn sectio
 
   assert.match(assembled.prompt, /当前情境镜头：承托/);
   assert.match(assembled.prompt, /本轮回应合同/);
+  assert.match(assembled.prompt, /本轮已批准动作计划/);
+  assert.match(assembled.prompt, /方向性问题预算：1/);
+  assert.match(assembled.prompt, /禁止动作：.*ask_binary.*reopen_decision/);
   assert.match(assembled.prompt, /先接受项目已经结束/);
   assert.match(assembled.prompt, /关系仍陌生/);
   assert.match(assembled.prompt, /这个项目我想了两年/);

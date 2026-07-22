@@ -29,6 +29,10 @@ import {
   type PilotTurnResponseContract,
   type RelationshipBranch,
 } from '@persona16/engine';
+import {
+  compileSemanticTurnControl,
+  validateUtteranceAgainstTurnPlan,
+} from '@persona16/engine/semantic-turn-control';
 import { findScenarioCalibrationViolations } from './pilotCalibrationGuards';
 import { evaluateLiteralToneMarkerFrequency } from './pilotExpressionPatterns';
 import {
@@ -152,11 +156,25 @@ async function reply(agent: AgentType, scenario: Scenario) {
   const character = getPilotCharacter(agent);
   if (!character) throw new Error(`缺少试点人物：${agent}`);
   const branch = branchFor(character.id, scenario.relationship);
+  const relationshipPromptContext = relationshipBranchToPromptContext(branch, {
+    focus: scenario.contextFocus,
+    maxEvidence: 4,
+  });
+  const semanticControl = compileSemanticTurnControl({
+    userMessage: scenario.prompt,
+    responseContract: scenario.responseContract,
+    relationshipContext: relationshipPromptContext,
+  });
   const relationship = buildPilotRelationshipContext(branch, {
     focus: scenario.contextFocus,
     maxEvidence: 4,
   });
-  const assembledPrompt = assemblePilotScenarioPrompt(agent, scenario, relationship);
+  const assembledPrompt = assemblePilotScenarioPrompt(
+    agent,
+    scenario,
+    relationship,
+    semanticControl,
+  );
   const basePrompt = assembledPrompt.prompt;
   return generateWithHardGate({
     attempts: 3,
@@ -176,6 +194,9 @@ async function reply(agent: AgentType, scenario: Scenario) {
       ...findPilotNarrativeViolations(text),
       ...findPilotRoomProtocolViolations(text, character.name),
       ...findScenarioCalibrationViolations(agent, scenario.id, text),
+      ...validateUtteranceAgainstTurnPlan(text, semanticControl.plan).map((violation) => (
+        `semantic_turn:${violation.code}:${violation.repairInstruction}`
+      )),
     ],
   });
 }

@@ -1,0 +1,245 @@
+{
+  "version": "0.1",
+  "updatedAt": "2026-07-22",
+  "policy": {
+    "rawCorpusMayEnterRuntimePrompt": false,
+    "rawCorpusMayBecomeAutomaticGold": false,
+    "positiveExamplesRequireHumanReview": true,
+    "restrictedOrUnverifiedTextMustStayUnderArtifacts": true,
+    "purpose": "现成语料只提供候选证据；persona16 的正例必须经过本产品自然口语 rubric 的逐条人工确认。"
+  },
+  "sources": [
+    {
+      "id": "livechat",
+      "name": "LiveChat",
+      "officialUrl": "https://github.com/gaojingsheng/LiveChat",
+      "paperUrl": "https://aclanthology.org/2023.acl-long.858/",
+      "origin": "抖音直播中的真实主播口语与观众评论，自动完成回复对象匹配",
+      "declaredScale": "1,332,073 对话，351 位主播",
+      "naturalnessEvidence": "真实自发口语；论文同时承认 ASR 噪声、上下文缺失和自动匹配误差",
+      "license": {
+        "repository": "MIT",
+        "datasetSpecificTermsFound": false,
+        "commercialProductUse": "unverified",
+        "risk": "原始内容来自直播平台；仓库许可证不自动消除上游内容权利与平台条款风险"
+      },
+      "localArtifact": "artifacts/corpora/livechat-official-subset/subset.json",
+      "localState": "official-subset-only",
+      "recommendedUse": [
+        "人工观察短句节奏、承接、省略和反问",
+        "经人工复核后生成自有抽象规则"
+      ],
+      "forbiddenUse": [
+        "把自动对齐的回复直接当正例",
+        "未经权利审查直接训练或随产品分发",
+        "原句自动检索进运行时 prompt"
+      ],
+      "decision": "primary-candidate-pool"
+    },
+    {
+      "id": "naturalconv",
+      "name": "NaturalConv",
+      "officialUrl": "https://ailab.tencent.com/ailab/nlp/dialogue/",
+      "paperUrl": "https://doi.org/10.1609/aaai.v35i16.17649",
+      "origin": "两名众包参与者基于新闻材料和自设场景进行中文多轮对话",
+      "declaredScale": "19,919 段对话，约 400K 句",
+      "naturalnessEvidence": "论文对 100 段样本做双人三级人工评分，平均自然度 2.8/3；发布数据仍有强任务结构",
+      "license": {
+        "repository": "custom Tencent terms",
+        "datasetSpecificTermsFound": true,
+        "commercialProductUse": "prohibited",
+        "risk": "仅限个人、非商业的研究、开发和测试；不可分发数据或衍生数据"
+      },
+      "localArtifact": "artifacts/corpora/naturalconv-official/extracted/dialog_release.json",
+      "localState": "downloaded-official-release",
+      "recommendedUse": [
+        "非商业内部研究中的多轮话题转移与收尾分析",
+        "人工观察同一话题下的表达变化"
+      ],
+      "forbiddenUse": [
+        "商业产品训练、运行时检索或数据分发",
+        "把高频问候和收尾直接当产品金标"
+      ],
+      "decision": "research-reference-only"
+    },
+    {
+      "id": "cped",
+      "name": "CPED",
+      "officialUrl": "https://github.com/scutcyr/CPED",
+      "paperUrl": "https://arxiv.org/abs/2205.14727",
+      "origin": "40 部中国电视剧的角色对白，含情绪、Big Five、19 类对话行为等标注",
+      "declaredScale": "11,835 段对话，132,762 句",
+      "naturalnessEvidence": "短句和对话行为覆盖好，但属于编剧文本和表演语境，不等于日常聊天",
+      "license": {
+        "repository": "Apache-2.0",
+        "datasetSpecificTermsFound": false,
+        "commercialProductUse": "unverified",
+        "risk": "数据来自电视剧；仓库 Apache-2.0 不能自动证明所有上游台词权利已获商业授权"
+      },
+      "localArtifact": "artifacts/corpora/cped-official/data/CPED",
+      "localState": "cloned-at-1e4b81c28a123f22387e06664f37e5dc9322380f",
+      "recommendedUse": [
+        "研究 19 类中文对话行为的覆盖",
+        "人工挖掘短承接、拒绝、道歉、分歧的候选结构"
+      ],
+      "forbiddenUse": [
+        "把戏剧台词原样作为日常聊天金标",
+        "权利未确认前用于商业训练或随产品分发"
+      ],
+      "decision": "dialogue-act-reference"
+    },
+    {
+      "id": "dulemon",
+      "name": "DuLeMon",
+      "officialUrl": "https://github.com/PaddlePaddle/Research/tree/master/NLP/ACL2022-DuLeMon",
+      "paperUrl": "https://aclanthology.org/2022.findings-acl.207/",
+      "origin": "众包参与者分别扮演用户与机器人，围绕双方 persona 进行多轮对话",
+      "declaredScale": "27,501 段对话，约 449K 句",
+      "naturalnessEvidence": "有长期记忆与双方 persona 标注，但任务要求主动使用 persona，存在明显的人设硬显影",
+      "license": {
+        "repository": "Apache-2.0",
+        "datasetSpecificTermsFound": false,
+        "commercialProductUse": "unverified",
+        "risk": "官方数据下载页未展示独立条款；persona 部分源自 PersonaChat 的翻译与改写"
+      },
+      "localArtifact": "artifacts/corpora/dulemon-official/extracted/DuLeMon",
+      "localState": "downloaded-official-release",
+      "recommendedUse": [
+        "长期记忆引用与 persona grounding 覆盖分析",
+        "挖掘人设强行显影、假熟悉等负例"
+      ],
+      "forbiddenUse": [
+        "把机器人回复整体当自然口语正例",
+        "自动学习其 persona 直述方式"
+      ],
+      "decision": "memory-reference-and-negative-mining"
+    },
+    {
+      "id": "character-dial",
+      "name": "CharacterDial / CharacterGLM",
+      "officialUrl": "https://github.com/thu-coai/CharacterGLM-6B/tree/main/CharacterDial_data",
+      "paperUrl": "https://arxiv.org/abs/2311.16832",
+      "origin": "公开子集为中文真人角色扮演多轮对话，附角色/用户 profile、关系和英文翻译",
+      "declaredScale": "1,034 段中文对话，250 个角色，32,816 句",
+      "naturalnessEvidence": "真人角色扮演且多轮连续，贴近 persona 产品；但采集目标本身强调扮演，仍会放大人设表演",
+      "license": {
+        "repository": "Apache-2.0; model has a separate non-commercial license",
+        "datasetSpecificTermsFound": false,
+        "commercialProductUse": "unverified",
+        "risk": "数据目录没有独立许可证，且含真人及影视、游戏角色；仓库代码许可不能自动解决肖像和角色版权"
+      },
+      "localArtifact": "artifacts/corpora/character-dial-official/CharacterDial_data/CharacterDial_bilingual.json",
+      "localState": "cloned-at-b6d73d1616df374ee97400d2229980bcf237443e",
+      "recommendedUse": [
+        "人工研究角色在多轮中如何隐性维持关系和语气",
+        "挖掘角色显影过强与自然承接之间的对照样本"
+      ],
+      "forbiddenUse": [
+        "未经数据许可与真人/IP 清理直接商业训练",
+        "把角色 greeting 或原句自动注入 persona16"
+      ],
+      "decision": "persona-dialogue-research-candidate"
+    },
+    {
+      "id": "character-eval",
+      "name": "CharacterEval",
+      "officialUrl": "https://github.com/morecry/CharacterEval",
+      "paperUrl": "https://aclanthology.org/2024.acl-long.638/",
+      "origin": "来自中文小说和剧本的角色上下文，GPT-4 初建并经人工质检，附角色评测维度和 reward-model 标注",
+      "declaredScale": "论文/README 宣称 1,785 段多轮对话与 23,020 个 examples",
+      "naturalnessEvidence": "适合角色一致性评测，不是普通用户与助手的自然对话金标库",
+      "license": {
+        "repository": "MIT",
+        "datasetSpecificTermsFound": false,
+        "commercialProductUse": "unverified",
+        "risk": "上下文与人物资料来自小说、剧本和百度百科，仍有上游内容权利问题"
+      },
+      "localArtifact": "artifacts/corpora/character-eval-official",
+      "localState": "cloned-at-c3d44a6fc1790cc8c4b2fd7c01f0c72930655e0c",
+      "recommendedUse": [
+        "借鉴角色评测维度与人工标注流程",
+        "对照 persona16 自有盲测设计"
+      ],
+      "forbiddenUse": [
+        "当自然闲聊语料训练",
+        "把原作角色台词或资料注入 persona16"
+      ],
+      "decision": "evaluation-method-reference"
+    },
+    {
+      "id": "emotiontalk",
+      "name": "EmotionTalk",
+      "officialUrl": "https://huggingface.co/datasets/BAAI/Emotiontalk",
+      "paperUrl": "https://aclanthology.org/2026.findings-acl.440/",
+      "origin": "19 位专业演员围绕预设场景进行中文双人互动，含音频、文本、情绪与细粒度风格标注",
+      "declaredScale": "23.6 小时，19,250 句",
+      "naturalnessEvidence": "互动过程具有自发性并保留情绪变化，但参与者是演员、场景是预设的",
+      "license": {
+        "repository": "CC BY-NC-SA 4.0; gated dataset",
+        "datasetSpecificTermsFound": true,
+        "commercialProductUse": "prohibited",
+        "risk": "明确非商业且需要 Hugging Face 账户接受访问条件"
+      },
+      "localArtifact": null,
+      "localState": "not-downloaded-gated",
+      "recommendedUse": [
+        "非商业研究中的情绪轨迹、语气强度和短句表达校准"
+      ],
+      "forbiddenUse": [
+        "商业训练或运行时检索",
+        "把演员表演直接等同于日常对话金标"
+      ],
+      "decision": "gated-emotion-reference"
+    },
+    {
+      "id": "personal-dialog",
+      "name": "PersonalDialog",
+      "officialUrl": "https://huggingface.co/datasets/silver/personal_dialog",
+      "paperUrl": "https://arxiv.org/abs/1901.09672",
+      "origin": "真实微博帖子和回复树，附匿名化说话者属性",
+      "declaredScale": "论文完整集 20.83M 会话、56.25M 句；当前公开版本规模不同",
+      "naturalnessEvidence": "真实社交媒体短接话最贴近日常网聊，但有噪声、弱上下文、年代与平台语体偏差",
+      "license": {
+        "repository": "crawler code is MIT; dataset license is other/custom",
+        "datasetSpecificTermsFound": true,
+        "commercialProductUse": "prohibited",
+        "risk": "官方说明限制非商业/学术研究，并涉及真实社交内容和人口属性"
+      },
+      "localArtifact": null,
+      "localState": "not-downloaded",
+      "recommendedUse": [
+        "获批后的非商业表达频率和短句分布研究"
+      ],
+      "forbiddenUse": [
+        "商业训练、运行时检索或去匿名",
+        "未经人工复核直接作为回复对"
+      ],
+      "decision": "excluded-from-current-intake"
+    },
+    {
+      "id": "lccc",
+      "name": "LCCC",
+      "officialUrl": "https://github.com/thu-coai/CDial-GPT",
+      "paperUrl": "https://arxiv.org/abs/2008.03946",
+      "origin": "微博等中文社交平台清洗得到的大规模短文本对话",
+      "declaredScale": "LCCC-base 6.8M，LCCC-large 12.0M 段对话",
+      "naturalnessEvidence": "覆盖广但社交媒体噪声、弱上下文和安全风险明显；官方经过规则与分类器清洗",
+      "license": {
+        "repository": "MIT for code",
+        "datasetSpecificTermsFound": true,
+        "commercialProductUse": "prohibited",
+        "risk": "官方免责声明明确数据与模型仅限科研；代码 MIT 不覆盖数据"
+      },
+      "localArtifact": null,
+      "localState": "not-downloaded",
+      "recommendedUse": [
+        "仅在非商业研究中做大规模表达频率对照"
+      ],
+      "forbiddenUse": [
+        "商业训练或运行时检索",
+        "把弱上下文单轮对直接当自然金标"
+      ],
+      "decision": "excluded-from-current-intake"
+    }
+  ]
+}

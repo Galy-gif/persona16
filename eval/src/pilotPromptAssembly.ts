@@ -9,6 +9,10 @@ import {
   type PilotCharacterContextFocus,
   type PilotTurnResponseContract,
 } from '@persona16/engine';
+import {
+  renderSemanticTurnActPlan,
+  type SemanticTurnControl,
+} from '@persona16/engine/semantic-turn-control';
 
 export interface PilotPromptScenarioInput {
   contextFocus: PilotCharacterContextFocus;
@@ -20,6 +24,7 @@ export function assemblePilotScenarioPrompt(
   agent: AgentType,
   scenario: PilotPromptScenarioInput,
   relationshipContext: string,
+  semanticControl?: SemanticTurnControl,
 ): { system: Array<{ text: string; cache?: boolean }>; prompt: string } {
   const character = getPilotCharacter(agent);
   if (!character) throw new Error(`缺少试点人物：${agent}`);
@@ -33,7 +38,7 @@ export function assemblePilotScenarioPrompt(
 
 ${renderPilotTurnResponseContract(scenario.responseContract)}
 
-${relationshipContext}
+${semanticControl ? `${renderSemanticTurnActPlan(semanticControl)}\n\n` : ''}${relationshipContext}
 
 【当前校准场景】
 ${scenario.prompt}

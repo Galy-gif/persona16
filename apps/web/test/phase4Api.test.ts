@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createRoom as createRoomState } from '@persona16/engine';
+import {
+  applyRelationshipEvent,
+  createRelationshipBranch,
+  createRoom as createRoomState,
+} from '@persona16/engine';
 import { InMemoryPersonaStore } from '@persona16/store';
 import { POST as createRoom } from '../app/api/rooms/route';
 import { GET as getRoom, PATCH as updateRoom } from '../app/api/rooms/[roomId]/route';
@@ -8,6 +12,7 @@ import { POST as runTurn } from '../app/api/turn/route';
 import { POST as submitFeedback } from '../app/api/feedback/route';
 import { PATCH as updateMemory } from '../app/api/memories/[memoryId]/route';
 import { GET as listMemories } from '../app/api/memories/route';
+import { applyRelationshipBranchContexts } from '../lib/server/turnPreflight';
 
 function resetStore(): InMemoryPersonaStore {
   const store = new InMemoryPersonaStore();
@@ -133,17 +138,17 @@ test('an uncertain completeTurn result must refresh the original turn instead of
   assert.equal(failure?.recoveryAction, 'refresh');
 });
 
-test('relationship shadow read timeout never blocks the production turn', async () => {
+test('relationship branch projection timeout fails closed before persona generation', async () => {
   const room = await createOwnedRoom();
   let aborted = false;
   const shadowStore = room.store as InMemoryPersonaStore & {
-    listRelationshipBranchSummaries: (
+    listRelationshipBranches: (
       userId: string,
       agents: string[],
       options?: { signal?: AbortSignal },
     ) => Promise<never>;
   };
-  shadowStore.listRelationshipBranchSummaries = async (_userId, _agents, options) => new Promise<never>(
+  shadowStore.listRelationshipBranches = async (_userId, _agents, options) => new Promise<never>(
     (_resolve, reject) => {
       options?.signal?.addEventListener('abort', () => {
         aborted = true;
@@ -151,39 +156,103 @@ test('relationship shadow read timeout never blocks the production turn', async 
       }, { once: true });
     },
   );
-  room.store.listRelationshipBranches = async () => {
-    throw new Error('turn preflight must not load full relationship branches');
-  };
 
-  const startedAt = Date.now();
-  const response = await runTurn(turnRequest(room, crypto.randomUUID()));
+  const response = await runTurn(turnRequest(room, crypto.randomUUID(), {
+    command: { type: 'message', text: '今天发生了一件普通的事。' },
+  }));
 
-  assert.equal(response.status, 200);
-  assert.match(await response.text(), /"type":"done"/);
-  assert.ok(Date.now() - startedAt < 1_000);
+  assert.equal(response.status, 503);
+  assert.match(await response.text(), /PREPROCESSING_FAILED/);
   assert.equal(aborted, true);
 });
 
-test('malformed relationship shadow data is ignored instead of failing the production turn', async () => {
+test('malformed relationship branch data fails closed before persona generation', async () => {
   const room = await createOwnedRoom();
-  const shadowStore = room.store as unknown as {
-    listRelationshipBranchSummaries: () => Promise<unknown>;
-  };
-  shadowStore.listRelationshipBranchSummaries = async () => [{
-    agent: 'INTJ',
-    version: 1,
-    climate: 'steady',
-  }];
   room.store.listRelationshipBranches = async () => [{
     agent: 'INTJ',
     version: 1,
     branch: { recentClimate: 'steady' },
   }] as never;
 
+  const response = await runTurn(turnRequest(room, crypto.randomUUID(), {
+    command: { type: 'message', text: '今天发生了一件普通的事。' },
+  }));
+
+  assert.equal(response.status, 503);
+  assert.match(await response.text(), /PREPROCESSING_FAILED/);
+});
+
+test('crisis safety bypass runs before relationship projection and cannot be blocked by its timeout', async () => {
+  const room = await createOwnedRoom();
+  room.store.listRelationshipBranches = async () => new Promise<never>(() => undefined);
+
   const response = await runTurn(turnRequest(room, crypto.randomUUID()));
+  const text = await response.text();
 
   assert.equal(response.status, 200);
-  assert.match(await response.text(), /"type":"done"/);
+  assert.match(text, /"type":"safety_notice"/);
+  assert.match(text, /"type":"done"/);
+});
+
+test('production preflight projects the persisted relationship branch into the engine prompt context', () => {
+  const room = createRoomState(['INTJ']);
+  let branch = applyRelationshipEvent(createRelationshipBranch('legacy-intj'), {
+    id: 'boundary-listen',
+    sourceTurnId: 'turn-boundary',
+    type: 'boundary_set',
+    content: '用户明确说只想被听见时，不继续给方案',
+  });
+  branch = applyRelationshipEvent(branch, {
+    id: 'rupture-listen',
+    sourceTurnId: 'turn-rupture',
+    type: 'meaningful_disagreement',
+    content: '人物越过已知边界，继续替用户安排下一步',
+  });
+
+  applyRelationshipBranchContexts(room, [{
+    userId: 'user-a',
+    agent: 'INTJ',
+    characterId: 'legacy-intj',
+    branch,
+    version: 2,
+    updatedAt: new Date(0),
+  }]);
+
+  const context = room.agents[0]!.relationship.promptContext;
+  assert.equal(context?.climate, 'tense');
+  assert.deepEqual(context?.evidence.map((evidence) => evidence.kind), [
+    'boundary',
+    'tension',
+    'turning_point',
+  ]);
+});
+
+test('production projection keeps active boundaries even behind more than fifty ordinary events', () => {
+  const room = createRoomState(['INTJ']);
+  let branch = createRelationshipBranch('legacy-intj');
+  for (let index = 0; index < 55; index += 1) {
+    branch = applyRelationshipEvent(branch, {
+      id: `context-${index}`,
+      sourceTurnId: `turn-${index}`,
+      type: 'context_shared',
+      content: `普通共同语境 ${index}`,
+    });
+  }
+  branch = applyRelationshipEvent(branch, {
+    id: 'boundary-after-context',
+    sourceTurnId: 'turn-boundary',
+    type: 'boundary_set',
+    content: '用户明确说只想被听见时，不继续给方案',
+  });
+
+  applyRelationshipBranchContexts(room, [{
+    userId: 'user-a', agent: 'INTJ', characterId: 'legacy-intj', branch,
+    version: 56, updatedAt: new Date(0),
+  }]);
+
+  assert.ok(room.agents[0]!.relationship.promptContext?.evidence.some((item) => (
+    item.id === 'boundary:boundary-after-context'
+  )));
 });
 
 test('another anonymous session cannot read a room', async () => {

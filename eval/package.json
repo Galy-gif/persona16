@@ -9,6 +9,8 @@
     "blindtest": "tsx src/blindtest.ts",
     "dynamics": "tsx src/dynamics.ts",
     "pilot:characters": "tsx src/pilotCharacters.ts",
+    "corpus:inventory": "tsx src/corpusInventory.ts",
+    "corpus:validate-expression": "tsx src/validateNaturalExpressionCorpus.ts",
     "rooms": "tsx src/rooms.ts",
     "room:adversarial": "tsx src/roomAdversarial.ts",
     "safety": "tsx src/safety.ts",
