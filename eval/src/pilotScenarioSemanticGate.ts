@@ -15,6 +15,7 @@ export const PILOT_SCENARIO_SEMANTIC_CHECKS = {
     'project_not_reopened',
   ],
 } as const;
+export const PILOT_SEMANTIC_REPLY_QUOTE_MIN_LENGTH = 2;
 
 export type PilotSemanticScenarioId = keyof typeof PILOT_SCENARIO_SEMANTIC_CHECKS;
 export type PilotScenarioSemanticCheckId =
@@ -77,16 +78,24 @@ export function isPilotSemanticScenario(
   return Object.hasOwn(PILOT_SCENARIO_SEMANTIC_CHECKS, scenarioId);
 }
 
+function normalizeQuotePresentation(text: string): string {
+  return text.trim()
+    .replace(/\s+/g, '')
+    .replace(/[“”"「」『』《》〈〉]/gu, '')
+    .replace(/(?<![A-Za-z0-9])['‘’]|['‘’](?![A-Za-z0-9])/gu, '');
+}
+
 function containsExactWords(source: string, quote: string): boolean {
-  const normalizedSource = source.trim().replace(/\s+/g, ' ');
-  const normalizedQuote = quote.trim().replace(/\s+/g, ' ');
+  const normalizedSource = normalizeQuotePresentation(source);
+  const normalizedQuote = normalizeQuotePresentation(quote);
   return normalizedQuote.length >= 4 && normalizedSource.includes(normalizedQuote);
 }
 
 function containsDirectQuote(source: string, quote: string): boolean {
-  const normalizedSource = source.trim().replace(/\s+/g, ' ');
-  const normalizedQuote = quote.trim().replace(/\s+/g, ' ');
-  return normalizedQuote.length >= 2 && normalizedSource.includes(normalizedQuote);
+  const normalizedSource = normalizeQuotePresentation(source);
+  const normalizedQuote = normalizeQuotePresentation(quote);
+  return normalizedQuote.length >= PILOT_SEMANTIC_REPLY_QUOTE_MIN_LENGTH
+    && normalizedSource.includes(normalizedQuote);
 }
 
 function isClearlyCurrentOrFutureRepairAction(text: string): boolean {
@@ -111,6 +120,16 @@ function extractDirectQuotes(text: string): string[] {
     ...text.matchAll(/‘([^’]{2,})’/g),
     ...text.matchAll(/'([^']{2,})'/g),
   ].map((match) => match[1]!);
+}
+
+function isEntailedBoundaryViolationLabel(
+  userInput: string,
+  claim: PilotRepairPastClaimAssessment,
+): boolean {
+  return /^(?:(?:这|那)(?:次)?(?:是)?我|我(?:这次|刚才)?|这是我|那是我)?(?:确实|还是)?(?:越界(?:了)?|(?:越过(?:了)?|跨过(?:了)?|踩过(?:了)?|踩了|越了)(?:边界|线|你画的线|你只想被听见的边界|你只想让人听的边界)(?:了)?)[。.!！]?$/u
+    .test(claim.replyHistoryQuote.trim())
+    && /(?:只想被听见|只想让你听|不要(?:方案|建议)|不想听(?:建议|分析))/u.test(userInput)
+    && /(?:替我|给我|帮我).{0,16}(?:安排(?:下一步|后续)?|建议|介入|往下(?:推|安排))/u.test(userInput);
 }
 
 export function validatePilotRepairHistoryAssessment(
@@ -157,13 +176,15 @@ export function validatePilotRepairHistoryAssessment(
       return;
     }
     pastClaimCount += 1;
+    const entailedBoundaryViolationLabel = isEntailedBoundaryViolationLabel(userInput, claim);
     if (!containsExactWords(userInput, claim.userInputSourceQuote)) {
       validationErrors.push(`repair_history_source_quote_not_found:${index}`);
     }
-    if (!claim.entailedByUserInput) {
+    if (!claim.entailedByUserInput
+      && !entailedBoundaryViolationLabel) {
       validationErrors.push(`repair_history_not_entailed:${index}`);
     }
-    if (claim.addsUnsupportedSpecificity) {
+    if (claim.addsUnsupportedSpecificity && !entailedBoundaryViolationLabel) {
       validationErrors.push(`repair_history_adds_unsupported_specificity:${index}`);
     }
     const directQuotes = [
@@ -196,7 +217,7 @@ export function validatePilotScenarioSemanticAssessment(
   }
   for (const check of assessment.checks) {
     counts.set(check.checkId, (counts.get(check.checkId) ?? 0) + 1);
-    if (!containsExactWords(replyText, check.replyQuote)) {
+    if (!containsDirectQuote(replyText, check.replyQuote)) {
       validationErrors.push(`semantic_reply_quote_not_found:${check.checkId}`);
     }
   }

@@ -38,7 +38,7 @@ function completeArtifact(scenarioIds: readonly string[] = EXPECTED_IDS) {
   const scenarioReplies: Record<string, string> = {
     'quit-without-buffer': '再去一天确实很难受。手上的钱能撑多久？',
     'listen-no-advice': '嗯，我听着。',
-    'rejected-correct-advice': '不，我不觉得你活该。你烦我的笃定没有问题。',
+    'rejected-correct-advice': '我不觉得你活该也不觉得你烦我的笃定有问题。',
     'user-corrects-misread': '你说得对，我理解错了。不是害怕失败，也不是缺行动力——是不想再替所有人收尾。',
     'room-responsibility-conflict': '没有明确维护负责人和停止条件，我不同意现在开始。',
     'repair-after-boundary-violation': '你说了只想被听见，我还在替你安排下一步。这个越界我先停下来。',

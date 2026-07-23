@@ -5,6 +5,7 @@ import {
   renderRelationshipPromptContext,
 } from '../relationship/relationshipContext';
 import type { RelationshipContextFocus } from '../relationship/relationshipContext';
+import type { TurnResponseContract } from '../semanticTurnControl';
 
 export const PILOT_CAST_VERSION = '0.3' as const;
 
@@ -13,12 +14,7 @@ export type PilotCharacterContextFocus = RelationshipContextFocus;
 export interface PilotCharacterContextOptions {
   focus: PilotCharacterContextFocus;
 }
-export interface PilotTurnResponseContract {
-  readonly userCommitments: readonly string[];
-  readonly requiredMoves: readonly string[];
-  readonly allowedMoves: readonly string[];
-  readonly forbiddenMoves: readonly string[];
-}
+export type PilotTurnResponseContract = TurnResponseContract;
 export type PilotNarrativeViolation =
   | 'embodied_stage_direction'
   | 'embodied_prop_or_action'
@@ -335,6 +331,12 @@ export function renderPilotTurnResponseContract(contract: PilotTurnResponseContr
   const section = (title: string, values: readonly string[]) => (
     `${title}：\n${values.map((value) => `- ${value}`).join('\n')}`
   );
+  const semanticRequirements = [
+    ...(contract.semanticRequirements?.acceptProjectEnd ? ['明确接受项目结束'] : []),
+    ...(contract.semanticRequirements?.handleSelfJudgmentAfterEnd
+      ? ['处理“项目结束→自我能力判决”的跳转']
+      : []),
+  ];
   return `【本轮回应合同｜由可信运行态确定】
 这不是台词模板；人物可以自然表达，但不得改写已经确认的用户状态。
 
@@ -344,7 +346,9 @@ ${section('必须完成', contract.requiredMoves)}
 
 ${section('允许动作', contract.allowedMoves)}
 
-${section('禁止动作', contract.forbiddenMoves)}`;
+${section('禁止动作', contract.forbiddenMoves)}
+
+${section('结构化语义要求', semanticRequirements.length > 0 ? semanticRequirements : ['无'])}`;
 }
 
 /**
@@ -485,6 +489,11 @@ function hasGroundedHistorySpan(
       .filter(Boolean);
     const sentencePropositions = sentence
       .split(/[，,；;]|(?:但|不过|可是|而且|然后)/u)
+      // “这是我的越界”是在当前回复里对已核实行为作责任判断，
+      // 不是对用户过去新增事实；保留其他附加从句的历史核验。
+      .filter((clause) => (
+        !/^(?:这|那)?(?:是|算是)?我(?:的)?(?:一次)?越界(?:了)?$/u.test(clause.trim())
+      ))
       .map(normalizeHistoryProposition)
       .filter(Boolean);
     const substantiveSentencePropositions = sentencePropositions.filter(Boolean);

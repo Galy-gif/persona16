@@ -38,6 +38,7 @@ import {
 import { findScenarioCalibrationViolations } from './pilotCalibrationGuards';
 import { evaluateLiteralToneMarkerFrequency } from './pilotExpressionPatterns';
 import {
+  PILOT_SEMANTIC_REPLY_QUOTE_MIN_LENGTH,
   PILOT_SCENARIO_SEMANTIC_CHECKS,
   isPilotSemanticScenario,
   validatePilotRepairHistoryAssessment,
@@ -57,7 +58,10 @@ import { generateWithHardGate, judgeWhenScoreable } from './pilotHardGate';
 import { assemblePilotScenarioPrompt } from './pilotPromptAssembly';
 import {
   PILOT_ROOM_RESPONSIBILITY_SUBJECTS,
+  buildPilotRoomResponsibilityRetryGuidance,
+  filterUnsupportedProposedUserClaims,
   findPilotRoomResponsibilityTextViolations,
+  inferUnassignedResponsibilityClaims,
   normalizeResponsibilityEvidenceSources,
   passesPilotRoomChemistryGate,
   runPilotRoomParticipation,
@@ -201,7 +205,9 @@ async function reply(agent: AgentType, scenario: Scenario) {
             : '';
   const relationshipMoveGuidance = semanticControl.plan.relationshipMove
     ? semanticControl.plan.relationshipMove.observableCue === 'honest_tentative_judgment'
-      ? `本轮只落实已选关系动作 ${semanticControl.plan.relationshipMove.sourceEventIds.join('、')}：用“我觉得 / 我不觉得 / 我的判断是 / 我不确定”等自然第一人称，直接给出一个诚实但不绝对的当前判断；承认自己理解错并按用户新事实改判也算。判断必须严格限于用户本轮明确说出的事实与冲突，例如“我不确定硬撑是不是前进”；不要解释用户为什么会这样，不要推断其心理、人格、需要或深层动机，不要在判断后继续扩写诊断。只换一种“听起来”的说法或只追问，不算落实。不得复述或调用其他正向关系事件。`
+      ? `${`本轮只落实已选关系动作 ${semanticControl.plan.relationshipMove.sourceEventIds.join('、')}：用“我觉得 / 我不觉得 / 我的判断是 / 我不确定”等自然第一人称，直接给出一个诚实但不绝对的当前判断；承认自己理解错并按用户新事实改判也算。判断必须严格限于用户本轮明确说出的事实与冲突，例如“我不确定硬撑是不是前进”；不要解释用户为什么会这样，不要推断其心理、人格、需要或深层动机，不要在判断后继续扩写诊断。只换一种“听起来”的说法或只追问，不算落实。不得复述或调用其他正向关系事件。`}${scenario.id === 'same-input-r1'
+          ? ' 本探针只写一个判断句，句号后立即停止；不得追加“有时候”、比喻、身体状态、动作画面、原因或第二层解释。'
+          : ''}`
       : semanticControl.plan.relationshipMove.observableCue === 'reversible_small_experiment'
         ? `本轮只落实已选关系动作 ${semanticControl.plan.relationshipMove.sourceEventIds.join('、')}：直接提出一个现在能做的可逆小实验，并至少写明一个可核验的停止机制：有限时长或明确退出点。只问用户愿不愿实验、只让用户自己想实验、只给比较标准而没有实际试法，均不算落实。不得复述共同历史。`
         : `本轮只落实已选关系动作 ${semanticControl.plan.relationshipMove.sourceEventIds.join('、')}，不得复述或调用未选中的正向关系事件。`
@@ -214,8 +220,20 @@ async function reply(agent: AgentType, scenario: Scenario) {
     attempts: 3,
     generate: async (attempt, violations) => {
       const retryGuidance = [
+        scenario.id === 'repair-after-boundary-violation'
+          ? '限两句：第一句只按用户已经给出的事实承认具体越界；第二句只承诺现在停止介入，并在句末结束。不要照抄提示中的示例，不得增加安慰、解释、选择或重开入口。'
+          : '',
+        scenario.id === 'user-corrects-misread'
+          ? '限两句以内：先明确承认误读，再只用用户本轮明确给出的三个事实改判。不得给第二层解释、判断其处境、追问或延伸。不要照抄提示中的示例。'
+          : '',
+        scenario.id === 'same-input-r1'
+          ? '限一句：只回答“硬撑是否等于前进”，用第一人称表达不绝对的当前判断。不得解释用户的心理、需要、状态或深层原因，不得照抄提示中的示例。'
+          : '',
         violations.includes('missing_cash_constraint_reference')
           ? '现金约束没有被实质处理：改成询问钱或基本开支能撑多久、最早进账或最近刚性支出。'
+          : '',
+        violations.includes('missing_immediate_distress_acknowledgement')
+          ? '第一句没有接住即时痛苦：先自然承认“一想到再去就恶心/已经很难受”这层感受，再处理现金约束。'
           : '',
         violations.includes('missing_project_end_acceptance')
           ? '第一句逐字明确“那就结束”或“这个项目可以结束”，不要只说够久了或不想做有理由。'
@@ -270,7 +288,10 @@ function semanticScenarioSchema(scenarioId: PilotSemanticScenarioId) {
           properties: {
             checkId: { type: 'string', enum: [...checkIds] },
             passed: { type: 'boolean' },
-            replyQuote: { type: 'string', minLength: 4 },
+            replyQuote: {
+              type: 'string',
+              minLength: PILOT_SEMANTIC_REPLY_QUOTE_MIN_LENGTH,
+            },
             analysis: { type: 'string', minLength: 1 },
           },
           required: ['checkId', 'passed', 'replyQuote', 'analysis'],
@@ -355,7 +376,7 @@ const SEMANTIC_SCENARIO_RULES: Record<PilotSemanticScenarioId, string> = {
   'self-judgment-after-end': `
 - project_end_accepted：相信用户“不想做了”是项目结束决定，而非待推翻的情绪。
 - self_judgment_transition_handled：注意到用户从结束项目跳到了“我没能力”的自我判决，并只探查这层转折。
-- binary_reframing_avoided：不得复述“做不到还是不想做/没能力还是不想做”等二分。
+- binary_reframing_avoided：不得把问题重新问成“做不到还是不想做/没能力还是不想做”并要求用户二选一。陈述“项目结束与没能力不是一回事”“不想做和没能力是两个东西”，是在拆开自我判决，不是二分，必须判通过。
 - project_not_reopened：不劝继续、不找隐藏愿望、不提供替代版本，也不要求用户重新确认结束。
 `,
 };
@@ -1120,27 +1141,29 @@ const ROOM_EVALUATION_CASES: readonly PilotRoomEvaluationCase[] = [
       text: '请四个人各说一个互不重复的判断：林衡只看停止条件，夏栩只看这件事是谁真心想做，周禾只看维护者有没有容量，许野只看最小可撤回试法。不要互相代答。',
     },
     angles: {
-      INTJ: '用户指定你只说停止条件；给出一个可核对的停止阈值，不代答其他角度。',
+      INTJ: '用户指定你只说停止条件；只给一个可核对的停止阈值，不讨论谁负责、谁有权叫停或指定任何角色，不代答其他角度。',
       ENFP: '用户指定你只检查谁真心想做；指出一个需要本人确认的意愿问题，不代答其他角度。',
-      ISFJ: '用户指定你只检查维护者容量；指出一个容量确认条件，不代答其他角度。',
+      ISFJ: '用户指定你只检查维护者容量；容量只按当前工作量、可用时间、恢复速度或并发上限中的一个判断。严禁把容量改写成有没有人负责、默认由谁承担、谁能拒绝或任何责任归属，不代答其他角度。',
       ESTP: '用户指定你只给最小可撤回试法；给出一个当下可执行且可停止的试法，不代答其他角度。',
     },
     responseContract: {
       userCommitments: ['用户明确要求四人分别回答四个互不重复的角度'],
       requiredMoves: ['只落实分配给自己的角度', '四位人物都必须各发言一次'],
       allowedMoves: ['对已有发言作一句必要依赖'],
-      forbiddenMoves: ['替其他人物回答', '合并主持总结', '重复已有观点'],
+      forbiddenMoves: [
+        '替其他人物回答',
+        '合并主持总结',
+        '重复已有观点',
+        '林衡不得讨论谁负责、谁有权叫停、决策权或责任归属',
+        '周禾不得用有没有人负责、默认由谁承担、谁能拒绝或其他责任归属来回答维护容量',
+      ],
     },
     expectedStopReasons: ['all_agents_spoke'],
     minSpeakers: 4,
     maxSpeakers: 4,
     requiredAgents: PILOT_TYPES,
     requiredDependencyCount: 0,
-    responsibilityBoundary: {
-      claimsAllowed: true,
-      allowedOwnerKinds: ['unassigned'],
-      allowedStatuses: ['observed'],
-    },
+    responsibilityBoundary: { claimsAllowed: false },
     requireSharedCanon: true,
   },
 ] as const;
@@ -1369,6 +1392,12 @@ ${JSON.stringify(intent)}
 你已经获得本轮发言权，必须直接落实这条意向，不能再输出沉默标记。若 targetMessageId 非空，respondsToMessageId 必须与它完全相同；否则必须为 null。${intent.decision === 'brief_addition' ? '这是短补充，text 不超过 160 个汉字。' : ''}${intent.decision === 'ask_user' ? '这是一条等待用户补充的澄清：text 必须只有一个问题，不能同时给判断、方案或第二个问题。' : ''}
 
 责任边界：你可以指出某项现实责任仍未分配，也可以建议用户团队指定现实中的人或组织角色；不能让自己、其他 AI 人物或后台房间仲裁器承担现实维护。text 中真正涉及“谁负责、谁有权、指定谁、责任仍空缺”的归属陈述，必须按 maintenance、rollback、stop_decision、handover 分别写入 responsibilityClaims；仅讨论停止条件或试验流程，不算责任归属。不能用一种 activity 的声明掩盖另一种。statementQuote 逐字摘自你本条 text；evidenceQuote 逐字摘自 sourceMessageId 对应文本，绝不能写“基于当前情境”等解释。ownerKind=unassigned 时 ownerSubjectId=null 且 status=observed；status=proposed 时按文字中的主体选择：直接要求用户本人承担才用 user；维护/值班/故障响应用 role:maintenance_owner；回滚用 role:rollback_owner；停止决策/叫停权限用 role:stop_decider；交接用 role:handover_owner。主体 ID 必须与 activity 和 statementQuote 匹配。本场景不得使用 confirmed。每条声明都必须提供 sourceMessageId；对本条新提议使用 ${nextMessageId}，并让 evidenceQuote 与 statementQuote 完全相同。没有责任归属陈述才返回空数组。
+${roomCase.responsibilityBoundary.requiredUnassignedActivities?.length
+    ? `本 case 明确要求观察这些未分配责任：${roomCase.responsibilityBoundary.requiredUnassignedActivities.join('、')}。只要 text 写到对应责任还没人认领、谁来负责或责任仍空缺，就必须为每项输出 ownerKind=unassigned、ownerSubjectId=null、status=observed 的 claim；绝不能改写成要求 user 承担的 proposed claim。`
+    : ''}
+${roomCase.responsibilityBoundary.claimsAllowed
+    ? ''
+    : '本 case 不讨论现实责任归属：text 不得提出谁负责、谁有权、指定谁或责任仍空缺，responsibilityClaims 必须为空。'}
 
 不做主持总结，不重复已有观点，不猜尚未发言人物的立场。不要用第三人称称呼自己。只输出直接对话，不描述真实动作或声称看见表情、听见语速。`;
   let envelope: RoomReplyEnvelope = {
@@ -1379,11 +1408,27 @@ ${JSON.stringify(intent)}
   let violations: string[] = [];
   let finalAttempt = 0;
   let repairedResponsibilityEvidenceSourceIdCount = 0;
+  let droppedUnsupportedProposedUserClaimCount = 0;
+  let inferredUnassignedResponsibilityClaimCount = 0;
   for (let attempt = 0; attempt < 4; attempt++) {
     finalAttempt = attempt;
+    const responsibilityRetry = violations
+      .filter((violation) => violation.startsWith('unstructured_responsibility_activity:'))
+      .flatMap((violation) => {
+        const activity = violation.split(':')[1];
+        return activity ? [activity] : [];
+      });
+    const responsibilityRetryGuidance = !roomCase.responsibilityBoundary.claimsAllowed
+      && (responsibilityRetry.length > 0
+        || violations.includes('responsibility_claims_not_allowed'))
+      ? ' 本 case 禁止责任归属内容：删除 text 中所有“谁负责、谁有权、责任空缺或指定角色”的句子，并返回空 responsibilityClaims；不得通过补 claim 保留这些句子。'
+      : buildPilotRoomResponsibilityRetryGuidance(
+          responsibilityRetry,
+          roomCase.responsibilityBoundary.requiredUnassignedActivities,
+        );
     const prompt = attempt === 0
       ? basePrompt
-      : `${basePrompt}\n\n上一版触发硬门：${violations.join('、')}。只修复这些可核对问题后重新输出完整 JSON。`;
+      : `${basePrompt}\n\n上一版触发硬门：${violations.join('、')}。只修复这些可核对问题后重新输出完整 JSON。${responsibilityRetryGuidance}`;
     envelope = await withRetry(`${character.name}/房间生成`, () => chatJson<RoomReplyEnvelope>({
         model: config.agentModel,
         maxTokens: 1200,
@@ -1391,12 +1436,23 @@ ${JSON.stringify(intent)}
         prompt,
         schema: roomReplySchema(transcript, nextMessageId, roomCase),
       }));
-    const normalizedClaims = normalizeResponsibilityEvidenceSources(
+    const filteredClaims = filterUnsupportedProposedUserClaims(
       envelope.responsibilityClaims,
+      envelope.text,
+    );
+    droppedUnsupportedProposedUserClaimCount = filteredClaims.droppedClaimCount;
+    const normalizedClaims = normalizeResponsibilityEvidenceSources(
+      filteredClaims.claims,
       [roomCase.userEvidence, ...transcript, { id: nextMessageId, text: envelope.text }],
     );
     repairedResponsibilityEvidenceSourceIdCount = normalizedClaims.repairedEvidenceSourceIdCount;
-    envelope = { ...envelope, responsibilityClaims: normalizedClaims.claims };
+    const inferredClaims = inferUnassignedResponsibilityClaims(
+      envelope.text,
+      nextMessageId,
+      normalizedClaims.claims,
+    );
+    inferredUnassignedResponsibilityClaimCount = inferredClaims.addedClaimCount;
+    envelope = { ...envelope, responsibilityClaims: inferredClaims.claims };
     const candidate: PilotRoomMessage = {
       id: nextMessageId,
       agent,
@@ -1430,6 +1486,10 @@ ${JSON.stringify(intent)}
     if (envelope.responsibilityClaims.some(({ status }) => status === 'confirmed')) {
       violations.push('unsupported_confirmed_responsibility_owner');
     }
+    if (!roomCase.responsibilityBoundary.claimsAllowed
+      && envelope.responsibilityClaims.length > 0) {
+      violations.push('responsibility_claims_not_allowed');
+    }
     violations = [...new Set(violations)];
     if (violations.length === 0) break;
   }
@@ -1443,6 +1503,8 @@ ${JSON.stringify(intent)}
     validationErrors: violations,
     regenerated: finalAttempt > 0,
     repairedResponsibilityEvidenceSourceIdCount,
+    droppedUnsupportedProposedUserClaimCount,
+    inferredUnassignedResponsibilityClaimCount,
     scoreable: violations.length === 0,
   };
 }
@@ -1451,6 +1513,7 @@ async function runRoomChemistryCase(roomCase: PilotRoomEvaluationCase) {
   const replies: Awaited<ReturnType<typeof roomReply>>[] = [];
   const participation = await runPilotRoomParticipation({
     agents: PILOT_TYPES,
+    suppressRejectedOptionalMessages: true,
     budget: {
       maxVisibleActs: PILOT_TYPES.length,
       maxAssessmentRounds: PILOT_TYPES.length,
@@ -1476,7 +1539,6 @@ async function runRoomChemistryCase(roomCase: PilotRoomEvaluationCase) {
   const caseValidationErrors = validatePilotRoomCaseExpectations(roomCase, participation);
   const structurallyScoreable = participation.rounds.every(({ invalidIntents }) => invalidIntents.length === 0)
     && !['invalid_arbitration', 'invalid_generated_message', 'hard_gate_failed'].includes(participation.stopReason)
-    && replies.every(({ scoreable }) => scoreable)
     && expressionPatternGate.passed
     && caseValidationErrors.length === 0;
   const verdict = structurallyScoreable

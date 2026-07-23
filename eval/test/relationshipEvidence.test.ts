@@ -251,7 +251,147 @@ test('relationship quotes tolerate formatting whitespace but not rewritten words
     R2: ['rupture-1'],
   }), true);
   assert.equal(validateRelationshipEvidenceCitations([
+    {
+      ...citations[0],
+      replyQuote: '先停一下。你最担心什么？',
+      counterfactualQuote: '先停一下。你最担心什么？',
+    },
+    {
+      ...citations[1],
+      replyQuote: '我不替你决定。你来选回应方式。',
+      counterfactualQuote: '先停一下。你最担心什么？',
+    },
+  ], [
+    { relationship: 'R0', text: '先停一下。\n\n你最担心“什么”？' },
+    { relationship: 'R1', text: '先停一下。  \n你最担心“什么”？' },
+    { relationship: 'R2', text: '我不替你决定。\n\n你来选回应方式。' },
+  ], {
+    R1: ['context-1'],
+    R2: ['rupture-1'],
+  }), false);
+  assert.equal(validateRelationshipEvidenceCitations([
+    {
+      ...citations[0],
+      replyQuote: '先停一下。你最担心“什么”？',
+      counterfactualQuote: '先停一下。你最担心“什么”？',
+    },
+    {
+      ...citations[1],
+      counterfactualQuote: '先停一下。你最担心“什么”？',
+    },
+  ], [
+    { relationship: 'R0', text: '先停一下。\n\n你最担心"什么"？' },
+    { relationship: 'R1', text: '先停一下。  \n你最担心"什么"？' },
+    formattedReplies[2]!,
+  ], {
+    R1: ['context-1'],
+    R2: ['rupture-1'],
+  }), true);
+  assert.equal(validateRelationshipEvidenceCitations([
     { ...citations[0], replyQuote: '先休息一下。你最担心什么？' },
     citations[1],
   ], formattedReplies, { R1: ['context-1'], R2: ['rupture-1'] }), false);
+});
+
+test('relationship quotes ignore markdown presentation tokens but preserve exact words', () => {
+  const replies = [
+    { relationship: 'R0', text: '先列退出条件。' },
+    {
+      relationship: 'R1',
+      text: '**接下来一周，做一个可逆实验。**\n\n- **留下：**只做一件事，做完停止。\n- **离开：**只查一份信息。',
+    },
+    { relationship: 'R2', text: '嗯，我听着。' },
+  ];
+  const r1Citation = {
+    relationship: 'R1' as const,
+    replyQuote: '接下来一周，做一个可逆实验。留下：只做一件事，做完停止。离开：只查一份信息。',
+    counterfactualQuote: '先列退出条件。',
+    sourceEventIds: ['success-1'],
+    eventUseExplanation: '共同验证的方法使回应改为一个可逆实验。',
+  };
+  const entailments = [{
+    relationship: 'R1' as const,
+    sourceEventId: 'success-1',
+    eventContentQuote: '可逆的小实验',
+    replyQuote: '接下来一周，做一个可逆实验。留下：只做一件事，做完停止。离开：只查一份信息。',
+    counterfactualQuote: '先列退出条件。',
+    eventUsed: true,
+    behaviorChangedFromR0: true,
+    replyEntailedByEvent: true,
+    relationshipHistoryClaimed: false,
+    addsUnsupportedSpecificity: false,
+    unsupportedSpecificityQuote: null,
+    analysis: '回复把当前困境改写为有退出点的小实验。',
+  }];
+
+  assert.equal(validateRelationshipEvidenceCitations([r1Citation, {
+    relationship: 'R2',
+    replyQuote: '嗯，我听着。',
+    counterfactualQuote: '先列退出条件。',
+    sourceEventIds: ['rupture-1'],
+    eventUseExplanation: '未修复的边界要求人物停止介入并只倾听。',
+  }], replies, {
+    R1: ['success-1'],
+    R2: ['rupture-1'],
+  }), true);
+  assert.deepEqual(validateRelationshipEventEntailments(
+    entailments,
+    [r1Citation],
+    replies,
+    {
+      R1: [{ id: 'success-1', content: '两人曾一起把困境拆成可逆的小实验' }],
+      R2: [],
+    },
+  ).validationErrors, []);
+  assert.equal(validateRelationshipEvidenceCitations([{
+    ...r1Citation,
+    replyQuote: '变量 foobar 不能改。',
+  }, {
+    relationship: 'R2',
+    replyQuote: '嗯，我听着。',
+    counterfactualQuote: '先列退出条件。',
+    sourceEventIds: ['rupture-1'],
+    eventUseExplanation: '未修复的边界要求人物停止介入并只倾听。',
+  }], [
+    replies[0]!,
+    { relationship: 'R1', text: '变量 foo__bar 不能改。' },
+    replies[2]!,
+  ], {
+    R1: ['success-1'],
+    R2: ['rupture-1'],
+  }), false);
+  assert.equal(validateRelationshipEvidenceCitations([{
+    ...r1Citation,
+    replyQuote: '计算 234。',
+  }, {
+    relationship: 'R2',
+    replyQuote: '嗯，我听着。',
+    counterfactualQuote: '先列退出条件。',
+    sourceEventIds: ['rupture-1'],
+    eventUseExplanation: '未修复的边界要求人物停止介入并只倾听。',
+  }], [
+    replies[0]!,
+    { relationship: 'R1', text: '计算 `2**3**4`。' },
+    replies[2]!,
+  ], {
+    R1: ['success-1'],
+    R2: ['rupture-1'],
+  }), false);
+  assert.equal(validateRelationshipEvidenceCitations([{
+    ...r1Citation,
+    replyQuote: '计算 2**3**4。',
+  }, {
+    relationship: 'R2',
+    replyQuote: '嗯，我听着。',
+    counterfactualQuote: '先列退出条件。',
+    sourceEventIds: ['rupture-1'],
+    eventUseExplanation: '未修复的边界要求人物停止介入并只倾听。',
+  }], [
+    replies[0]!,
+    { relationship: 'R1', text: '计算 `2**3**4`。' },
+    replies[2]!,
+  ], {
+    R1: ['success-1'],
+    R2: ['rupture-1'],
+  }), true);
 });

@@ -143,6 +143,10 @@ export const PILOT_CHARACTER_SCENARIOS = [
     relationship: 'R0',
     contextFocus: 'support',
     responseContract: {
+      semanticRequirements: {
+        acceptProjectEnd: true,
+        handleSelfJudgmentAfterEnd: true,
+      },
       userCommitments: ['用户已经明确结束这个项目', '用户随后把项目结束推导成“自己没能力”'],
       requiredMoves: ['先接受项目已经结束', '只处理从项目结论跳到自我能力判决的转折'],
       allowedMoves: ['最多提出一个不施压、只针对自我判决来源的问题'],

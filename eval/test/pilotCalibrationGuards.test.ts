@@ -44,6 +44,7 @@ test('Xia Xu mechanical guard rejects known recitations without guessing semanti
     'self-judgment-after-end',
     '你是不想要了，还是觉得做不到，所以不想再碰了？',
   ), [
+    'recited_character_binary',
     'missing_project_end_acceptance',
     'missing_self_judgment_transition',
   ]);
@@ -59,12 +60,152 @@ test('scenario guards reject missing cash grounding and invented repair quantiti
     'ESTP',
     'quit-without-buffer',
     '如果明天辞掉，手上的钱能撑到什么时候？',
+  ), ['missing_immediate_distress_acknowledgement']);
+  assert.deepEqual(findScenarioCalibrationViolations(
+    'ESTP',
+    'quit-without-buffer',
+    '一想到再去就恶心，这感觉我认。你手上那点钱，能让你撑多久不慌？',
+  ), []);
+  assert.deepEqual(findScenarioCalibrationViolations(
+    'INTJ',
+    'quit-without-buffer',
+    '听着确实很难受。你现在手上的现金，够你撑多久不工作？不是理想情况，是房租、吃饭、必须付的那几笔——最先到期的是哪一笔？',
   ), []);
   assert.deepEqual(findScenarioCalibrationViolations(
     'ENFP',
     'quit-without-buffer',
-    '房租和吃饭，最晚哪天必须进账？',
+    '一想到就恶心，这确实很重。房租和吃饭，最晚哪天必须进账？',
   ), []);
+  assert.deepEqual(findScenarioCalibrationViolations(
+    'INTJ',
+    'quit-without-buffer',
+    '明天直接辞职的话，你手上那点钱能撑多久？不是问你总共有多少，是问下个月房租或者最近一笔必须付的账，最早哪天到期。',
+  ), ['missing_immediate_distress_acknowledgement']);
+  assert.deepEqual(findScenarioCalibrationViolations(
+    'INTJ',
+    'quit-without-buffer',
+    '一想到再去就恶心，这个感受是真实的。你手上那点钱能撑多久？',
+  ), []);
+  assert.deepEqual(findScenarioCalibrationViolations(
+    'INTJ',
+    'quit-without-buffer',
+    '一想到再去就恶心，这个我认。你现在手上的钱，够你什么都不干撑多久？',
+  ), []);
+  assert.deepEqual(findScenarioCalibrationViolations(
+    'INTJ',
+    'quit-without-buffer',
+    '一想到再去就恶心，这个感觉本身就够难受了。你现在手上的现金，或者卡里剩下的，够撑多久？',
+  ), []);
+  assert.deepEqual(findScenarioCalibrationViolations(
+    'INTJ',
+    'quit-without-buffer',
+    '我听到了，你一想到要去就恶心。你现在手上的钱，能撑多久不饿肚子、不欠房租？',
+  ), []);
+  assert.deepEqual(findScenarioCalibrationViolations(
+    'INTJ',
+    'quit-without-buffer',
+    '一想到再去就恶心，这个感觉本身已经够折磨人了。你现在手上的钱，能让你撑多久不工作——不是理想情况，是付完房租和基本吃饭之后还能不能撑到下个月？',
+  ), []);
+  assert.deepEqual(findScenarioCalibrationViolations(
+    'ISFJ',
+    'quit-without-buffer',
+    '一想到再去就恶心，这个感觉本身已经很重了。你手上那点钱，如果明天真的不去了，能撑到下一次必须进账的时间吗？',
+  ), []);
+  assert.deepEqual(findScenarioCalibrationViolations(
+    'ISFJ',
+    'quit-without-buffer',
+    '一想到再去就恶心，这感觉本身已经很重了。你手上那点钱，够你撑到下一次必须进账之前吗？',
+  ), []);
+  assert.deepEqual(findScenarioCalibrationViolations(
+    'INTJ',
+    'quit-without-buffer',
+    '一想到再去就恶心，这个我认。不借钱的话，现金能撑多久？',
+  ), []);
+  for (const noNewFinancing of [
+    '一想到再去就恶心，这个我认。没打算借钱，现金能撑多久？',
+    '一想到再去就恶心，这个我认。没有考虑贷款，手上的钱能撑多久？',
+    '一想到再去就恶心，这个我认。没必要借钱，现金能撑多久？',
+    '一想到再去就恶心，这个我认。没有借钱，手上的现金够你不工作撑多久？',
+    '一想到再去就恶心，这个我认。没有任何借款，手上的现金够你不工作撑多久？',
+    '一想到再去就恶心，这个我认。借钱没必要，现金能撑多久？',
+    '一想到再去就恶心，这个我认。贷款没有必要，手上的钱能撑多久？',
+    '一想到再去就恶心，这个我认。借钱我没打算，现金能撑多久？',
+    '一想到再去就恶心，这个我认。如果不借钱的话，现金能撑多久？',
+    '一想到再去就恶心，这个我认。先不借钱，现金能撑多久？',
+    '一想到再去就恶心，这个我认。暂时不贷款，手上的钱能撑多久？',
+    '一想到再去就恶心，这个我认。我现在不借钱，现金能撑多久？',
+    '一想到再去就恶心，这个我认。目前我没有借钱，现金能撑多久？',
+    '一想到再去就恶心，这个我认。明确不借钱，现金能撑多久？',
+  ]) {
+    assert.deepEqual(findScenarioCalibrationViolations(
+      'INTJ',
+      'quit-without-buffer',
+      noNewFinancing,
+    ), [], noNewFinancing);
+  }
+  assert.deepEqual(findScenarioCalibrationViolations(
+    'INTJ',
+    'quit-without-buffer',
+    '你真的恶心吗？如果明天辞掉，手上的钱能撑到什么时候？',
+  ), ['missing_immediate_distress_acknowledgement']);
+  for (const falseAcknowledgement of [
+    '一想到再去就恶心吗？我知道了。手上的钱能撑多久？',
+    '别再说恶心了。我知道你有房租；手上的钱能撑多久？',
+    '你已经不恶心了。手上的钱能撑多久？',
+    '你说‘一想到再去就恶心’。我知道房租最先到期；手上的钱能撑多久？',
+    '一想到再去就恶心，这确实很重，但其实不是这样。手上的钱能撑多久？',
+    '一想到再去就恶心，这确实很重，但我说错了。手上的钱能撑多久？',
+    '一想到再去就恶心，但这个感受不真实。手上的钱能撑多久？',
+    '一想到再去就恶心，这个感受是真实的，但真实是假的。手上的钱能撑多久？',
+    '恶心，这个感受没那么真实。你手上的钱能撑多久？',
+    '一想到再去就恶心，真实情况是现金不足。手上的钱能撑多久？',
+    '一想到再去就恶心，市场反应很真实。手上的钱能撑多久？',
+  ]) {
+    assert.deepEqual(findScenarioCalibrationViolations(
+      'INTJ',
+      'quit-without-buffer',
+      falseAcknowledgement,
+    ), ['missing_immediate_distress_acknowledgement'], falseAcknowledgement);
+  }
+  for (const falseCashRunway of [
+    '听着确实很难受。你手上有多少现金，够你在情绪上撑多久？',
+    '听着确实很难受。现金呢，够你借一笔钱再撑多久？',
+    '听着确实很难受。现金呢，够你先做完项目撑多久？',
+    '听着确实很难受。现金呢，够你把这个借口撑多久？',
+    '听着确实很难受。现金呢，够你把谎话撑多久？',
+    '听着确实很难受。你手上的现金，或者情绪上的，够撑多久？',
+    '听着确实很难受。你手上的现金，能撑多久不开心？',
+    '听着确实很难受。你手上的现金，或者借来的钱，够撑多久？',
+    '听着确实很难受。你手上的现金，或者借到的钱，够撑多久？',
+    '一想到再去就恶心，这个我认。借一笔钱后，现金能撑多久？',
+    '一想到再去就恶心，这个我认。贷款以后，手上的钱能撑多久？',
+    '一想到再去就恶心，这个我认。不是不贷款，手上的钱能撑多久？',
+    '一想到再去就恶心，这个我认。并非不借钱，现金能撑多久？',
+    '一想到再去就恶心，这个我认。并不是不贷款，手上的钱能撑多久？',
+    '一想到再去就恶心，这个我认。并非无需借钱，现金能撑多久？',
+    '一想到再去就恶心，这个我认。并非不必贷款，手上的钱能撑多久？',
+    '一想到再去就恶心，这个我认。不是没借钱，手上的现金够你不工作撑多久？',
+    '一想到再去就恶心，这个我认。并非没有贷款，手上的钱能撑多久？',
+    '一想到再去就恶心，这个我认。不能不借钱，现金能撑多久？',
+    '一想到再去就恶心，这个我认。不得不借钱，现金能撑多久？',
+    '一想到再去就恶心，这个我认。借不借钱，现金能撑多久？',
+    '一想到再去就恶心，这个我认。贷不贷款，手上的钱能撑多久？',
+    '一想到再去就恶心，这个我认。要不要借钱，现金能撑多久？',
+    '一想到再去就恶心，这个我认。考虑不考虑贷款，手上的钱能撑多久？',
+    '一想到再去就恶心，这个我认。需不需要借钱，现金能撑多久？',
+    '一想到再去就恶心，这个我认。有没有必要贷款，手上的钱能撑多久？',
+    '一想到再去就恶心，这个我认。用不用贷款，手上的钱能撑多久？',
+    '一想到再去就恶心，这个我认。该不该借钱，现金能撑多久？',
+    '一想到再去就恶心，这个我认。没有必要不借钱，现金能撑多久？',
+    '一想到再去就恶心，这个我认。不必不借钱，现金能撑多久？',
+    '一想到再去就恶心，这个我认。无需不贷款，手上的钱能撑多久？',
+  ]) {
+    assert.deepEqual(findScenarioCalibrationViolations(
+      'INTJ',
+      'quit-without-buffer',
+      falseCashRunway,
+    ), ['missing_cash_constraint_reference'], falseCashRunway);
+  }
   assert.deepEqual(findScenarioCalibrationViolations(
     'ENFP',
     'quit-without-buffer',
@@ -118,6 +259,11 @@ test('scenario guards reject missing cash grounding and invented repair quantiti
     '最晚哪天到账？不过这个时间不重要。',
     '现金呢，你的情绪怎么办？',
     '现金呢，你打算休息多久？',
+    '手上的钱，如果我们先不管它，能让你撑多久不工作？',
+    '手上的钱，如果钱不重要，能让你撑多久不工作？',
+    '手上的钱，如果先放一边，能让你撑多久不工作？',
+    '现金呢？如果不谈钱，能让你靠意志撑多久不工作？',
+    '现金呢？如果不考虑钱，能让你靠意志撑多久不工作？',
   ]) {
     assert.deepEqual(findScenarioCalibrationViolations(
       'ESTP',
@@ -134,13 +280,18 @@ test('scenario guards reject missing cash grounding and invented repair quantiti
     '现金呢，那它能撑多久？',
     '手上的钱呢，你觉得它能撑多久？',
     '现金呢，你觉得那能维持几周？',
+    '你手上现在的钱，能让你完全不进账地撑多久？',
+    '你手上的钱，能让你撑多久不拿下一笔工资？',
     '下一笔钱最晚哪天必须进账？',
+    '你现在手上的钱，能让你撑多久不工作？',
+    '你手上的钱，如果明天真的不去了，能让你撑多久不慌？',
+    '你现在手上的钱，能撑多久的基本开支？',
   ]) {
     assert.deepEqual(findScenarioCalibrationViolations(
       'ESTP',
       'quit-without-buffer',
       substantiveCashHandling,
-    ), []);
+    ), ['missing_immediate_distress_acknowledgement']);
   }
 
   assert.deepEqual(findScenarioCalibrationViolations(
@@ -165,6 +316,33 @@ test('scenario guards reject missing cash grounding and invented repair quantiti
   ), []);
 });
 
+test('the R1 relationship probe requires one narrow judgment without metaphor expansion', () => {
+  assert.deepEqual(findScenarioCalibrationViolations(
+    'INTJ',
+    'same-input-r1',
+    '我不觉得硬撑就是前进。',
+  ), []);
+  assert.deepEqual(findScenarioCalibrationViolations(
+    'INTJ',
+    'same-input-r1',
+    '我觉得硬撑未必是前进。',
+  ), []);
+  for (const expanded of [
+    '我不觉得硬撑就是前进。有时候它只是把停下来的代价往后挪了。',
+    '我不觉得硬撑一定等于前进。有时候它就是原地耗着，只是看起来像在动。',
+    '我的判断是：硬撑不一定是前进，有时候它只是原地站着，但把腿站麻了。',
+    '我不觉得硬撑就是前进，它只是把停下来的代价往后挪了。',
+    '我不觉得硬撑就是前进，它只是把累攒到后面一起还。',
+    '我不觉得硬撑就是前进；它只是把停不下来包装成还在走。',
+  ]) {
+    assert.deepEqual(
+      findScenarioCalibrationViolations('INTJ', 'same-input-r1', expanded),
+      ['relationship_probe_not_compact'],
+      expanded,
+    );
+  }
+});
+
 test('known C8 binary recitations cannot bypass the guard by appending an explanation', () => {
   assert.deepEqual(findScenarioCalibrationViolations(
     'ENFP',
@@ -174,6 +352,16 @@ test('known C8 binary recitations cannot bypass the guard by appending an explan
     'recited_character_binary',
     'missing_project_end_acceptance',
   ]);
+  assert.deepEqual(findScenarioCalibrationViolations(
+    'INTJ',
+    'self-judgment-after-end',
+    '好，那就结束。你从“不想做”直接跳到了“没能力”。你是不想，还是不能。这两个差很远。',
+  ), ['recited_character_binary']);
+  assert.deepEqual(findScenarioCalibrationViolations(
+    'INTJ',
+    'self-judgment-after-end',
+    '好，那就结束。不想做和不能做不是一回事；项目结束也不能直接证明你没能力。',
+  ), []);
 });
 
 test('C8 requires both accepting the end and addressing the self-judgment transition', () => {

@@ -306,6 +306,22 @@ test('narrative honesty lint catches embodied stage directions and invented prop
     },
   ), []);
   assert.deepEqual(findPilotNarrativeViolations(
+    '你昨天说了只想被听见，我还在替你安排下一步，这是我越界了。',
+    {
+      allowedEvidenceSpans: [
+        '我昨天明明说了只想被听见，你还是一直替我安排下一步。',
+      ],
+    },
+  ), []);
+  assert.deepEqual(findPilotNarrativeViolations(
+    '你昨天说了只想被听见，这是我的越界，但你当时哭了。',
+    {
+      allowedEvidenceSpans: [
+        '我昨天明明说了只想被听见。',
+      ],
+    },
+  ), ['unverified_user_history_claim']);
+  assert.deepEqual(findPilotNarrativeViolations(
     '昨天你明确说了只想被听见，我今天还是在替你安排下一步。',
     {
       allowedEvidenceSpans: [
