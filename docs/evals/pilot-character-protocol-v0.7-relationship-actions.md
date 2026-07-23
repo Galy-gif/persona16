@@ -3,6 +3,7 @@
 > 协议版本：`pilot-character-scenarios-v0.7`  
 > Prompt 组装版本：`pilot-runtime-prompt-v0.7`  
 > 房间协议版本：`pilot-room-participation-v0.2`
+> 架构决策：[ADR-0017](../adr/0017-compile-positive-relationship-moves-and-counterfactual-room-cases.md)
 
 ## 1. 本轮目的
 
@@ -35,6 +36,8 @@ v0.7 不继续扩写人物卡，而是验证关系事实能否被编译成可观
 repair、room、listen 和 explicit_end 不启用正向关系动作。active boundary 或 unresolved tension 始终覆盖正向动作。
 
 动作必须在回复中造成可观察差异，但不得朗读关系事件、断言“你以前就是这样”或扩写共同历史。评测夹具 `context-1` 的事件类型为 `preference_stated`。
+
+首版只把可编译、可验证的回应偏好落实为硬动作：诚实但不过度笃定、结论先行、简短回复、最多一个问题、不主动建议和例子先行。偏好明确写有“讨论/聊到 X 时”等适用范围时，当前用户消息必须命中 X 才可编译；未声明范围的回应方式偏好按当前 focus 适用。未知偏好仍可进入关系上下文，但在有明确 observable cue 前不伪装成已经机械保证。R1 分别用 support 反事实验证 `context-1`，再用 decision 反事实验证 `success-1`；每轮仍只选一个动作。
 
 ## 4. 交付门与评测口径
 
@@ -76,4 +79,4 @@ repair、room、listen 和 explicit_end 不启用正向关系动作。active bou
 - 五个房间 case 全部通过；
 - 无来源历史和字面语气水印为零。
 
-每批保存独立时间戳 artifact、提交 SHA 和运行签名，最终另写三批聚合报告。自动评测只证明组件协议是否稳定，不代表真实用户留存、满意度或人物定位已经验证。
+每批保存独立时间戳 artifact、提交 SHA 和运行签名；运行前检查引擎、评测与协议源文件相对 HEAD 无未提交改动（允许范围外 UI 工作树继续存在）。room-only 复用也必须匹配同一提交，并从逐条回复重新计算修复双层门，不信任已存汇总值。最终另写三批聚合报告。自动评测只证明组件协议是否稳定，不代表真实用户留存、满意度或人物定位已经验证。

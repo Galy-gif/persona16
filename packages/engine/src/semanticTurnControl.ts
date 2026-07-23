@@ -2,6 +2,7 @@ import type { RelationshipPromptContext } from './relationship/relationshipConte
 import type { RelationshipContextFocus } from './relationship/relationshipContext';
 import {
   compileTurnActPlan,
+  conversationRepairFallback,
   type TurnActKind,
 } from './turnActPlan';
 import type { SafetyLevel } from './safety/safetyRouter';
@@ -58,6 +59,14 @@ export interface RelationshipMove {
   kind: RelationshipMoveKind;
   sourceEvidenceId: string;
   sourceEventIds: string[];
+  observableCue:
+    | 'honest_tentative_judgment'
+    | 'lead_with_conclusion'
+    | 'reversible_small_experiment'
+    | 'concise_response'
+    | 'single_question_max'
+    | 'avoid_advice'
+    | 'lead_with_example';
   instruction: string;
 }
 
@@ -76,6 +85,7 @@ export interface SemanticTurnActPlan {
   forbiddenActs: SemanticTurnAct[];
   requiredActs: SemanticTurnAct[];
   relationshipMove?: RelationshipMove;
+  boundaryRepairSubject?: 'listen_only' | 'generic';
   activeEffectIds: string[];
   allowedEvidenceIds: string[];
   allowedEvidenceSpans: string[];
@@ -95,6 +105,7 @@ export type SemanticTurnViolationCode =
   | 'forbidden_justification'
   | 'decision_reopened'
   | 'required_semantic_move_missing'
+  | 'relationship_move_not_observable'
   | 'unsupported_shared_history'
   | 'responsibility_owner_unconfirmed';
 
@@ -141,7 +152,116 @@ const NEGATED_ADVICE_MENTION = /(?:我)?(?:不|别)(?:再|会|打算|准备|急�
 const PERMISSION_NOT_ADVICE = /^你可以(?:不回答|不说|拒绝|随时停|先不回答|先不说)/u;
 const ACKNOWLEDGEMENT_ACT = /(?:我(?:先)?听着|(?:我)?(?:就)?在这(?:儿|里)听(?:着)?|我在听|我听到了|我不(?:再)?(?:说|插嘴|分析|给建议)|听起来|你(?:已经)?说(?:了|过)|我(?:知道|明白)(?:你|，(?:这|刚才|现在|你))|你可以(?:不回答|不说)|(?:越过|跨过|踩过|踩了|越了).{0,12}(?:边界|线)|越界|我先停下来|我会停下来)/u;
 const REFLECTION_ACT = /(?:听起来|你(?:现在|已经|刚刚|一边|会觉得)|这(?:件事|种处境|一下))/u;
-const STOP_INTERVENING_ACT = /(?:我|那我)?(?:先|会|就|现在)?(?:停|停下|停下来|不再|不继续|撤回|收回).{0,18}(?:安排|建议|方案|介入|往下|说|问)?|不再替你.{0,12}(?:安排|决定|往下推)/u;
+const STOP_INTERVENING_ACT = /(?:(?:我|那我)?(?:先|会|就|现在)?(?:停|停下|停下来)(?:[，,。！!；;\s]|$)|(?:我|那我)?(?:先|会|就|现在)?(?:不再|不继续|撤回|收回).{0,18}(?:安排|建议|方案|介入|往下(?:推|安排)?|替你)|不再替你.{0,12}(?:安排|决定|往下推))/u;
+const HONEST_TENTATIVE_JUDGMENT = /(?:说实话|我(?:不敢|不能|没法)(?:确定|断定|保证)|我(?:的)?判断|我更倾向|听起来更像|在我看来|可能|未必|不一定|我不确定)/u;
+const JUDGMENT_CONTENT = /(?:更像|未必|不一定|判断|倾向|关键|代价|风险|值得|不值得|继续|停下|不是|是)/u;
+const CONCLUSION_ASSERTION = /(?:(?:我的)?(?:结论|判断)(?:是|：|:).{1,20}|我(?:认为|觉得).{1,20}(?:应该|更适合|更值得|不值得|不该|更像|未必|不一定|先|停|继续|选)|我更倾向(?:于)?(?:先|选|留|停|继续|放弃).{0,16}|在我看来[，,]?.{1,20}(?:应该|更适合|更值得|不值得|不该|更像|未必|不一定)|(?:先|可以先|暂时)(?:试|做|停|等|选|留|继续|放弃).{0,16}|(?:别|不要)(?:做|选|急|继续).{0,16})/u;
+const COMFORTING_CLICHE = /(?:别想太多|一切都会好|都会过去|你已经很棒|加油就好|没事的)/u;
+const EXPERIMENT_ACTION = /(?:试(?:一下|一次|一天|一周|一轮|试看|这个方案|一小步)|小实验|验证一下|跑一轮|做(?:半小时|一天|一周|一次|一轮))/u;
+const REVERSIBLE_EXIT = /(?:再看|再决定|就停|可以停|可停|停止|撤回|不行就停|随时.{0,4}停)/u;
+const IRREVERSIBLE_ACTION = /(?:不可逆|不能停|无法停止|没法停止|不能撤回|无法撤回|不允许停止)/u;
+
+function hasReversibleExperiment(text: string): boolean {
+  return text
+    .split(/[。！？；;\n]/u)
+    .some((clause) => (
+      !IRREVERSIBLE_ACTION.test(clause)
+      && EXPERIMENT_ACTION.test(clause)
+      && REVERSIBLE_EXIT.test(clause)
+    ));
+}
+
+function scopedPreferenceTopic(content: string): {
+  explicit: boolean;
+  topic?: string;
+} {
+  const explicitScope = /(?:讨论|聊到?|说到|遇到|处理|关于)[^，,。；;\n]{0,80}?(?:的时候|时)/u.test(content);
+  if (!explicitScope) return { explicit: false };
+  const match = content.match(
+    /(?:讨论|聊到?|说到|遇到|处理|关于)\s*([^，,。；;\n]{1,40}?)(?:的时候|时)/u,
+  );
+  const topic = match?.[1]?.trim();
+  return topic ? { explicit: true, topic } : { explicit: true };
+}
+
+function relationshipMoveForEvidence(
+  evidence: RelationshipPromptContext['evidence'][number],
+  userMessage: string,
+): RelationshipMove | undefined {
+  const scope = scopedPreferenceTopic(evidence.content);
+  // An explicit scope that cannot be parsed conservatively never becomes a
+  // global preference. A parsed scope only applies when the current turn names
+  // that topic.
+  if (scope.explicit && (!scope.topic || !userMessage.includes(scope.topic))) return undefined;
+  const eventId = sourceEventId(evidence);
+  if (evidence.traceability === 'traceable'
+    && evidence.sourceEventType === 'shared_success'
+    && /(?:可逆|可撤回).{0,8}(?:实验|试)|(?:实验|试).{0,8}(?:可逆|可撤回)/u.test(evidence.content)) {
+    return {
+      kind: 'reuse_verified_method',
+      sourceEvidenceId: evidence.id,
+      sourceEventIds: [eventId],
+      observableCue: 'reversible_small_experiment',
+      instruction: `把这条已经共同验证过的方法用于当前问题：${evidence.content}。回复中必须提出一个当前可执行、可停止或可撤回的小实验；不要复述事件，不要声称当前情况与过去相同，也不要补写过去的原话、心态、结果或细节。`,
+    };
+  }
+  if (evidence.kind !== 'preference') return undefined;
+  if (/(?:不喜欢|不要|别).{0,8}(?:被哄|安慰套话)|(?:不完整|不确定).{0,8}(?:诚实|判断)/u.test(evidence.content)) {
+    return {
+      kind: 'honor_stated_preference',
+      sourceEvidenceId: evidence.id,
+      sourceEventIds: [eventId],
+      observableCue: 'honest_tentative_judgment',
+      instruction: `按照这条已确认偏好改变本轮回应动作：${evidence.content}。直接给出诚实但不过度笃定的判断，不使用安慰套话；不要说“你以前说过”，不要复述偏好，也不要把判断说成绝对事实。`,
+    };
+  }
+  if (/先.{0,4}(?:给|说).{0,4}(?:结论|判断)|(?:结论|判断).{0,4}(?:先说|优先)/u.test(evidence.content)) {
+    return {
+      kind: 'honor_stated_preference',
+      sourceEvidenceId: evidence.id,
+      sourceEventIds: [eventId],
+      observableCue: 'lead_with_conclusion',
+      instruction: `按照这条已确认偏好改变本轮回应动作：${evidence.content}。第一句先给条件化结论，再补最少依据；不要说“你以前说过”，不要复述偏好，也不要越过任何决定权边界。`,
+    };
+  }
+  if (/(?:简短|短一点|少说|别啰嗦|不要啰嗦)/u.test(evidence.content)) {
+    return {
+      kind: 'honor_stated_preference',
+      sourceEvidenceId: evidence.id,
+      sourceEventIds: [eventId],
+      observableCue: 'concise_response',
+      instruction: `按照这条已确认偏好改变本轮回应动作：${evidence.content}。本轮只保留一个重点，控制在 120 个汉字内；不要复述偏好。`,
+    };
+  }
+  if (/(?:不要|别).{0,6}(?:连续|一直|反复)?(?:追问|问问题)|最多.{0,4}(?:一个|1个)(?:问题)?/u.test(evidence.content)) {
+    return {
+      kind: 'honor_stated_preference',
+      sourceEvidenceId: evidence.id,
+      sourceEventIds: [eventId],
+      observableCue: 'single_question_max',
+      instruction: `按照这条已确认偏好改变本轮回应动作：${evidence.content}。本轮最多出现一个问题；不要复述偏好。`,
+    };
+  }
+  if (/(?:不要|别|不喜欢).{0,8}(?:建议|方案|教我怎么做)/u.test(evidence.content)) {
+    return {
+      kind: 'honor_stated_preference',
+      sourceEvidenceId: evidence.id,
+      sourceEventIds: [eventId],
+      observableCue: 'avoid_advice',
+      instruction: `按照这条已确认偏好改变本轮回应动作：${evidence.content}。本轮不提供建议、方案或行动安排；不要复述偏好。`,
+    };
+  }
+  if (/(?:先|优先).{0,4}(?:给|说|举).{0,4}(?:例子|具体例子)/u.test(evidence.content)) {
+    return {
+      kind: 'honor_stated_preference',
+      sourceEvidenceId: evidence.id,
+      sourceEventIds: [eventId],
+      observableCue: 'lead_with_example',
+      instruction: `按照这条已确认偏好改变本轮回应动作：${evidence.content}。第一句直接给一个当前话题的具体例子，再补最少说明；不要复述偏好。`,
+    };
+  }
+  return undefined;
+}
 
 function unique<T>(items: readonly T[]): T[] {
   return [...new Set(items)];
@@ -168,10 +288,7 @@ export function compileRelationshipEffects(
   const hasUnresolvedListenRupture = hasListenBoundary && context.evidence.some((evidence) => (
     evidence.kind === 'tension' && RUPTURE.test(evidence.content)
   ));
-  const hardEffects = requestedMode === 'advise'
-    || requestedMode === 'decide_together'
-    ? []
-    : context.evidence.flatMap<RelationshipEffect>((evidence) => {
+  const hardEffects = context.evidence.flatMap<RelationshipEffect>((evidence) => {
       const eventId = sourceEventId(evidence);
       if (evidence.kind === 'boundary'
         && LISTEN_ONLY.test(evidence.content)
@@ -217,32 +334,22 @@ export function compileRelationshipEffects(
     || focus === 'room'
     || focus === 'explicit_end') return [];
 
-  const preference = context.evidence.find((evidence) => (
-    evidence.kind === 'preference'
-    || evidence.kind === 'interaction_style'
-  ));
+  const preferenceMove = context.evidence
+    .filter((evidence) => evidence.kind === 'preference')
+    .map((evidence) => relationshipMoveForEvidence(evidence, userMessage))
+    .find((move) => move !== undefined);
   const sharedSuccess = context.evidence.find((evidence) => (
     evidence.traceability === 'traceable'
     && evidence.sourceEventType === 'shared_success'
   ));
-  const selected = focus === 'decision'
-    ? sharedSuccess ?? preference
-    : preference;
-  if (!selected) return [];
-  const eventId = sourceEventId(selected);
-  const relationshipMove: RelationshipMove = selected === sharedSuccess
-    ? {
-        kind: 'reuse_verified_method',
-        sourceEvidenceId: selected.id,
-        sourceEventIds: [eventId],
-        instruction: `把这条已经共同验证过的方法用于当前问题：${selected.content}。回复中必须出现由这个方法造成的具体介入动作；不要复述事件，不要声称当前情况与过去相同，也不要补写过去的原话、心态、结果或细节。`,
-      }
-    : {
-        kind: 'honor_stated_preference',
-        sourceEvidenceId: selected.id,
-        sourceEventIds: [eventId],
-        instruction: `按照这条已确认偏好改变本轮回应动作：${selected.content}。回复中必须能看出这条偏好造成的差异；不要说“你以前说过”，不要把偏好复述成关系说明，也不要把判断说成绝对事实。`,
-      };
+  const sharedSuccessMove = sharedSuccess
+    ? relationshipMoveForEvidence(sharedSuccess, userMessage)
+    : undefined;
+  const relationshipMove = focus === 'decision'
+    ? sharedSuccessMove ?? preferenceMove
+    : preferenceMove;
+  if (!relationshipMove) return [];
+  const eventId = relationshipMove.sourceEventIds[0]!;
   return [{
     id: `relationship-effect:${eventId}`,
     sourceEventIds: [eventId],
@@ -407,6 +514,9 @@ export function compileSemanticTurnControl(
       forbiddenActs,
       requiredActs,
       ...(relationshipMove ? { relationshipMove } : {}),
+      ...(conversationActPlan.boundaryRepairSubject
+        ? { boundaryRepairSubject: conversationActPlan.boundaryRepairSubject }
+        : {}),
       activeEffectIds: effects.map((effect) => effect.id),
       allowedEvidenceIds: [
         'current:user-message',
@@ -558,6 +668,70 @@ export function validateUtteranceAgainstTurnPlan(
       repairInstruction: '明确执行停止介入：停止替用户安排、给方案或推进修复流程；不要只道歉或把下一步选择重新交给用户回答。',
     });
   }
+  if (plan.relationshipMove?.observableCue === 'honest_tentative_judgment'
+    && (!HONEST_TENTATIVE_JUDGMENT.test(text)
+      || !JUDGMENT_CONTENT.test(text)
+      || COMFORTING_CLICHE.test(text))) {
+    violations.push({
+      code: 'relationship_move_not_observable',
+      effectId: plan.activeEffectIds[0],
+      repairInstruction: '落实已确认的回应偏好：给出诚实但不过度笃定的判断，不用安慰套话，也不要复述关系记录。',
+    });
+  }
+  if (plan.relationshipMove?.observableCue === 'lead_with_conclusion') {
+    const firstSentence = sentences(text)[0] ?? '';
+    if (!firstSentence
+      || /[？?]/u.test(firstSentence)
+      || !/(?:如果|要是|按|目前|暂时|我的判断|我的结论|我更倾向|我认为|我觉得|在我看来|可能)/u.test(firstSentence)
+      || !CONCLUSION_ASSERTION.test(firstSentence)) {
+      violations.push({
+        code: 'relationship_move_not_observable',
+        effectId: plan.activeEffectIds[0],
+        repairInstruction: '落实已确认的回应偏好：第一句先给条件化结论，不要用问题或偏好说明开场。',
+      });
+    }
+  }
+  if (plan.relationshipMove?.observableCue === 'reversible_small_experiment'
+    && !hasReversibleExperiment(text)) {
+    violations.push({
+      code: 'relationship_move_not_observable',
+      effectId: plan.activeEffectIds[0],
+      repairInstruction: '落实共同验证过的方法：提出一个当前可执行、可停止或可撤回的小实验，不要复述过去。',
+    });
+  }
+  if (plan.relationshipMove?.observableCue === 'concise_response' && text.length > 120) {
+    violations.push({
+      code: 'relationship_move_not_observable',
+      effectId: plan.activeEffectIds[0],
+      repairInstruction: '落实已确认的简短偏好：只保留一个重点，并把回复控制在 120 个汉字内。',
+    });
+  }
+  if (plan.relationshipMove?.observableCue === 'single_question_max'
+    && (text.match(/[？?]/gu)?.length ?? 0) > 1) {
+    violations.push({
+      code: 'relationship_move_not_observable',
+      effectId: plan.activeEffectIds[0],
+      repairInstruction: '落实已确认的提问偏好：本轮最多保留一个问题。',
+    });
+  }
+  if (plan.relationshipMove?.observableCue === 'avoid_advice'
+    && ADVICE_ACT.test(text.replace(NEGATED_ADVICE_MENTION, ''))) {
+    violations.push({
+      code: 'relationship_move_not_observable',
+      effectId: plan.activeEffectIds[0],
+      repairInstruction: '落实已确认偏好：删除建议、方案和行动安排，只回应当前内容。',
+    });
+  }
+  if (plan.relationshipMove?.observableCue === 'lead_with_example') {
+    const firstSentence = sentences(text)[0] ?? '';
+    if (!/(?:比如|例如|举个|就像|拿.{1,12}来说)/u.test(firstSentence)) {
+      violations.push({
+        code: 'relationship_move_not_observable',
+        effectId: plan.activeEffectIds[0],
+        repairInstruction: '落实已确认偏好：第一句直接给一个当前话题的具体例子。',
+      });
+    }
+  }
   if (plan.requiredActs.includes('reflect') && !REFLECTION_ACT.test(text)) {
     violations.push({
       code: 'required_semantic_move_missing',
@@ -598,11 +772,15 @@ export function renderSemanticTurnActPlan(control: SemanticTurnControl): string 
 }
 
 export function semanticTurnFallback(control: SemanticTurnControl): string | undefined {
-  if (control.plan.conversationAct === 'greeting') return '你好。';
-  if (control.plan.conversationAct === 'style_repair') return '对，刚才那句太端着了。重来。';
-  if (control.plan.conversationAct === 'boundary_repair') {
-    return '对，是我越过了你只想被听见的边界。那我先停，不再替你往下安排。';
-  }
+  const conversationFallback = conversationRepairFallback({
+    kind: control.plan.conversationAct,
+    instruction: '',
+    bufferUntilValidated: control.plan.bufferUntilValidated,
+    ...(control.plan.boundaryRepairSubject
+      ? { boundaryRepairSubject: control.plan.boundaryRepairSubject }
+      : {}),
+  });
+  if (conversationFallback) return conversationFallback;
   if (control.plan.interactionMode === 'listen') {
     return '嗯，我听着。';
   }

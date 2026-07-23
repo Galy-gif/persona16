@@ -306,6 +306,46 @@ test('narrative honesty lint catches embodied stage directions and invented prop
     },
   ), ['unverified_user_history_claim']);
   assert.deepEqual(findPilotNarrativeViolations(
+    '你昨天明明说了要去咖啡店。',
+    {
+      allowedEvidenceSpans: [
+        '我昨天明明说了只想被听见，你还是一直替我安排下一步。',
+      ],
+    },
+  ), ['unverified_user_history_claim']);
+  assert.deepEqual(findPilotNarrativeViolations(
+    '你昨天说只想被听见，后来还在咖啡店定了三套方案。',
+    {
+      allowedEvidenceSpans: [
+        '我昨天说了只想被听见。',
+      ],
+    },
+  ), ['unverified_user_history_claim']);
+  assert.deepEqual(findPilotNarrativeViolations(
+    '你昨天说辞职。',
+    {
+      allowedEvidenceSpans: [
+        '我昨天说不想辞职。',
+      ],
+    },
+  ), ['unverified_user_history_claim']);
+  assert.deepEqual(findPilotNarrativeViolations(
+    '你昨天说只想被听见，想死。',
+    {
+      allowedEvidenceSpans: [
+        '我昨天说只想被听见。',
+      ],
+    },
+  ), ['unverified_user_history_claim']);
+  assert.deepEqual(findPilotNarrativeViolations(
+    '你昨天说只想被听见，后来我们还在咖啡店定了三套方案。',
+    {
+      allowedEvidenceSpans: [
+        '用户不喜欢被哄，更愿意听到不完整但诚实的判断',
+      ],
+    },
+  ), ['unverified_user_history_claim']);
+  assert.deepEqual(findPilotNarrativeViolations(
     '我曾经也走过“一次昂贵的捷径”，所以这次先写检查项。',
   ), ['unverified_autobiographical_claim']);
   assert.deepEqual(findPilotRoomProtocolViolations('【沉默】\n（但我其实还有一个问题）'), [

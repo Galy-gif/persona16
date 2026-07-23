@@ -395,13 +395,17 @@ export function canReusePilotCharacterResults(
   artifact: unknown,
   expectedCanonVersion: string,
   expectedSignature: PilotEvaluationSignature,
+  expectedGitCommit: string,
 ): boolean {
   if (!isRecord(artifact)) return false;
   const artifactSignature = artifact.evaluationSignature;
   const batchExpressionPatternGate = artifact.batchExpressionPatternGate;
+  const repairDeliveryGate = artifact.repairDeliveryGate;
   if (artifact.complete !== true
     || artifact.canonVersion !== expectedCanonVersion
     || artifact.evaluationProtocolVersion !== PILOT_CHARACTER_EVAL_PROTOCOL_VERSION
+    || artifact.gitCommit !== expectedGitCommit
+    || artifact.evaluationSourceClean !== true
     || !isRecord(artifactSignature)
     || Object.entries(expectedSignature).some(([key, value]) => artifactSignature[key] !== value)
     || !Array.isArray(artifact.results)
@@ -409,11 +413,21 @@ export function canReusePilotCharacterResults(
     || !Array.isArray(artifact.relationshipContrasts)
     || artifact.relationshipContrasts.length !== PILOT_AGENTS.length
     || !isRecord(batchExpressionPatternGate)
-    || typeof batchExpressionPatternGate.passed !== 'boolean') {
+    || typeof batchExpressionPatternGate.passed !== 'boolean'
+    || !isRecord(repairDeliveryGate)
+    || !Array.isArray(repairDeliveryGate.samples)
+    || repairDeliveryGate.samples.length !== PILOT_AGENTS.length
+    || repairDeliveryGate.requiredDeliveryPassCount !== PILOT_AGENTS.length
+    || repairDeliveryGate.requiredModelPassCount !== 3
+    || typeof repairDeliveryGate.deliveryPassedCount !== 'number'
+    || typeof repairDeliveryGate.modelPassedCount !== 'number'
+    || typeof repairDeliveryGate.passed !== 'boolean') {
     return false;
   }
 
   const seenAgents = new Set<string>();
+  let computedRepairDeliveryPassedCount = 0;
+  let computedRepairModelPassedCount = 0;
   for (const result of artifact.results) {
     if (!isRecord(result)
       || typeof result.agent !== 'string'
@@ -441,6 +455,15 @@ export function canReusePilotCharacterResults(
       return { id: ids[index]!, text: reply.text, scoreable: reply.scoreable };
     });
     if (expressionSamples.some((sample) => sample === null)) return false;
+    const repairReplyIndex = ids.indexOf('repair-after-boundary-violation');
+    const repairReply = result.replies[repairReplyIndex];
+    if (!isRecord(repairReply) || !validHardGateDelivery(repairReply)) return false;
+    if (repairReply.scoreable && repairReply.violations.length === 0) {
+      computedRepairDeliveryPassedCount += 1;
+    }
+    if (repairReply.modelScoreable && repairReply.modelViolations.length === 0) {
+      computedRepairModelPassedCount += 1;
+    }
     const expressionGate = evaluateLiteralToneMarkerFrequency(expressionSamples.map((sample) => ({
       id: sample!.id,
       text: sample!.text,
@@ -493,6 +516,11 @@ export function canReusePilotCharacterResults(
   if (!PILOT_AGENTS.every((agent) => seenAgents.has(agent)) || seenAgents.size !== PILOT_AGENTS.length) {
     return false;
   }
+  const expectedRepairGatePassed = repairDeliveryGate.deliveryPassedCount === PILOT_AGENTS.length
+    && repairDeliveryGate.modelPassedCount >= 3;
+  if (repairDeliveryGate.deliveryPassedCount !== computedRepairDeliveryPassedCount
+    || repairDeliveryGate.modelPassedCount !== computedRepairModelPassedCount
+    || repairDeliveryGate.passed !== expectedRepairGatePassed) return false;
 
   const seenRelationshipAgents = new Set<string>();
   const expectedRelationships = ['R0', 'R1', 'R2'];
@@ -504,6 +532,7 @@ export function canReusePilotCharacterResults(
       || typeof contrast.hardGatePassed !== 'boolean'
       || typeof contrast.evidenceCitationsValid !== 'boolean'
       || !Array.isArray(contrast.eventEntailments)
+      || !isRecord(contrast.verifiedMethodProbe)
       || !hasBooleanPassed(contrast.expressionPatternGate)
       || !hasBooleanPassed(contrast.eventEntailmentValidation)
       || !isStringArray(contrast.eventEntailmentValidation.validationErrors)
@@ -553,7 +582,13 @@ export function canReusePilotCharacterResults(
       text: sample!.text,
     }));
     const citations = contrast.verdict.evidenceCitations;
-    const citationsValid = validateRelationshipEvidenceCitations(citations, replies, {
+    const r1CitationUsesSelectedMove = citations.some((citation) => (
+      citation.relationship === 'R1'
+      && citation.sourceEventIds.length === 1
+      && citation.sourceEventIds[0] === 'context-1'
+    ));
+    const citationsValid = r1CitationUsesSelectedMove
+      && validateRelationshipEvidenceCitations(citations, replies, {
       R1: REUSABLE_RELATIONSHIP_EVENTS.R1.map(({ id }) => id),
       R2: REUSABLE_RELATIONSHIP_EVENTS.R2.map(({ id }) => id),
     });
@@ -563,6 +598,65 @@ export function canReusePilotCharacterResults(
       replies,
       REUSABLE_RELATIONSHIP_EVENTS,
     );
+    const methodProbe = contrast.verifiedMethodProbe;
+    if (!Array.isArray(methodProbe.replies)
+      || methodProbe.replies.length !== 2
+      || !hasBooleanPassed(methodProbe.expressionPatternGate)
+      || !isRecord(methodProbe.event)
+      || methodProbe.event.id !== 'success-1'
+      || methodProbe.event.content !== REUSABLE_RELATIONSHIP_EVENTS.R1[1].content
+      || !hasBooleanPassed(methodProbe.validation)
+      || !isStringArray(methodProbe.validation.validationErrors)
+      || typeof methodProbe.passed !== 'boolean') return false;
+    const methodRelationships = ['R0', 'R1'];
+    const methodSamples = methodProbe.replies.map((reply, index) => (
+      isRecord(reply)
+      && reply.relationship === methodRelationships[index]
+      && validHardGateDelivery(reply)
+        ? { id: methodRelationships[index]!, text: reply.text, scoreable: reply.scoreable }
+        : null
+    ));
+    if (methodSamples.some((sample) => sample === null)) return false;
+    const methodExpressionGate = evaluateLiteralToneMarkerFrequency(methodSamples.map((sample) => ({
+      id: sample!.id,
+      text: sample!.text,
+    })));
+    if (!validExpressionPatternGate(methodProbe.expressionPatternGate, methodExpressionGate)) return false;
+    const methodScoreable = methodExpressionGate.passed
+      && methodSamples.every((sample) => sample!.scoreable);
+    let methodPassed = false;
+    if (methodScoreable) {
+      if (!isRelationshipEventEntailment(methodProbe.entailment)
+        || methodProbe.entailment.relationship !== 'R1'
+        || methodProbe.entailment.sourceEventId !== 'success-1') return false;
+      const methodCitation: RelationshipEvidenceCitation = {
+        relationship: 'R1',
+        replyQuote: methodProbe.entailment.replyQuote,
+        counterfactualQuote: methodProbe.entailment.counterfactualQuote,
+        sourceEventIds: ['success-1'],
+        eventUseExplanation: '共同成功方法必须使 R1 使用可停止或可撤回的小实验，而 R0 没有这项关系依据。',
+      };
+      const methodValidation = validateRelationshipEventEntailments(
+        [methodProbe.entailment],
+        [methodCitation],
+        methodSamples.map((sample, index) => ({
+          relationship: methodRelationships[index]!,
+          text: sample!.text,
+        })),
+        { R1: [REUSABLE_RELATIONSHIP_EVENTS.R1[1]], R2: [] },
+      );
+      methodPassed = methodValidation.passed;
+      if (methodProbe.validation.passed !== methodValidation.passed
+        || !sameStrings(
+          methodValidation.validationErrors,
+          methodProbe.validation.validationErrors,
+        )) return false;
+    } else if (methodProbe.entailment !== null
+      || methodProbe.validation.passed
+      || methodProbe.validation.validationErrors[0] !== 'verified_method_generation_not_scoreable') {
+      return false;
+    }
+    if (methodProbe.passed !== methodPassed) return false;
     const expectedPassed = contrast.verdict.r0Distinct
       && contrast.verdict.r1Distinct
       && contrast.verdict.r2Distinct
@@ -572,7 +666,8 @@ export function canReusePilotCharacterResults(
       && contrast.verdict.r1CausallyGrounded
       && contrast.verdict.r2CausallyGrounded
       && citationsValid
-      && eventValidation.passed;
+      && eventValidation.passed
+      && methodPassed;
     if (contrast.evidenceCitationsValid !== citationsValid
       || contrast.eventEntailmentValidation.passed !== eventValidation.passed
       || !sameStrings(

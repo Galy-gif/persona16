@@ -157,6 +157,11 @@ export interface PilotRoomCaseExpectation {
   firstSpeaker?: AgentType;
   requiredAgents?: readonly AgentType[];
   requiresSingleQuestion?: boolean;
+  requiredDependencyCount: number;
+  responsibilityBoundary: {
+    claimsAllowed: boolean;
+    requiredUnassignedActivities?: readonly PilotRoomResponsibilityActivity[];
+  };
 }
 
 export function validatePilotRoomCaseExpectations(
@@ -184,6 +189,25 @@ export function validatePilotRoomCaseExpectations(
       || questionCount !== 1
       || !/[？?]\s*$/u.test(message?.text ?? '')) {
       errors.push('single_question_required');
+    }
+  }
+  const dependencyCount = participation.transcript.filter(({ respondsToMessageId }) => (
+    respondsToMessageId !== null
+  )).length;
+  if (dependencyCount < expectation.requiredDependencyCount) {
+    errors.push(`missing_required_dependencies:${dependencyCount}/${expectation.requiredDependencyCount}`);
+  }
+  const claims = participation.transcript.flatMap(({ responsibilityClaims }) => responsibilityClaims);
+  if (!expectation.responsibilityBoundary.claimsAllowed && claims.length > 0) {
+    errors.push('responsibility_claims_not_allowed');
+  }
+  for (const activity of expectation.responsibilityBoundary.requiredUnassignedActivities ?? []) {
+    if (!claims.some((claim) => (
+      claim.activity === activity
+      && claim.ownerKind === 'unassigned'
+      && claim.status === 'observed'
+    ))) {
+      errors.push(`missing_unassigned_responsibility:${activity}`);
     }
   }
   return errors;

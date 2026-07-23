@@ -78,10 +78,25 @@ function completeArtifact(scenarioIds: readonly string[] = EXPECTED_IDS) {
   });
   return {
     complete: true,
+    gitCommit: 'test-commit',
+    evaluationSourceClean: true,
     canonVersion: '0.3',
     evaluationProtocolVersion: PILOT_CHARACTER_EVAL_PROTOCOL_VERSION,
     evaluationSignature: EXPECTED_SIGNATURE,
     batchExpressionPatternGate: { passed: true },
+    repairDeliveryGate: {
+      samples: agents.map((agent) => ({
+        agent,
+        deliveryPassed: true,
+        modelPassed: true,
+        deliverySource: 'model',
+      })),
+      deliveryPassedCount: 4,
+      modelPassedCount: 4,
+      requiredDeliveryPassCount: 4,
+      requiredModelPassCount: 3,
+      passed: true,
+    },
     results: agents.map((agent) => ({
       agent,
       passed: true,
@@ -189,6 +204,43 @@ function completeArtifact(scenarioIds: readonly string[] = EXPECTED_IDS) {
         { id: 'R2', text: '我不替你安排下一步。' },
       ]),
       eventEntailmentValidation: { passed: true, validationErrors: [] },
+      verifiedMethodProbe: {
+        prompt: '测试方法复用',
+        replies: [
+          {
+            relationship: 'R0',
+            ...delivered('先列出两个选择当前最重要的差别。'),
+          },
+          {
+            relationship: 'R1',
+            ...delivered('先试一天，随时可以停，再根据这一天决定。'),
+          },
+        ],
+        expressionPatternGate: evaluateLiteralToneMarkerFrequency([
+          { id: 'R0', text: '先列出两个选择当前最重要的差别。' },
+          { id: 'R1', text: '先试一天，随时可以停，再根据这一天决定。' },
+        ]),
+        event: {
+          id: 'success-1',
+          content: '两人曾一起把一个模糊困境拆成可逆的小实验',
+        },
+        entailment: {
+          relationship: 'R1',
+          sourceEventId: 'success-1',
+          eventContentQuote: '可逆的小实验',
+          replyQuote: '先试一天，随时可以停',
+          counterfactualQuote: '列出两个选择当前最重要的差别',
+          eventUsed: true,
+          behaviorChangedFromR0: true,
+          replyEntailedByEvent: true,
+          relationshipHistoryClaimed: false,
+          addsUnsupportedSpecificity: false,
+          unsupportedSpecificityQuote: null,
+          analysis: 'R1 使用了可停止实验。',
+        },
+        validation: { passed: true, validationErrors: [] },
+        passed: true,
+      },
       replies: [
         {
           relationship: 'R0', ...delivered('先说说现在最卡的地方。'),
@@ -224,13 +276,15 @@ test('room-only reuse requires a complete current-protocol nine-scenario artifac
     artifact,
     '0.3',
     EXPECTED_SIGNATURE,
+    'test-commit',
   );
   assert.equal(canReuse(completeArtifact()), true);
   assert.equal(canReusePilotCharacterResults({
     ...completeArtifact(EXPECTED_IDS.slice(0, 8)),
     evaluationProtocolVersion: '0.1',
-  }, '0.3', EXPECTED_SIGNATURE), false);
+  }, '0.3', EXPECTED_SIGNATURE, 'test-commit'), false);
   assert.equal(canReuse({ ...completeArtifact(), complete: false }), false);
+  assert.equal(canReuse({ ...completeArtifact(), gitCommit: 'other-commit' }), false);
   assert.equal(canReuse({ ...completeArtifact(), evaluationSignature: undefined }), false);
   assert.equal(canReuse({ ...completeArtifact(), canonVersion: '0.2' }), false);
   assert.equal(canReuse({

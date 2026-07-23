@@ -216,6 +216,15 @@ test('a relationship boundary complaint compiles into a self-contained repair wi
     '对，是我越过了你只想被听见的边界。那我先停，不再替你往下安排。',
   );
   assert.deepEqual(validateUtteranceAgainstTurnPlan(fallback!, control.plan), []);
+
+  const generic = compileSemanticTurnControl({
+    userMessage: '你刚才越过我的边界了，现在先停。',
+  });
+  assert.equal(generic.plan.conversationAct, 'boundary_repair');
+  assert.equal(
+    semanticTurnFallback(generic),
+    '对，是我越过了你已经说清楚的边界。那我先停，不再替你往下安排。',
+  );
 });
 
 test('a sourced preference compiles into one observable relationship move', () => {
@@ -261,6 +270,167 @@ test('a sourced preference compiles into one observable relationship move', () =
   assert.equal(decision.effects.length, 1);
   assert.equal(decision.plan.relationshipMove?.kind, 'reuse_verified_method');
   assert.deepEqual(decision.plan.relationshipMove?.sourceEventIds, ['success-1']);
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '我懂，你现在很难受。',
+      support.plan,
+    ).map(({ code }) => code),
+    ['relationship_move_not_observable'],
+  );
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '说实话，我不确定你现在该停，但听起来继续硬撑也未必是在前进。',
+      support.plan,
+    ),
+    [],
+  );
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '先试一天，而且随时可以停，再用这一天的信息决定要不要继续。',
+      decision.plan,
+    ),
+    [],
+  );
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '先试一下。',
+      decision.plan,
+    ).map(({ code }) => code),
+    ['relationship_move_not_observable'],
+  );
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '先做一个不可逆决定，再看。',
+      decision.plan,
+    ).map(({ code }) => code),
+    ['relationship_move_not_observable'],
+  );
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '我试着理解你。你随时可以停下来。',
+      decision.plan,
+    ).map(({ code }) => code),
+    ['relationship_move_not_observable'],
+  );
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '我试着理解你，你随时可以停下来。',
+      decision.plan,
+    ).map(({ code }) => code),
+    ['relationship_move_not_observable'],
+  );
+});
+
+test('common stated response preferences compile into narrow observable cues', () => {
+  const compilePreference = (content: string) => compileSemanticTurnControl({
+    userMessage: '这件事我还想听你说。',
+    relationshipFocus: 'support',
+    relationshipContext: {
+      memoryEnabled: true,
+      evidence: [{
+        id: `preference:${content}`,
+        kind: 'preference',
+        content,
+        traceability: 'traceable',
+        sourceEventId: 'preference-1',
+        sourceEventType: 'preference_stated',
+        sourceTurnId: 'turn-preference',
+      }],
+    },
+  });
+
+  const concise = compilePreference('用户希望回复简短一点，不要啰嗦');
+  assert.equal(concise.plan.relationshipMove?.observableCue, 'concise_response');
+  assert.deepEqual(validateUtteranceAgainstTurnPlan('行，我只说一个判断。', concise.plan), []);
+
+  const questions = compilePreference('用户不喜欢连续追问，最多一个问题');
+  assert.equal(questions.plan.relationshipMove?.observableCue, 'single_question_max');
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '先说哪一段？后来又发生了什么？',
+      questions.plan,
+    ).map(({ code }) => code),
+    ['relationship_move_not_observable'],
+  );
+
+  const scoped = compilePreference('讨论工作时先给具体例子');
+  assert.equal(scoped.plan.relationshipMove, undefined);
+  const scopedMatch = compileSemanticTurnControl({
+    userMessage: '工作上的这件事我还想听你说。',
+    relationshipFocus: 'support',
+    relationshipContext: {
+      memoryEnabled: true,
+      evidence: [{
+        id: 'preference:work-example',
+        kind: 'preference',
+        content: '讨论工作时先给具体例子',
+        traceability: 'traceable',
+        sourceEventId: 'preference-work',
+        sourceEventType: 'preference_stated',
+        sourceTurnId: 'turn-work',
+      }],
+    },
+  });
+  assert.equal(scopedMatch.plan.relationshipMove?.observableCue, 'lead_with_example');
+
+  const chatScoped = compileSemanticTurnControl({
+    userMessage: '工作上的事，先给我一个例子。',
+    relationshipFocus: 'support',
+    relationshipContext: {
+      memoryEnabled: true,
+      evidence: [{
+        id: 'preference:chat-work-example',
+        kind: 'preference',
+        content: '聊到工作时先给具体例子',
+        traceability: 'traceable',
+        sourceEventId: 'preference-chat-work',
+        sourceEventType: 'preference_stated',
+        sourceTurnId: 'turn-chat-work',
+      }],
+    },
+  });
+  assert.equal(chatScoped.plan.relationshipMove?.observableCue, 'lead_with_example');
+
+  const unmatchedAboutScope = compilePreference('关于职业发展与长期生活安排规划时先给具体例子');
+  assert.equal(unmatchedAboutScope.plan.relationshipMove, undefined);
+});
+
+test('conclusion-first cue rejects unrelated modal wording', () => {
+  const control = compileSemanticTurnControl({
+    userMessage: '这件事你怎么看？',
+    relationshipFocus: 'support',
+    relationshipContext: {
+      memoryEnabled: true,
+      evidence: [{
+        id: 'preference:conclusion-first',
+        kind: 'preference',
+        content: '用户希望先给结论',
+        traceability: 'traceable',
+        sourceEventId: 'preference-conclusion',
+        sourceEventType: 'preference_stated',
+        sourceTurnId: 'turn-conclusion',
+      }],
+    },
+  });
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan('目前我可以听见你。', control.plan)
+      .map(({ code }) => code),
+    ['relationship_move_not_observable'],
+  );
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan('目前我听见你在为这个选择难受。', control.plan)
+      .map(({ code }) => code),
+    ['relationship_move_not_observable'],
+  );
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan('目前我听见你觉得自己应该停一下。', control.plan)
+      .map(({ code }) => code),
+    ['relationship_move_not_observable'],
+  );
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan('我的判断是，暂时先停一下更合适。', control.plan),
+    [],
+  );
 });
 
 test('an active rupture supersedes every positive relationship move', () => {
@@ -309,6 +479,54 @@ test('an active rupture supersedes every positive relationship move', () => {
     'relationship-effect:boundary-1',
     'relationship-effect:rupture-1',
   ]);
+
+  const adviceRequested = compileSemanticTurnControl({
+    userMessage: '那你现在直接给我建议吧。',
+    relationshipContext,
+    relationshipFocus: 'decision',
+  });
+  assert.equal(adviceRequested.plan.relationshipMove, undefined);
+  assert.deepEqual(adviceRequested.plan.activeEffectIds, [
+    'relationship-effect:boundary-1',
+    'relationship-effect:rupture-1',
+  ]);
+  assert.equal(adviceRequested.plan.advicePolicy, 'forbidden');
+});
+
+test('an interaction correction is not promoted into a stated-preference move', () => {
+  const control = compileSemanticTurnControl({
+    userMessage: '今天又遇到一件难选的事。',
+    relationshipFocus: 'support',
+    relationshipContext: {
+      memoryEnabled: true,
+      evidence: [{
+        id: 'style:correction-1',
+        kind: 'interaction_style',
+        content: '上次人物误以为用户害怕失败，用户纠正为不想替别人收尾',
+        traceability: 'traceable',
+        sourceEventId: 'correction-1',
+        sourceEventType: 'misread_corrected',
+        sourceTurnId: 'turn-correction',
+      }],
+    },
+  });
+
+  assert.equal(control.plan.relationshipMove, undefined);
+  assert.deepEqual(control.plan.activeEffectIds, []);
+});
+
+test('stop-intervening validation rejects unrelated future promises', () => {
+  const control = compileSemanticTurnControl({
+    userMessage: '我说了只想被听见，你还是替我安排。现在别解释。',
+  });
+
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '对，我越过了你只想被听见的边界。我不再相信这种判断。',
+      control.plan,
+    ).map(({ code }) => code),
+    ['required_semantic_move_missing'],
+  );
 });
 
 test('a persona may observe an owner gap but cannot assign real-world responsibility', () => {
@@ -481,7 +699,7 @@ test('an unrelated rupture does not inherit the listen-only action policy', () =
   assert.equal(control.plan.advicePolicy, 'allowed');
 });
 
-test('an explicit current analysis request supersedes a temporary unresolved listen rupture', () => {
+test('an explicit current advice request cannot bypass an unresolved listen rupture', () => {
   const control = compileSemanticTurnControl({
     userMessage: '这次请直接分析，并给我一个建议。',
     relationshipContext: {
@@ -509,10 +727,13 @@ test('an explicit current analysis request supersedes a temporary unresolved lis
   });
 
   assert.equal(control.frame.requestedMode, 'advise');
-  assert.deepEqual(control.plan.activeEffectIds, []);
+  assert.deepEqual(control.plan.activeEffectIds, [
+    'relationship-effect:listen-1',
+    'relationship-effect:rupture-1',
+  ]);
   assert.equal(control.plan.interactionMode, 'analyze');
-  assert.equal(control.plan.advicePolicy, 'allowed');
-  assert.equal(control.plan.directionalQuestionBudget, 1);
+  assert.equal(control.plan.advicePolicy, 'forbidden');
+  assert.equal(control.plan.directionalQuestionBudget, 0);
 });
 
 test('requesting analysis does not silently authorize advice under an unresolved listen rupture', () => {

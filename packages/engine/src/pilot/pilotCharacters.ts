@@ -443,18 +443,30 @@ function normalizeNarrativeEvidence(text: string): string {
   return text.replace(/[^\p{Script=Han}\p{Letter}\p{Number}]/gu, '');
 }
 
+function normalizeHistoryProposition(text: string): string {
+  return normalizeNarrativeEvidence(text).replace(
+    /(?:用户|人物|我们|你们|他们|我|你|他|她|昨天|上次|以前|曾经|一直|每次|从来|很久|多久|明明|还是|已经|当时|后来|说过|说|还|又|的|了|过)/gu,
+    '',
+  );
+}
+
 function hasGroundedHistorySpan(
   sentence: string,
   allowedEvidenceSpans: readonly string[],
 ): boolean {
-  const normalizedSentence = normalizeNarrativeEvidence(sentence);
+  const temporalMarkers = sentence.match(/昨天|上次|以前|曾经|一直|每次|从来|很久|多久/gu) ?? [];
   return allowedEvidenceSpans.some((span) => {
     const normalizedSource = normalizeNarrativeEvidence(span);
-    if (normalizedSource.length < 4) return false;
-    for (let index = 0; index <= normalizedSource.length - 4; index += 1) {
-      if (normalizedSentence.includes(normalizedSource.slice(index, index + 4))) return true;
-    }
-    return false;
+    if (normalizedSource.length < 5
+      || temporalMarkers.some((marker) => !normalizedSource.includes(marker))) return false;
+    const sourceProposition = normalizeHistoryProposition(span);
+    const sentenceProposition = normalizeHistoryProposition(sentence);
+    if (sourceProposition.length < 5 || sentenceProposition.length < 5) return false;
+    // History is a high-risk claim: after removing only speaker/tense fillers,
+    // require the complete proposition to remain unchanged. Character overlap,
+    // substring matches and short suffix allowances can erase negation or add a
+    // new predicate ("不想辞职" -> "辞职", or appending "想死").
+    return sourceProposition === sentenceProposition;
   });
 }
 

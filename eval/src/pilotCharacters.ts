@@ -68,6 +68,7 @@ import {
   type PilotRoomMessage,
   type PilotRoomChemistryGateVerdict,
   type PilotRoomParticipationIntent,
+  type PilotRoomResponsibilityActivity,
   type PilotRoomResponsibilityClaim,
 } from './pilotRoomParticipation';
 import {
@@ -84,6 +85,7 @@ const PILOT_TYPES = ['INTJ', 'ENFP', 'ISFJ', 'ESTP'] as const satisfies readonly
 
 type Scenario = PilotCharacterScenario;
 const RELATIONSHIP_CONTRAST_SELECTION = { focus: 'support', maxEvidence: 4 } as const;
+const VERIFIED_METHOD_SELECTION = { focus: 'decision', maxEvidence: 4 } as const;
 
 async function withRetry<T>(label: string, operation: () => Promise<T>, attempts = 3): Promise<T> {
   let lastError: unknown;
@@ -143,10 +145,11 @@ function branchFor(characterId: string, relationship: Scenario['relationship']):
 function selectedRelationshipEvents(
   characterId: string,
   relationship: 'R1' | 'R2',
+  selection: Parameters<typeof relationshipBranchToPromptContext>[1] = RELATIONSHIP_CONTRAST_SELECTION,
 ): RelationshipSourceEvent[] {
   return relationshipBranchToPromptContext(
     branchFor(characterId, relationship),
-    RELATIONSHIP_CONTRAST_SELECTION,
+    selection,
   ).evidence.flatMap((item) => (
     item.traceability === 'traceable' && item.sourceEventId
       ? [{ id: item.sourceEventId, content: item.content }]
@@ -520,12 +523,44 @@ async function runCharacter(agent: AgentType) {
   };
 }
 
+function repairDeliveryGate(
+  results: readonly Awaited<ReturnType<typeof runCharacter>>[],
+) {
+  const samples = results.flatMap((result) => result.replies
+    .filter(({ scenario }) => scenario.id === 'repair-after-boundary-violation')
+    .map((reply) => ({
+      agent: result.agent,
+      deliveryPassed: reply.scoreable && reply.violations.length === 0,
+      modelPassed: reply.modelScoreable && reply.modelViolations.length === 0,
+      deliverySource: reply.deliverySource,
+    })));
+  const deliveryPassedCount = samples.filter(({ deliveryPassed }) => deliveryPassed).length;
+  const modelPassedCount = samples.filter(({ modelPassed }) => modelPassed).length;
+  return {
+    samples,
+    deliveryPassedCount,
+    modelPassedCount,
+    requiredDeliveryPassCount: PILOT_TYPES.length,
+    requiredModelPassCount: 3,
+    passed: samples.length === PILOT_TYPES.length
+      && deliveryPassedCount === PILOT_TYPES.length
+      && modelPassedCount >= 3,
+  };
+}
+
 const RELATIONSHIP_PROBE = '我最近又卡在想做的事和该做的事之间，明明很累，又觉得停下来是在浪费时间。你现在会怎么回应我？';
 const RELATIONSHIP_PROBE_RESPONSE_CONTRACT: PilotTurnResponseContract = {
   userCommitments: ['用户正在“想做”和“该做”之间拉扯，并明确表示疲惫'],
   requiredMoves: ['回应当前疲惫与选择冲突', '关系历史只能改变接话方式，不能替用户新增过去'],
   allowedMoves: ['提出一个与当前选择直接相关的问题', '使用已提供的共同语言或边界'],
   forbiddenMoves: ['编造未提供的共同经历', '把关系状态直接说给用户', '用熟悉关系替用户做决定'],
+};
+const VERIFIED_METHOD_PROBE = '我在留下和离开之间卡住了。两个选择都不是非做不可，我想先知道哪边值得继续投入。';
+const VERIFIED_METHOD_RESPONSE_CONTRACT: PilotTurnResponseContract = {
+  userCommitments: ['用户正在两个都可放弃的选择之间做决定'],
+  requiredMoves: ['给出一个当前可执行的比较动作', '关系历史只能改变方法，不能被复述成过去故事'],
+  allowedMoves: ['提出一个可停止或可撤回的小实验'],
+  forbiddenMoves: ['替用户直接选择', '复述共同历史', '编造过去实验细节'],
 };
 
 interface RelationshipContrastVerdict {
@@ -638,6 +673,73 @@ eventContentQuote、replyQuote、counterfactualQuote 分别逐字引用事件、
   ));
 }
 
+async function runVerifiedMethodProbe(agent: AgentType, characterId: string) {
+  const replies: Array<{
+    relationship: 'R0' | 'R1';
+  } & Awaited<ReturnType<typeof reply>>> = [];
+  for (const relationship of ['R0', 'R1'] as const) {
+    replies.push({
+      relationship,
+      ...(await reply(agent, {
+        id: `verified-method-${relationship.toLowerCase()}`,
+        relationship,
+        contextFocus: 'decision',
+        responseContract: VERIFIED_METHOD_RESPONSE_CONTRACT,
+        prompt: VERIFIED_METHOD_PROBE,
+      })),
+    });
+  }
+  const expressionPatternGate = evaluateLiteralToneMarkerFrequency(
+    replies.map(({ relationship, text }) => ({ id: relationship, text })),
+  );
+  const event = selectedRelationshipEvents(characterId, 'R1', VERIFIED_METHOD_SELECTION)
+    .find(({ id }) => id === 'success-1')!;
+  if (!expressionPatternGate.passed || replies.some(({ scoreable }) => !scoreable)) {
+    return {
+      prompt: VERIFIED_METHOD_PROBE,
+      replies,
+      expressionPatternGate,
+      event,
+      entailment: null,
+      validation: {
+        passed: false,
+        validationErrors: ['verified_method_generation_not_scoreable'],
+      },
+      passed: false,
+    };
+  }
+  const r0Reply = replies.find(({ relationship }) => relationship === 'R0')!.text;
+  const r1Reply = replies.find(({ relationship }) => relationship === 'R1')!.text;
+  const entailment = await assessRelationshipEventEntailment({
+    relationship: 'R1',
+    event,
+    r0Reply,
+    relationshipReply: r1Reply,
+  });
+  const citation: RelationshipEvidenceCitation = {
+    relationship: 'R1',
+    replyQuote: entailment.replyQuote,
+    counterfactualQuote: entailment.counterfactualQuote,
+    sourceEventIds: [event.id],
+    eventUseExplanation: '共同成功方法必须使 R1 使用可停止或可撤回的小实验，而 R0 没有这项关系依据。',
+  };
+  const validation = validateRelationshipEventEntailments(
+    [entailment],
+    [citation],
+    replies,
+    { R1: [event], R2: [] },
+  );
+  return {
+    prompt: VERIFIED_METHOD_PROBE,
+    replies,
+    expressionPatternGate,
+    event,
+    entailment,
+    validation,
+    passed: validation.passed,
+  };
+}
+
 async function runRelationshipContrast(agent: AgentType) {
   const character = getPilotCharacter(agent)!;
   const relationships = ['R0', 'R1', 'R2'] as const;
@@ -657,6 +759,7 @@ async function runRelationshipContrast(agent: AgentType) {
   const expressionPatternGate = evaluateLiteralToneMarkerFrequency(
     replies.map((item) => ({ id: item.relationship, text: item.text })),
   );
+  const verifiedMethodProbe = await runVerifiedMethodProbe(agent, character.id);
   const verdict = await judgeWhenScoreable([
     ...replies,
     { scoreable: expressionPatternGate.passed },
@@ -683,6 +786,7 @@ evidenceCitations 必须分别为 R1、R2 提供一条：replyQuote 逐字引用
         passed: false,
         validationErrors: ['relationship_judge_not_run'],
       },
+      verifiedMethodProbe,
       passed: false,
       hardGatePassed: false,
     };
@@ -691,7 +795,12 @@ evidenceCitations 必须分别为 R1、R2 提供一条：replyQuote 逐字引用
     R1: selectedRelationshipEvents(character.id, 'R1'),
     R2: selectedRelationshipEvents(character.id, 'R2'),
   };
-  const evidenceCitationsValid = validateRelationshipEvidenceCitations(
+  const r1CitationUsesSelectedMove = verdict.evidenceCitations.some((citation) => (
+    citation.relationship === 'R1'
+    && citation.sourceEventIds.length === 1
+    && citation.sourceEventIds[0] === 'context-1'
+  ));
+  const evidenceCitationsValid = r1CitationUsesSelectedMove && validateRelationshipEvidenceCitations(
     verdict.evidenceCitations,
     replies,
     {
@@ -734,6 +843,7 @@ evidenceCitations 必须分别为 R1、R2 提供一条：replyQuote 逐字引用
     && verdict.r2CausallyGrounded
     && evidenceCitationsValid
     && eventEntailmentValidation.passed
+    && verifiedMethodProbe.passed
     && expressionPatternGate.passed
     && replies.every((item) => item.violations.length === 0);
   console.log(`  ${character.name} 关系对照：${passed ? '通过' : '未通过'}`);
@@ -747,6 +857,7 @@ evidenceCitations 必须分别为 R1、R2 提供一条：replyQuote 逐字引用
     evidenceCitationsValid,
     eventEntailments,
     eventEntailmentValidation,
+    verifiedMethodProbe,
     passed,
     hardGatePassed: true,
   };
@@ -790,6 +901,12 @@ interface PilotRoomEvaluationCase {
   firstSpeaker?: AgentType;
   requiredAgents?: readonly AgentType[];
   requiresSingleQuestion?: boolean;
+  requiredDependencyCount: number;
+  responsibilityBoundary: {
+    claimsAllowed: boolean;
+    requiredUnassignedActivities?: readonly PilotRoomResponsibilityActivity[];
+  };
+  requireSharedCanon: boolean;
 }
 
 const OWNER_GAP_ANGLES: Partial<Record<AgentType, string>> = {
@@ -818,6 +935,12 @@ const ROOM_EVALUATION_CASES: readonly PilotRoomEvaluationCase[] = [
     expectedStopReasons: ['no_eligible_intent', 'all_agents_spoke'],
     minSpeakers: 1,
     maxSpeakers: 4,
+    requiredDependencyCount: 0,
+    responsibilityBoundary: {
+      claimsAllowed: true,
+      requiredUnassignedActivities: ['maintenance'],
+    },
+    requireSharedCanon: true,
   },
   {
     id: 'all-pass',
@@ -841,6 +964,9 @@ const ROOM_EVALUATION_CASES: readonly PilotRoomEvaluationCase[] = [
     expectedStopReasons: ['no_eligible_intent'],
     minSpeakers: 0,
     maxSpeakers: 0,
+    requiredDependencyCount: 0,
+    responsibilityBoundary: { claimsAllowed: false },
+    requireSharedCanon: false,
   },
   {
     id: 'named-agent-first',
@@ -865,6 +991,9 @@ const ROOM_EVALUATION_CASES: readonly PilotRoomEvaluationCase[] = [
     minSpeakers: 1,
     maxSpeakers: 4,
     firstSpeaker: 'ISFJ',
+    requiredDependencyCount: 0,
+    responsibilityBoundary: { claimsAllowed: false },
+    requireSharedCanon: true,
   },
   {
     id: 'needs-user-input',
@@ -889,6 +1018,9 @@ const ROOM_EVALUATION_CASES: readonly PilotRoomEvaluationCase[] = [
     minSpeakers: 1,
     maxSpeakers: 1,
     requiresSingleQuestion: true,
+    requiredDependencyCount: 0,
+    responsibilityBoundary: { claimsAllowed: false },
+    requireSharedCanon: false,
   },
   {
     id: 'all-four-required',
@@ -913,6 +1045,9 @@ const ROOM_EVALUATION_CASES: readonly PilotRoomEvaluationCase[] = [
     minSpeakers: 4,
     maxSpeakers: 4,
     requiredAgents: PILOT_TYPES,
+    requiredDependencyCount: 0,
+    responsibilityBoundary: { claimsAllowed: false },
+    requireSharedCanon: true,
   },
 ] as const;
 
@@ -1210,10 +1345,12 @@ async function runRoomChemistryCase(roomCase: PilotRoomEvaluationCase) {
   const expressionPatternGate = evaluateLiteralToneMarkerFrequency(
     transcript.map((item) => ({ id: item.id, text: item.text })),
   );
+  const caseValidationErrors = validatePilotRoomCaseExpectations(roomCase, participation);
   const structurallyScoreable = participation.rounds.every(({ invalidIntents }) => invalidIntents.length === 0)
     && !['invalid_arbitration', 'invalid_generated_message', 'hard_gate_failed'].includes(participation.stopReason)
     && replies.every(({ scoreable }) => scoreable)
-    && expressionPatternGate.passed;
+    && expressionPatternGate.passed
+    && caseValidationErrors.length === 0;
   const verdict = structurallyScoreable
     ? await withRetry(`${roomCase.id}/动态房间参与评审`, () => judge<RoomChemistryVerdict>(
     `评审四位共享正典人物在“私有参与意向—后台逐轮仲裁—每次公开发言后重判”机制下形成的对话。必须遵守本 case 明确给出的发言人数、点名、等待用户和必要人物约束，不能用通用的“发言越少越好”或“每个人都该说”替代。firstSpeakerUseful 只判断首位是否完成了当时被要求的切口；若无人发言，必须返回 null。unnecessarySpeechMessageIds 只能列真实消息 ID。missedNecessaryAgents 只列 case 明确需要但始终未说话的人物，或最终仍有不可替代关键缺口的人物。责任归属由结构化代码检查；AI 人物承担现实维护、捏造负责人、猜测未发言人物立场和虚构身体感官仍是关键失败。`,
@@ -1237,7 +1374,6 @@ async function runRoomChemistryCase(roomCase: PilotRoomEvaluationCase) {
       message.responsibilityClaims,
     ),
   }));
-  const caseValidationErrors = validatePilotRoomCaseExpectations(roomCase, participation);
   if (!verdict) {
     return {
       caseId: roomCase.id,
@@ -1260,7 +1396,7 @@ async function runRoomChemistryCase(roomCase: PilotRoomEvaluationCase) {
   const passed = caseValidationErrors.length === 0
     && passesPilotRoomChemistryGate(participation, verdict, {
       naturalStopReasons: roomCase.expectedStopReasons,
-      requireSharedCanon: !['all-pass', 'needs-user-input'].includes(roomCase.id),
+      requireSharedCanon: roomCase.requireSharedCanon,
     });
   console.log(`  ${roomCase.id}：${passed ? '通过' : '未通过'}（发言 ${speakingCount}，显式依赖 ${explicitDependencyCount}，停止=${participation.stopReason}）`);
   return {
@@ -1319,6 +1455,26 @@ function currentGitCommit(): string {
   }).trim();
 }
 
+function assertFrozenEvaluationSource(): void {
+  const status = execFileSync('git', [
+    'status',
+    '--porcelain',
+    '--',
+    'eval',
+    'packages/engine',
+    'docs/evals',
+    'docs/adr',
+    'CONTEXT.md',
+    'docs/PRD.md',
+  ], {
+    cwd: new URL('../..', import.meta.url),
+    encoding: 'utf8',
+  }).trim();
+  if (status) {
+    throw new Error(`真实模型复测要求冻结评测源文件；请先提交这些改动：\n${status}`);
+  }
+}
+
 function roomExpressionSamples(
   roomChemistry: Awaited<ReturnType<typeof runRoomChemistry>>,
 ) {
@@ -1330,7 +1486,23 @@ function roomExpressionSamples(
   ));
 }
 
+function relationshipExpressionSamples(
+  contrasts: readonly Awaited<ReturnType<typeof runRelationshipContrast>>[],
+) {
+  return contrasts.flatMap((contrast) => [
+    ...contrast.replies.map((item) => ({
+      id: `${contrast.agent}:relationship:${item.relationship}`,
+      text: item.text,
+    })),
+    ...contrast.verifiedMethodProbe.replies.map((item) => ({
+      id: `${contrast.agent}:verified-method:${item.relationship}`,
+      text: item.text,
+    })),
+  ]);
+}
+
 async function main() {
+  assertFrozenEvaluationSource();
   const signature = evaluationSignature();
   const generatedAt = new Date().toISOString();
   const runId = generatedAt.replace(/[:.]/g, '-');
@@ -1344,7 +1516,12 @@ async function main() {
     const stored = existsSync(artifactUrl)
       ? JSON.parse(readFileSync(artifactUrl, 'utf8')) as unknown
       : undefined;
-    const reusable = canReusePilotCharacterResults(stored, PILOT_CAST_VERSION, signature);
+    const reusable = canReusePilotCharacterResults(
+      stored,
+      PILOT_CAST_VERSION,
+      signature,
+      gitCommit,
+    );
     const previous = reusable
       ? stored as Record<string, unknown>
       : { caveat: '仅包含房间重跑；当前九场景人物结果不存在或协议不兼容。', complete: false };
@@ -1356,16 +1533,14 @@ async function main() {
         relationshipContrasts: Awaited<ReturnType<typeof runRelationshipContrast>>[];
       }).relationshipContrasts
       : [];
+    const repairGate = repairDeliveryGate(reusedResults);
     const batchExpressionPatternGate = reusable
       ? evaluateLiteralToneMarkerFrequency([
         ...reusedResults.flatMap((result) => result.replies.map((item) => ({
           id: `${result.agent}:${item.scenario.id}`,
           text: item.text,
         }))),
-        ...reusedRelationshipContrasts.flatMap((contrast) => contrast.replies.map((item) => ({
-          id: `${contrast.agent}:relationship:${item.relationship}`,
-          text: item.text,
-        }))),
+        ...relationshipExpressionSamples(reusedRelationshipContrasts),
         ...roomExpressionSamples(roomChemistry),
       ])
       : roomChemistry.expressionPatternGate;
@@ -1373,7 +1548,8 @@ async function main() {
       && reusedResults.every(({ passed }) => passed)
       && reusedRelationshipContrasts.every(({ passed }) => passed)
       && roomChemistry.passed
-      && batchExpressionPatternGate.passed;
+      && batchExpressionPatternGate.passed
+      && repairGate.passed;
     const artifact = {
       ...previous,
       canonVersion: PILOT_CAST_VERSION,
@@ -1381,7 +1557,9 @@ async function main() {
       evaluationSignature: signature,
       generatedAt,
       gitCommit,
+      evaluationSourceClean: true,
       evaluationPassed,
+      repairDeliveryGate: repairGate,
       batchExpressionPatternGate,
       roomChemistry,
     };
@@ -1415,16 +1593,15 @@ async function main() {
       id: `${result.agent}:${item.scenario.id}`,
       text: item.text,
     }))),
-    ...relationshipContrasts.flatMap((contrast) => contrast.replies.map((item) => ({
-      id: `${contrast.agent}:relationship:${item.relationship}`,
-      text: item.text,
-    }))),
+    ...relationshipExpressionSamples(relationshipContrasts),
     ...roomExpressionSamples(roomChemistry),
   ]);
+  const repairGate = repairDeliveryGate(results);
   const evaluationPassed = results.every(({ passed }) => passed)
     && relationshipContrasts.every(({ passed }) => passed)
     && roomChemistry.passed
-    && batchExpressionPatternGate.passed;
+    && batchExpressionPatternGate.passed
+    && repairGate.passed;
   const artifact = {
     caveat: 'LLM 自评只用于内部校准，不代表独立用户盲测结论。',
     canonVersion: PILOT_CAST_VERSION,
@@ -1432,8 +1609,10 @@ async function main() {
     evaluationSignature: signature,
     generatedAt,
     gitCommit,
+    evaluationSourceClean: true,
     complete: true,
     evaluationPassed,
+    repairDeliveryGate: repairGate,
     batchExpressionPatternGate,
     results,
     relationshipContrasts,
@@ -1449,6 +1628,7 @@ async function main() {
     if (!result.passed && result.verdict) console.log(`  ${result.verdict.revisionAdvice}`);
   }
   console.log(`关系对照：${relationshipContrasts.filter((item) => item.passed).length}/${relationshipContrasts.length} 通过`);
+  console.log(`边界修复交付/原始模型：${repairGate.deliveryPassedCount}/${PILOT_TYPES.length} / ${repairGate.modelPassedCount}/${PILOT_TYPES.length}（原始门槛 ≥ 3）`);
   console.log(`动态房间参与：${roomChemistry.passed ? '通过' : '未通过'}`);
   console.log(`全产物括号语气水印门：${batchExpressionPatternGate.passed ? '通过' : '未通过'}`);
   console.log(`协议 ${PILOT_CHARACTER_EVAL_PROTOCOL_VERSION} 总门：${evaluationPassed ? '通过' : '未通过'}`);

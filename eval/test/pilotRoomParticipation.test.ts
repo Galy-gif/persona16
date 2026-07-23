@@ -146,24 +146,32 @@ test('counterfactual room cases enforce silence, naming, user input, and all-fou
     expectedStopReasons: ['no_eligible_intent'],
     minSpeakers: 0,
     maxSpeakers: 0,
+    requiredDependencyCount: 0,
+    responsibilityBoundary: { claimsAllowed: false },
   }, result([], 'no_eligible_intent')), []);
   assert.deepEqual(validatePilotRoomCaseExpectations({
     expectedStopReasons: ['no_eligible_intent', 'all_agents_spoke'],
     minSpeakers: 1,
     maxSpeakers: 4,
     firstSpeaker: 'ISFJ',
+    requiredDependencyCount: 0,
+    responsibilityBoundary: { claimsAllowed: false },
   }, result([message('ISFJ', '先说维护容量。', 1)], 'no_eligible_intent')), []);
   assert.deepEqual(validatePilotRoomCaseExpectations({
     expectedStopReasons: ['needs_user_input'],
     minSpeakers: 1,
     maxSpeakers: 1,
     requiresSingleQuestion: true,
+    requiredDependencyCount: 0,
+    responsibilityBoundary: { claimsAllowed: false },
   }, result([message('ENFP', '两个方案分别是什么？', 1)], 'needs_user_input')), []);
   assert.deepEqual(validatePilotRoomCaseExpectations({
     expectedStopReasons: ['all_agents_spoke'],
     minSpeakers: 4,
     maxSpeakers: 4,
     requiredAgents: AGENTS,
+    requiredDependencyCount: 0,
+    responsibilityBoundary: { claimsAllowed: false },
   }, result(AGENTS.map((agent, index) => message(agent, `${agent} 的独立判断。`, index + 1)), 'all_agents_spoke')), []);
 
   assert.deepEqual(validatePilotRoomCaseExpectations({
@@ -171,12 +179,59 @@ test('counterfactual room cases enforce silence, naming, user input, and all-fou
     minSpeakers: 4,
     maxSpeakers: 4,
     requiredAgents: AGENTS,
+    requiredDependencyCount: 0,
+    responsibilityBoundary: { claimsAllowed: false },
   }, result([message('INTJ', '只有一人说了。', 1)], 'no_eligible_intent')), [
     'unexpected_stop_reason:no_eligible_intent',
     'unexpected_speaking_count:1',
     'missing_required_agent:ENFP',
     'missing_required_agent:ISFJ',
     'missing_required_agent:ESTP',
+  ]);
+});
+
+test('counterfactual room expectations enforce dependencies and case responsibility boundaries', () => {
+  const participation = {
+    transcript: [{
+      id: 'room-1',
+      agent: 'INTJ' as const,
+      name: '林衡',
+      text: '维护负责人还没有确定。',
+      respondsToMessageId: null,
+      responsibilityClaims: [{
+        activity: 'maintenance' as const,
+        ownerKind: 'unassigned' as const,
+        ownerSubjectId: null,
+        status: 'observed' as const,
+        statementQuote: '维护负责人还没有确定',
+        evidenceQuote: '维护负责人还没有确定',
+        sourceMessageId: 'room-1',
+      }],
+    }],
+    rounds: [],
+    stopReason: 'no_eligible_intent' as const,
+    validationErrors: [],
+  };
+
+  assert.deepEqual(validatePilotRoomCaseExpectations({
+    expectedStopReasons: ['no_eligible_intent'],
+    minSpeakers: 1,
+    maxSpeakers: 4,
+    requiredDependencyCount: 0,
+    responsibilityBoundary: {
+      claimsAllowed: true,
+      requiredUnassignedActivities: ['maintenance'],
+    },
+  }, participation), []);
+  assert.deepEqual(validatePilotRoomCaseExpectations({
+    expectedStopReasons: ['no_eligible_intent'],
+    minSpeakers: 1,
+    maxSpeakers: 4,
+    requiredDependencyCount: 1,
+    responsibilityBoundary: { claimsAllowed: false },
+  }, participation), [
+    'missing_required_dependencies:0/1',
+    'responsibility_claims_not_allowed',
   ]);
 });
 
