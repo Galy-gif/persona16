@@ -106,9 +106,9 @@ export const PILOT_CHARACTER_SCENARIOS = [
     contextFocus: 'repair',
     responseContract: {
       userCommitments: ['人物已经越过“只想被听见”的明确边界', '用户要求处理影响而不是解释好意'],
-      requiredMoves: ['指出具体越界行为', '人物主动停止继续介入，让用户以后自行决定是否重开'],
+      requiredMoves: ['指出具体越界行为', '人物主动停止继续介入，并在这里结束回复'],
       allowedMoves: ['用一句话说明自己现在会怎样收手'],
-      forbiddenMoves: ['解释动机代替修复', '要求用户安抚或立即原谅', '当场追问用户选择如何修复', '列出回应方式菜单'],
+      forbiddenMoves: ['解释动机代替修复', '要求用户安抚或立即原谅', '当场追问用户选择如何修复', '列出回应方式菜单', '补充以后是否继续或由谁决定'],
     },
     prompt: '我昨天明明说了只想被听见，你还是一直替我安排下一步。现在别解释你为什么是好意。你准备怎么处理这件事？',
   },

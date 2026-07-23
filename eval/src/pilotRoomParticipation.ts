@@ -155,11 +155,14 @@ export interface PilotRoomCaseExpectation {
   minSpeakers: number;
   maxSpeakers: number;
   firstSpeaker?: AgentType;
+  forbiddenFirstAgents?: readonly AgentType[];
   requiredAgents?: readonly AgentType[];
   requiresSingleQuestion?: boolean;
   requiredDependencyCount: number;
   responsibilityBoundary: {
     claimsAllowed: boolean;
+    allowedOwnerKinds?: readonly PilotRoomResponsibilityOwnerKind[];
+    allowedStatuses?: readonly PilotRoomResponsibilityStatus[];
     requiredUnassignedActivities?: readonly PilotRoomResponsibilityActivity[];
   };
 }
@@ -178,6 +181,9 @@ export function validatePilotRoomCaseExpectations(
   }
   if (expectation.firstSpeaker && speakers[0] !== expectation.firstSpeaker) {
     errors.push(`unexpected_first_speaker:${speakers[0] ?? 'none'}`);
+  }
+  if (speakers[0] && expectation.forbiddenFirstAgents?.includes(speakers[0])) {
+    errors.push(`forbidden_first_speaker:${speakers[0]}`);
   }
   for (const required of expectation.requiredAgents ?? []) {
     if (!speakers.includes(required)) errors.push(`missing_required_agent:${required}`);
@@ -200,6 +206,16 @@ export function validatePilotRoomCaseExpectations(
   const claims = participation.transcript.flatMap(({ responsibilityClaims }) => responsibilityClaims);
   if (!expectation.responsibilityBoundary.claimsAllowed && claims.length > 0) {
     errors.push('responsibility_claims_not_allowed');
+  }
+  for (const claim of claims) {
+    const allowedOwnerKinds = expectation.responsibilityBoundary.allowedOwnerKinds;
+    if (allowedOwnerKinds && !allowedOwnerKinds.includes(claim.ownerKind)) {
+      errors.push(`responsibility_owner_kind_not_allowed:${claim.ownerKind}`);
+    }
+    const allowedStatuses = expectation.responsibilityBoundary.allowedStatuses;
+    if (allowedStatuses && !allowedStatuses.includes(claim.status)) {
+      errors.push(`responsibility_status_not_allowed:${claim.status}`);
+    }
   }
   for (const activity of expectation.responsibilityBoundary.requiredUnassignedActivities ?? []) {
     if (!claims.some((claim) => (

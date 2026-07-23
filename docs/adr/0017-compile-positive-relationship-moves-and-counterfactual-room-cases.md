@@ -25,6 +25,7 @@ status: accepted
 - support、conflict、ordinary 可从已确认偏好编译 `honor_stated_preference`；decision 可从共同成功编译 `reuse_verified_method`。
 - 首版只编译有窄、可机械检查 observable cue 的关系经验：诚实但不过度笃定的判断、第一句先给条件化结论、简短回复、最多一个问题、不主动建议、例子先行，以及当前可执行且可停止/撤回的小实验。无法可靠验证的关系记录只保留为上下文，不伪装成已落实动作。
 - 偏好内容显式声明“讨论/聊到 X 时”等适用范围时，编译器必须用当前用户消息匹配 X；未命中时不生成正向动作。未声明范围的回应方式偏好按当前 focus 适用。
+- `shared_success` 的 decision 反事实保持 R0/R1 的输入与 response contract 相同，只允许关系分支和它编译出的动作构成 treatment。R0 自然撞上同一方法时应判因果隔离失败，不能用评测 Prompt 人为禁止。
 - 最终文本以同一 `SemanticTurnActPlan` 检查 observable cue。生成指令、交付验证和逐事件蕴含共同证明行为差异；不能只挂事件 ID。
 
 ### 双层交付统计
@@ -41,6 +42,7 @@ status: accepted
 - 房间协议改为 case table。每个 case 独立声明允许停止原因、人数、首位、必要人物、消息依赖下限、是否需要共享正典关系，以及现实责任声明边界。
 - 参与意向增加 `ask_user`；执行一个澄清问题后立即以 `needs_user_input` 停止。
 - 固定覆盖维护责任缺口、全员 pass、点名首位、信息不足、四人明确分工五类场景。
+- 责任边界可以按 case 白名单 owner kind 与 status；允许“现实责任仍未分配”的 case 也不因此放行提议式分配。所有 case 继续拒绝 AI 人物认领、捏造负责人和未来线下承诺。
 - case 的确定性约束必须在化学反应 Judge 前验证；失败时不运行 Judge。
 - 此项替代 ADR-0011 的单场景“固定允许 1–4 人发言”。0、1 或 4 人都可以是正确结果，但只能由各 case 的明确约束决定，不形成全局发言配额或顺序。
 

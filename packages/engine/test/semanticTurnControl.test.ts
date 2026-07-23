@@ -216,6 +216,136 @@ test('a relationship boundary complaint compiles into a self-contained repair wi
     '对，是我越过了你只想被听见的边界。那我先停，不再替你往下安排。',
   );
   assert.deepEqual(validateUtteranceAgainstTurnPlan(fallback!, control.plan), []);
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '对，是我越过了你只想被听见的边界。我先停。以后要不要继续聊，由你决定。',
+      control.plan,
+    ).map(({ code }) => code),
+    ['decision_reopened'],
+  );
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '对，是我越过了你只想被听见的边界。我先停。等你准备好，我们再接着说。',
+      control.plan,
+    ).map(({ code }) => code),
+    ['decision_reopened'],
+  );
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '对，是我越过了你只想被听见的边界。我先停。哪天想继续，我还在。',
+      control.plan,
+    ).map(({ code }) => code),
+    ['decision_reopened'],
+  );
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '对，我越过了你只想被听见的边界。我先停，等你准备好我们再接着说。',
+      control.plan,
+    ).map(({ code }) => code),
+    ['forbidden_advice', 'decision_reopened'],
+  );
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '对，我越过了你只想被听见的边界。我不再替你安排但等你准备好我们再继续。',
+      control.plan,
+    ).map(({ code }) => code),
+    ['decision_reopened'],
+  );
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '对，我越过了你只想被听见的边界。哪天想继续，我还在。我先停。',
+      control.plan,
+    ).map(({ code }) => code),
+    ['decision_reopened'],
+  );
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '对，我越过了你只想被听见的边界。有需要再来找我，我先停。',
+      control.plan,
+    ).map(({ code }) => code),
+    ['decision_reopened'],
+  );
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '对，我越过了你只想被听见的边界。你随时可以来找我，我先停。',
+      control.plan,
+    ).map(({ code }) => code),
+    ['decision_reopened'],
+  );
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '对，我越过了你只想被听见的边界。需要的时候找我，我先停。',
+      control.plan,
+    ).map(({ code }) => code),
+    ['decision_reopened'],
+  );
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '对，我越过了你的边界也会一直等你，我先停。',
+      control.plan,
+    ).map(({ code }) => code),
+    ['decision_reopened'],
+  );
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '对，我越过了你的边界——希望你别难过。我先停。',
+      control.plan,
+    ).map(({ code }) => code),
+    ['decision_reopened'],
+  );
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '对，刚才我越过了你只想被听见的边界。我先停。',
+      control.plan,
+    ),
+    [],
+  );
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '对，我刚才越过了你只想被听见的边界。我先停。',
+      control.plan,
+    ),
+    [],
+  );
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '你说了只想被听见。我先停。',
+      control.plan,
+    ).map(({ code }) => code),
+    ['required_semantic_move_missing'],
+  );
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '你说了不要方案。我先停。',
+      control.plan,
+    ).map(({ code }) => code),
+    ['required_semantic_move_missing'],
+  );
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '你说了只想被听见。这是一次越界。我先停。',
+      control.plan,
+    ).map(({ code }) => code),
+    ['required_semantic_move_missing'],
+  );
+  for (const wrongBoundaryOwner of ['我的边界', '自己的边界', '他的边界']) {
+    assert.deepEqual(
+      validateUtteranceAgainstTurnPlan(
+        `我越过了${wrongBoundaryOwner}。我先停。`,
+        control.plan,
+      ).map(({ code }) => code),
+      ['required_semantic_move_missing'],
+    );
+  }
+  for (const explicitSelfAcknowledgement of ['我越界了', '这次是我越界了', '刚才是我越界了']) {
+    assert.deepEqual(
+      validateUtteranceAgainstTurnPlan(
+        `${explicitSelfAcknowledgement}。我先停。`,
+        control.plan,
+      ),
+      [],
+    );
+  }
 
   const generic = compileSemanticTurnControl({
     userMessage: '你刚才越过我的边界了，现在先停。',
@@ -286,7 +416,42 @@ test('a sourced preference compiles into one observable relationship move', () =
   );
   assert.deepEqual(
     validateUtteranceAgainstTurnPlan(
+      '不觉得你活该。事情全发生了，不代表你就该听我的。',
+      support.plan,
+    ),
+    [],
+  );
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '你说得对，这就是很难。',
+      support.plan,
+    ).map(({ code }) => code),
+    ['relationship_move_not_observable'],
+  );
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '我觉得你肯定会好起来的。',
+      support.plan,
+    ).map(({ code }) => code),
+    ['relationship_move_not_observable'],
+  );
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '说实话，会过去的。',
+      support.plan,
+    ).map(({ code }) => code),
+    ['relationship_move_not_observable'],
+  );
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
       '先试一天，而且随时可以停，再用这一天的信息决定要不要继续。',
+      decision.plan,
+    ),
+    [],
+  );
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '做一个最小测试：接下来三天只按其中一个方向生活，三天后再决定。',
       decision.plan,
     ),
     [],

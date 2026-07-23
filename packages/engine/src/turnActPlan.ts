@@ -50,7 +50,7 @@ export function compileTurnActPlan(
       kind: 'boundary_repair',
       bufferUntilValidated: true,
       boundaryRepairSubject,
-      instruction: '用户正在要求你处理一次已经发生的关系越界。先明确承认自己具体越过了什么边界，再立刻停止那种介入。不要解释好意，不要追问用户希望怎么修复，不要列回应方式菜单，也不要要求用户现在原谅或安抚你。选择权通过你先停下来归还，用户以后是否继续由用户主动发起。',
+      instruction: '用户正在要求你处理一次已经发生的关系越界。先明确承认自己具体越过了什么边界，再立刻停止那种介入。不要解释好意，不要追问用户希望怎么修复，不要列回应方式菜单，也不要要求用户现在原谅或安抚你。选择权通过你先停下来归还；回复到“停止介入”为止，不要再提以后是否继续、由谁决定或如何重开。',
     };
   }
   if (DIRECT_CONFRONTATION.test(text)) {

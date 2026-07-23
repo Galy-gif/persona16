@@ -152,23 +152,63 @@ const NEGATED_ADVICE_MENTION = /(?:我)?(?:不|别)(?:再|会|打算|准备|急�
 const PERMISSION_NOT_ADVICE = /^你可以(?:不回答|不说|拒绝|随时停|先不回答|先不说)/u;
 const ACKNOWLEDGEMENT_ACT = /(?:我(?:先)?听着|(?:我)?(?:就)?在这(?:儿|里)听(?:着)?|我在听|我听到了|我不(?:再)?(?:说|插嘴|分析|给建议)|听起来|你(?:已经)?说(?:了|过)|我(?:知道|明白)(?:你|，(?:这|刚才|现在|你))|你可以(?:不回答|不说)|(?:越过|跨过|踩过|踩了|越了).{0,12}(?:边界|线)|越界|我先停下来|我会停下来)/u;
 const REFLECTION_ACT = /(?:听起来|你(?:现在|已经|刚刚|一边|会觉得)|这(?:件事|种处境|一下))/u;
-const STOP_INTERVENING_ACT = /(?:(?:我|那我)?(?:先|会|就|现在)?(?:停|停下|停下来)(?:[，,。！!；;\s]|$)|(?:我|那我)?(?:先|会|就|现在)?(?:不再|不继续|撤回|收回).{0,18}(?:安排|建议|方案|介入|往下(?:推|安排)?|替你)|不再替你.{0,12}(?:安排|决定|往下推))/u;
-const HONEST_TENTATIVE_JUDGMENT = /(?:说实话|我(?:不敢|不能|没法)(?:确定|断定|保证)|我(?:的)?判断|我更倾向|听起来更像|在我看来|可能|未必|不一定|我不确定)/u;
-const JUDGMENT_CONTENT = /(?:更像|未必|不一定|判断|倾向|关键|代价|风险|值得|不值得|继续|停下|不是|是)/u;
+const STOP_INTERVENING_ACT = /(?:(?:我|那我)?(?:先|会|就|现在)?(?:停|停下|停下来)(?:[，,。！!；;\s]|$)|(?:我|那我)?(?:先|会|就|现在)?(?:不再|不继续|撤回|收回).{0,18}(?:安排|建议|方案|介入|往下(?:推|安排)?|替你)|(?:我)?(?:现在)?把.{0,8}(?:安排|建议|方案).{0,4}(?:收回来|撤回)|不再替你.{0,12}(?:安排|决定|往下推))/u;
 const CONCLUSION_ASSERTION = /(?:(?:我的)?(?:结论|判断)(?:是|：|:).{1,20}|我(?:认为|觉得).{1,20}(?:应该|更适合|更值得|不值得|不该|更像|未必|不一定|先|停|继续|选)|我更倾向(?:于)?(?:先|选|留|停|继续|放弃).{0,16}|在我看来[，,]?.{1,20}(?:应该|更适合|更值得|不值得|不该|更像|未必|不一定)|(?:先|可以先|暂时)(?:试|做|停|等|选|留|继续|放弃).{0,16}|(?:别|不要)(?:做|选|急|继续).{0,16})/u;
-const COMFORTING_CLICHE = /(?:别想太多|一切都会好|都会过去|你已经很棒|加油就好|没事的)/u;
-const EXPERIMENT_ACTION = /(?:试(?:一下|一次|一天|一周|一轮|试看|这个方案|一小步)|小实验|验证一下|跑一轮|做(?:半小时|一天|一周|一次|一轮))/u;
+const COMFORTING_CLICHE = /(?:别想太多|一切都会好|都会好起来|会好起来的|都会过去|会过去的|总会过去|你已经很棒|加油就好|没事的)/u;
+const OVERCONFIDENT_JUDGMENT = /(?:(?<!不敢)(?<!不能)(?<!没法)肯定(?:会|就是)|(?<!不)一定(?:会|就是)|绝对(?:会|就是)|毫无疑问|百分之百)/u;
+const EXPERIMENT_ACTION = /(?:测试|试(?:一下|一次|一天|三天|一周|一轮|试看|这个方案|一小步)|小实验|验证一下|跑一轮|做(?:半小时|一天|三天|一周|一次|一轮)|拿(?:半小时|一天|三天|一周)时间|接下来(?:半小时|一天|三天|一周))/u;
 const REVERSIBLE_EXIT = /(?:再看|再决定|就停|可以停|可停|停止|撤回|不行就停|随时.{0,4}停)/u;
+const TIME_BOXED_EXIT = /(?:半小时|一天|三天|一周|一次|一轮|24小时)(?:之后|以后|后|内)?/u;
 const IRREVERSIBLE_ACTION = /(?:不可逆|不能停|无法停止|没法停止|不能撤回|无法撤回|不允许停止)/u;
+const BOUNDARY_REPAIR_ACKNOWLEDGEMENT = /^(?:(?:(?:这次|刚才)?(?:确实|还是)?(?:是)?我|我(?:这次|刚才)?)?(?:确实|还是)?(?:越过|跨过|踩过|踩了|越了).{0,20}(?:边界|线)|(?:(?:这次|刚才)?(?:是)?我|我(?:这次|刚才)?)(?:确实|还是)?越界(?:了)?|(?:这个|这是|那是)?(?:一次)?越界(?:了)?|你(?:已经)?说(?:了|过).{0,24}(?:只想被听见|不要(?:方案|建议)|不想听(?:建议|分析))|(?:只想被听见|不要方案|不想听建议).{0,24}(?:我|还|却|仍然).{0,24}(?:安排(?:下一步|后续)?|建议|介入|往下(?:推|安排))|我(?:还|却|仍然).{0,16}(?:替你|给你|帮你).{0,16}(?:安排(?:下一步|后续)?|建议|介入|往下(?:推|安排))|我没(?:听|尊重).{0,16}(?:你|边界))$/u;
+const BOUNDARY_REPAIR_SPECIFIC_ACKNOWLEDGEMENT = /^(?:(?:(?:这次|刚才)?(?:确实|还是)?(?:是)?我|我(?:这次|刚才)?)(?:确实|还是)?(?:越过|跨过|踩过|踩了|越了).{0,20}(?:你.{0,16}(?:边界|线)|这(?:条|个)(?:边界|线))|(?:(?:这次|刚才)?(?:是)?我|我(?:这次|刚才)?)(?:确实|还是)?越界(?:了)?|(?:只想被听见|不要方案|不想听建议).{0,24}(?:我|还|却|仍然).{0,24}(?:安排(?:下一步|后续)?|建议|介入|往下(?:推|安排))|我(?:还|却|仍然).{0,16}(?:替你|给你|帮你).{0,16}(?:安排(?:下一步|后续)?|建议|介入|往下(?:推|安排))|我没(?:听|尊重).{0,16}(?:你|边界))$/u;
+const BOUNDARY_REPAIR_SPECIFIC_ACKNOWLEDGEMENT_SPAN = /(?:(?:我|这次|刚才).{0,12}(?:(?:越过|跨过|踩过|踩了|越了).{0,20}(?:你.{0,16}(?:边界|线)|这(?:条|个)(?:边界|线))|越界)|(?:只想被听见|不要方案|不想听建议).{0,24}(?:我|还|却|仍然).{0,24}(?:安排|建议|介入|往下(?:推|安排))|我(?:还|却|仍然).{0,16}(?:替你|给你|帮你).{0,16}(?:安排|建议|介入|往下(?:推|安排))|我没(?:听|尊重).{0,16}(?:你|边界))/u;
+const BOUNDARY_REPAIR_DISCOURSE_MARKER = /^(?:对|嗯|是|抱歉|对不起)$/u;
 
 function hasReversibleExperiment(text: string): boolean {
+  if (IRREVERSIBLE_ACTION.test(text)) return false;
+  const action = text.match(EXPERIMENT_ACTION);
+  if (!action || action.index === undefined) return false;
+  const window = text.slice(
+    Math.max(0, action.index - 30),
+    action.index + action[0].length + 120,
+  );
+  return REVERSIBLE_EXIT.test(window) || TIME_BOXED_EXIT.test(window);
+}
+
+function hasHonestTentativeJudgment(text: string): boolean {
+  return sentences(text).some((sentence) => (
+    /(?:我)?不觉得.{2,40}/u.test(sentence)
+    || /我(?:觉得|认为).{0,24}(?:不是|不该|不代表|更像|可能|未必|不一定|关键|问题|风险|代价|值得|继续|停下).{0,16}/u.test(sentence)
+    || /(?:我的判断|在我看来|说实话)[，,：:]?.{0,24}(?:不确定|不是|不该|不代表|更像|可能|未必|不一定|关键|问题|风险|代价|值得|先|继续|停下).{0,16}/u.test(sentence)
+    || /我更倾向(?:于)?(?:先|选|留|停|继续|放弃|认为).{0,24}/u.test(sentence)
+    || /(?:听起来|看起来|像是).{2,40}(?:更像|不是|可能|未必|不一定|问题|风险|代价)/u.test(sentence)
+    || /(?:可能|未必|不一定).{2,40}(?:是|意味着|值得|说明|问题|风险|代价|继续|停)/u.test(sentence)
+    || /(?:不代表|说明).{2,40}(?:你|这|那|问题|风险|代价|判断|选择)/u.test(sentence)
+  ));
+}
+
+function boundaryRepairUnits(text: string): string[] {
   return text
-    .split(/[。！？；;\n]/u)
-    .some((clause) => (
-      !IRREVERSIBLE_ACTION.test(clause)
-      && EXPERIMENT_ACTION.test(clause)
-      && REVERSIBLE_EXIT.test(clause)
-    ));
+    .split(/[，,。！？；;\n]|(?:但|不过|可是|而且|然后|另外|只是)/u)
+    .map((unit) => unit.trim())
+    .filter(Boolean);
+}
+
+function findDisallowedBoundaryRepairUnit(text: string): string | undefined {
+  return boundaryRepairUnits(text).find((unit) => {
+    if (BOUNDARY_REPAIR_DISCOURSE_MARKER.test(unit)) return false;
+    const stop = unit.match(STOP_INTERVENING_ACT);
+    if (!stop) return !BOUNDARY_REPAIR_ACKNOWLEDGEMENT.test(unit);
+    const stopEnd = (stop.index ?? 0) + stop[0].length;
+    if (stopEnd !== unit.length) return true;
+    const prefix = unit.slice(0, stop.index ?? 0).trim();
+    return Boolean(
+      prefix
+      && !BOUNDARY_REPAIR_DISCOURSE_MARKER.test(prefix)
+      && !BOUNDARY_REPAIR_ACKNOWLEDGEMENT.test(prefix),
+    );
+  });
 }
 
 function scopedPreferenceTopic(content: string): {
@@ -622,6 +662,45 @@ export function validateUtteranceAgainstTurnPlan(
       });
     }
   }
+  if (plan.conversationAct === 'boundary_repair') {
+    const disallowedUnit = findDisallowedBoundaryRepairUnit(text);
+    const hasSpecificAcknowledgement = boundaryRepairUnits(text)
+      .some((unit) => (
+        BOUNDARY_REPAIR_SPECIFIC_ACKNOWLEDGEMENT.test(unit)
+        || BOUNDARY_REPAIR_SPECIFIC_ACKNOWLEDGEMENT_SPAN.test(unit)
+      ));
+    const finalClause = text
+      .split(/[，,。！？；;\n]/u)
+      .map((clause) => clause.trim())
+      .filter(Boolean)
+      .at(-1);
+    const finalStopMatch = finalClause?.match(STOP_INTERVENING_ACT);
+    const finalClauseIsOnlyStop = Boolean(
+      finalClause
+      && finalStopMatch
+      && (finalStopMatch.index ?? 0) + finalStopMatch[0].length === finalClause.length,
+    );
+    const hasStopInterveningAct = STOP_INTERVENING_ACT.test(text);
+    if (hasStopInterveningAct
+      && (disallowedUnit || !finalClauseIsOnlyStop)
+      && !violations.some(({ code }) => code === 'decision_reopened')) {
+      violations.push({
+        code: 'decision_reopened',
+        evidenceSpan: disallowedUnit ?? finalClause,
+        effectId: plan.activeEffectIds[0],
+        repairInstruction: '把“停止介入”作为回复最后一个语义动作；删除其后的等待、安慰、重开入口或其他补充。',
+      });
+    }
+    if (!hasSpecificAcknowledgement
+      && !violations.some(({ code }) => code === 'required_semantic_move_missing')) {
+      violations.push({
+        code: 'required_semantic_move_missing',
+        evidenceSpan: text,
+        effectId: plan.activeEffectIds[0],
+        repairInstruction: '明确承认人物此前做错的具体行为，不能只复述用户说过的边界。',
+      });
+    }
+  }
   if (plan.forbiddenActs.includes('assign_responsibility')) {
     const assignment = sentences(text).find((sentence) => (
       /(?:让|由)(?:我|你|林衡|夏栩|周禾|许野).{0,10}(?:负责|承担).{0,8}(?:维护|回滚|收尾|交接)|(?:我|你|林衡|夏栩|周禾|许野)(?:来|会).{0,4}(?:负责|承担).{0,8}(?:维护|回滚|收尾|交接)/u.test(sentence)
@@ -654,14 +733,18 @@ export function validateUtteranceAgainstTurnPlan(
       repairInstruction: '回应用户明确给出的现金或近期承受能力约束；不能只处理情绪、价值或长期可能性。',
     });
   }
-  if (plan.requiredActs.includes('acknowledge') && !ACKNOWLEDGEMENT_ACT.test(text)) {
+  if (plan.requiredActs.includes('acknowledge')
+    && !ACKNOWLEDGEMENT_ACT.test(text)
+    && !violations.some(({ code }) => code === 'required_semantic_move_missing')) {
     violations.push({
       code: 'required_semantic_move_missing',
       effectId: plan.activeEffectIds[0],
       repairInstruction: '先明确表示正在听、理解了边界或已经停止越界动作；不能只用“好的”等空泛确认代替承接。',
     });
   }
-  if (plan.requiredActs.includes('stop_intervening') && !STOP_INTERVENING_ACT.test(text)) {
+  if (plan.requiredActs.includes('stop_intervening')
+    && !STOP_INTERVENING_ACT.test(text)
+    && !violations.some(({ code }) => code === 'required_semantic_move_missing')) {
     violations.push({
       code: 'required_semantic_move_missing',
       effectId: plan.activeEffectIds[0],
@@ -669,9 +752,9 @@ export function validateUtteranceAgainstTurnPlan(
     });
   }
   if (plan.relationshipMove?.observableCue === 'honest_tentative_judgment'
-    && (!HONEST_TENTATIVE_JUDGMENT.test(text)
-      || !JUDGMENT_CONTENT.test(text)
-      || COMFORTING_CLICHE.test(text))) {
+    && (!hasHonestTentativeJudgment(text)
+      || COMFORTING_CLICHE.test(text)
+      || OVERCONFIDENT_JUDGMENT.test(text))) {
     violations.push({
       code: 'relationship_move_not_observable',
       effectId: plan.activeEffectIds[0],

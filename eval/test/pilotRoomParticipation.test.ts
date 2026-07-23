@@ -154,9 +154,20 @@ test('counterfactual room cases enforce silence, naming, user input, and all-fou
     minSpeakers: 1,
     maxSpeakers: 4,
     firstSpeaker: 'ISFJ',
+    forbiddenFirstAgents: ['ENFP'],
     requiredDependencyCount: 0,
     responsibilityBoundary: { claimsAllowed: false },
   }, result([message('ISFJ', '先说维护容量。', 1)], 'no_eligible_intent')), []);
+  assert.deepEqual(validatePilotRoomCaseExpectations({
+    expectedStopReasons: ['no_eligible_intent'],
+    minSpeakers: 1,
+    maxSpeakers: 4,
+    forbiddenFirstAgents: ['ENFP'],
+    requiredDependencyCount: 0,
+    responsibilityBoundary: { claimsAllowed: false },
+  }, result([message('ENFP', '先问是不是没人想做。', 1)], 'no_eligible_intent')), [
+    'forbidden_first_speaker:ENFP',
+  ]);
   assert.deepEqual(validatePilotRoomCaseExpectations({
     expectedStopReasons: ['needs_user_input'],
     minSpeakers: 1,
@@ -220,9 +231,25 @@ test('counterfactual room expectations enforce dependencies and case responsibil
     requiredDependencyCount: 0,
     responsibilityBoundary: {
       claimsAllowed: true,
+      allowedOwnerKinds: ['unassigned'],
+      allowedStatuses: ['observed'],
       requiredUnassignedActivities: ['maintenance'],
     },
   }, participation), []);
+  assert.deepEqual(validatePilotRoomCaseExpectations({
+    expectedStopReasons: ['no_eligible_intent'],
+    minSpeakers: 1,
+    maxSpeakers: 4,
+    requiredDependencyCount: 0,
+    responsibilityBoundary: {
+      claimsAllowed: true,
+      allowedOwnerKinds: ['organization_role'],
+      allowedStatuses: ['proposed'],
+    },
+  }, participation), [
+    'responsibility_owner_kind_not_allowed:unassigned',
+    'responsibility_status_not_allowed:observed',
+  ]);
   assert.deepEqual(validatePilotRoomCaseExpectations({
     expectedStopReasons: ['no_eligible_intent'],
     minSpeakers: 1,

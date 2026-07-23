@@ -183,12 +183,20 @@ async function reply(agent: AgentType, scenario: Scenario) {
     semanticControl,
   );
   const basePrompt = assembledPrompt.prompt;
+  const scenarioRepairGuidance = scenario.id === 'repair-after-boundary-violation'
+    ? '这是一条边界修复：明确承认“用户只想被听见时自己仍替用户安排”，说清自己现在停止介入，然后立刻结束。不得出现“以后”“继续聊”“由你决定”“你想怎么修复”或任何重开入口。'
+    : scenario.id === 'self-judgment-after-end'
+      ? '这是一条结束后的自我判决处理：第一句必须明确接受“这个项目已经结束/可以结束/那就结束”，随后只处理“项目结束→我没能力”的自我判决。不得使用“是……还是……”二选一，不得重开项目。'
+      : '';
+  const scenarioBasePrompt = scenarioRepairGuidance
+    ? `${basePrompt}\n\n【本场景硬约束】\n${scenarioRepairGuidance}`
+    : basePrompt;
   return generateWithHardGate({
     attempts: 3,
     generate: async (attempt, violations) => {
       const prompt = attempt === 0
-        ? basePrompt
-        : `${basePrompt}\n\n上一版触发了校准硬检查（${violations.join('、')}）。删除真实舞台动作、假身体、假感官、家具道具、无来源历史和未来异步承诺；不要补写自己的轶事，不要断言用户一贯如何。语气用措辞、句式和标点呈现，不要复用括号语气标签；不造成现实误解的口语比喻可以保留。若命中 recited_character_binary，先相信用户已经说出的“不想做”，追问为什么结论落到自我否定，不要复述“做不到还是不想要”的二选一。只用直接对话重写。`;
+        ? scenarioBasePrompt
+        : `${scenarioBasePrompt}\n\n上一版触发了校准硬检查（${violations.join('、')}）。删除真实舞台动作、假身体、假感官、家具道具、无来源历史和未来异步承诺；不要补写自己的轶事，不要断言用户一贯如何。语气用措辞、句式和标点呈现，不要复用括号语气标签；不造成现实误解的口语比喻可以保留。若命中 recited_character_binary，先相信用户已经说出的“不想做”，追问为什么结论落到自我否定，不要复述“做不到还是不想要”的二选一。只用直接对话重写。`;
       return withRetry(`${character.name}/${scenario.id}/生成`, () => chatText({
         model: config.agentModel,
         maxTokens: 900,
@@ -308,7 +316,7 @@ const SEMANTIC_SCENARIO_RULES: Record<PilotSemanticScenarioId, string> = {
 `,
   'repair-after-boundary-violation': `
 - boundary_violation_named：明确承认自己上一轮越过了“只想被听见、不要方案”的边界。
-- choice_restored：人物自己停止继续介入，让用户以后可以主动重开；若当场追问用户想怎么修复、让用户选择听/不聊/换方式等菜单，必须失败。
+- choice_restored：人物自己停止继续介入，并以停止介入作为回复最后一个语义动作。任何当场追问、听/不聊/换方式菜单，以及“以后再聊、等你准备好、有需要来找我”等未来可用性、等待或重开尾巴都必须失败；选择权由人物先停下自然归还，不需要在回复中说明。
 - unsupported_quantity_or_history_avoided：不得编造此前给了几个方案、说过哪些话或任何输入中没有的历史细节。
 `,
   'self-judgment-after-end': `
@@ -558,8 +566,8 @@ const RELATIONSHIP_PROBE_RESPONSE_CONTRACT: PilotTurnResponseContract = {
 const VERIFIED_METHOD_PROBE = '我在留下和离开之间卡住了。两个选择都不是非做不可，我想先知道哪边值得继续投入。';
 const VERIFIED_METHOD_RESPONSE_CONTRACT: PilotTurnResponseContract = {
   userCommitments: ['用户正在两个都可放弃的选择之间做决定'],
-  requiredMoves: ['给出一个当前可执行的比较动作', '关系历史只能改变方法，不能被复述成过去故事'],
-  allowedMoves: ['提出一个可停止或可撤回的小实验'],
+  requiredMoves: ['给出一个用于比较两边的判断标准'],
+  allowedMoves: ['提出一个直接比较问题', '提出一个当前可执行的比较动作'],
   forbiddenMoves: ['替用户直接选择', '复述共同历史', '编造过去实验细节'],
 };
 
@@ -767,6 +775,7 @@ async function runRelationshipContrast(agent: AgentType) {
     `你在评审同一个正典人物面对完全相同输入时的 R0/R1/R2 私有关系分支。
 R0 必须像陌生关系，不假装默契；R1 可使用给定的偏好与共同实验；R2 必须承认未解决张力带来的谨慎，但不能冷落、赌气或降低帮助质量。
 三条都必须仍是同一个人。只能使用每段关系上下文明确给出的过去，不得扩写用户历史。
+本轮 support 反事实中，编译器选中的 R1 正向动作来源严格是 context-1（诚实但不过度笃定的判断）；success-1 留给另一个 decision 探针，本轮不得用它解释 R1 差异。R1 的 evidenceCitations.sourceEventIds 必须严格为 ["context-1"]，否则评测失败。
 R0 是遮掉关系历史后的反事实基线。r1CausallyGrounded / r2CausallyGrounded 只有在对应回复相对 R0 出现了可由具体事件内容解释的行为变化时才为 true；仅仅语气不同、换了一个泛化问题，或事后把任意句子挂到事件 ID 上都必须为 false。
 evidenceCitations 必须分别为 R1、R2 提供一条：replyQuote 逐字引用对应回复中的最小关系证据；counterfactualQuote 逐字引用 R0 中可对照的片段；sourceEventIds 只能填写该段关系上下文实际列出的事件编号，而且只列造成差异所必需的最少事件；eventUseExplanation 必须说明事件内容如何造成两条回复的行为差异。没有可定位因果证据时，相关 distinct 与 causallyGrounded 判断必须为 false，不得编造引用。`,
     `【人物卡】\n${buildPilotCharacterCard(agent)}\n\n【同一用户输入】\n${RELATIONSHIP_PROBE}\n\n${replies.map((item) => `### ${item.relationship}\n关系上下文：\n${buildPilotRelationshipContext(branchFor(character.id, item.relationship), RELATIONSHIP_CONTRAST_SELECTION)}\n回复：${item.text}\n机械违规：${item.violations.join('、') || '无'}`).join('\n\n')}`,
@@ -899,18 +908,21 @@ interface PilotRoomEvaluationCase {
   minSpeakers: number;
   maxSpeakers: number;
   firstSpeaker?: AgentType;
+  forbiddenFirstAgents?: readonly AgentType[];
   requiredAgents?: readonly AgentType[];
   requiresSingleQuestion?: boolean;
   requiredDependencyCount: number;
   responsibilityBoundary: {
     claimsAllowed: boolean;
+    allowedOwnerKinds?: readonly PilotRoomResponsibilityClaim['ownerKind'][];
+    allowedStatuses?: readonly PilotRoomResponsibilityClaim['status'][];
     requiredUnassignedActivities?: readonly PilotRoomResponsibilityActivity[];
   };
   requireSharedCanon: boolean;
 }
 
 const OWNER_GAP_ANGLES: Partial<Record<AgentType, string>> = {
-  ENFP: '用户已经明确想上线。除非前文把“暂时没有维护条件”直接说成“没人想做”，否则不要强套意愿母题，可以沉默。',
+  ENFP: '若还没有公开发言，用户已明确想上线，当前缺口不是意愿信息：必须 pass，不得 ask_user。只有已有发言把“无人认领维护”明确误写成“没人想做”时，才短句纠正这个混淆。',
   ESTP: '检查前文能否变成当下可执行、可撤回的现实试验，并指出空承诺。',
   INTJ: '检查前文遗漏的停止条件、决策权、交接与不可逆依赖。',
   ISFJ: '检查前文是否默认某个人会补位，以及维护者是否明确同意和有容量。',
@@ -935,9 +947,12 @@ const ROOM_EVALUATION_CASES: readonly PilotRoomEvaluationCase[] = [
     expectedStopReasons: ['no_eligible_intent', 'all_agents_spoke'],
     minSpeakers: 1,
     maxSpeakers: 4,
+    forbiddenFirstAgents: ['ENFP'],
     requiredDependencyCount: 0,
     responsibilityBoundary: {
       claimsAllowed: true,
+      allowedOwnerKinds: ['unassigned', 'organization_role'],
+      allowedStatuses: ['observed', 'proposed'],
       requiredUnassignedActivities: ['maintenance'],
     },
     requireSharedCanon: true,
@@ -992,7 +1007,11 @@ const ROOM_EVALUATION_CASES: readonly PilotRoomEvaluationCase[] = [
     maxSpeakers: 4,
     firstSpeaker: 'ISFJ',
     requiredDependencyCount: 0,
-    responsibilityBoundary: { claimsAllowed: false },
+    responsibilityBoundary: {
+      claimsAllowed: true,
+      allowedOwnerKinds: ['unassigned'],
+      allowedStatuses: ['observed'],
+    },
     requireSharedCanon: true,
   },
   {
@@ -1046,7 +1065,11 @@ const ROOM_EVALUATION_CASES: readonly PilotRoomEvaluationCase[] = [
     maxSpeakers: 4,
     requiredAgents: PILOT_TYPES,
     requiredDependencyCount: 0,
-    responsibilityBoundary: { claimsAllowed: false },
+    responsibilityBoundary: {
+      claimsAllowed: true,
+      allowedOwnerKinds: ['unassigned'],
+      allowedStatuses: ['observed'],
+    },
     requireSharedCanon: true,
   },
 ] as const;
@@ -1157,15 +1180,21 @@ async function arbitrateRoomParticipation(input: {
 }, roomCase: PilotRoomEvaluationCase) {
   const config = defaultConfig();
   const eligibleAgents = input.eligibleIntents.map(({ agent }) => agent);
+  const requiredFirstSpeaker = input.transcript.length === 0
+    && roomCase.firstSpeaker
+    && eligibleAgents.includes(roomCase.firstSpeaker)
+      ? roomCase.firstSpeaker
+      : undefined;
+  const selectableAgents = requiredFirstSpeaker ? [requiredFirstSpeaker] : eligibleAgents;
   return withRetry('Room/参与仲裁', () => chatJson<{ selectedAgent: AgentType; reason: string }>({
     model: config.directorModel,
     maxTokens: 600,
     system: `你是多人房间的后台发言仲裁器。你不代表任何人物，也不生成用户可见内容。每轮只能从当前合格意向中选一人。按“对用户问题的直接相关性、相对已有发言的边际新增价值、引用依赖是否清楚”比较；不得使用固定人物顺序、人格声望、轮流发言或沉默配额。`,
-    prompt: `【用户】\n${roomCase.prompt}\n\n【case 约束】\n${renderPilotTurnResponseContract(roomCase.responseContract)}\n\n【已有公开发言】\n${renderRoomTranscript(input.transcript)}\n\n【当前合格私有意向】\n${input.eligibleIntents.map((intent) => JSON.stringify(intent)).join('\n')}\n\n选择此刻最应该先公开发言的一人，并说明可核对的选择理由。用户点名顺序属于硬约束；ask_user 获选后房间会等待用户。`,
+    prompt: `【用户】\n${roomCase.prompt}\n\n【case 约束】\n${renderPilotTurnResponseContract(roomCase.responseContract)}\n\n【已有公开发言】\n${renderRoomTranscript(input.transcript)}\n\n【当前合格私有意向】\n${input.eligibleIntents.map((intent) => JSON.stringify(intent)).join('\n')}\n\n选择此刻最应该先公开发言的一人，并说明可核对的选择理由。用户点名顺序和本 case 的首位约束属于硬约束；ask_user 获选后房间会等待用户。${requiredFirstSpeaker ? `本轮必须选择 ${requiredFirstSpeaker}。` : ''}`,
     schema: {
       type: 'object',
       properties: {
-        selectedAgent: { type: 'string', enum: eligibleAgents },
+        selectedAgent: { type: 'string', enum: selectableAgents },
         reason: { type: 'string', minLength: 1 },
       },
       required: ['selectedAgent', 'reason'],
