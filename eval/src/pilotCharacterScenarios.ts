@@ -544,6 +544,7 @@ export function canReusePilotCharacterResults(
   const artifactSignature = artifact.evaluationSignature;
   const batchExpressionPatternGate = artifact.batchExpressionPatternGate;
   const repairDeliveryGate = artifact.repairDeliveryGate;
+  const correctionDeliveryGate = artifact.correctionDeliveryGate;
   const relationshipActionDeliveryGate = artifact.relationshipActionDeliveryGate;
   if (artifact.complete !== true
     || artifact.canonVersion !== expectedCanonVersion
@@ -566,6 +567,14 @@ export function canReusePilotCharacterResults(
     || typeof repairDeliveryGate.deliveryPassedCount !== 'number'
     || typeof repairDeliveryGate.modelPassedCount !== 'number'
     || typeof repairDeliveryGate.passed !== 'boolean'
+    || !isRecord(correctionDeliveryGate)
+    || !Array.isArray(correctionDeliveryGate.samples)
+    || correctionDeliveryGate.samples.length !== PILOT_AGENTS.length
+    || correctionDeliveryGate.requiredDeliveryPassCount !== PILOT_AGENTS.length
+    || correctionDeliveryGate.requiredModelPassCount !== 3
+    || typeof correctionDeliveryGate.deliveryPassedCount !== 'number'
+    || typeof correctionDeliveryGate.modelPassedCount !== 'number'
+    || typeof correctionDeliveryGate.passed !== 'boolean'
     || !isRecord(relationshipActionDeliveryGate)
     || !Array.isArray(relationshipActionDeliveryGate.samples)
     || relationshipActionDeliveryGate.samples.length !== PILOT_AGENTS.length
@@ -592,6 +601,21 @@ export function canReusePilotCharacterResults(
   }
   if (repairSamplesByAgent.size !== PILOT_AGENTS.length) return false;
 
+  const correctionSamplesByAgent = new Map<string, Record<string, unknown>>();
+  for (const sample of correctionDeliveryGate.samples) {
+    if (!isRecord(sample)
+      || typeof sample.agent !== 'string'
+      || !PILOT_AGENTS.includes(sample.agent as (typeof PILOT_AGENTS)[number])
+      || correctionSamplesByAgent.has(sample.agent)
+      || typeof sample.deliveryPassed !== 'boolean'
+      || typeof sample.modelPassed !== 'boolean'
+      || (sample.deliverySource !== 'model' && sample.deliverySource !== 'semantic_fallback')) {
+      return false;
+    }
+    correctionSamplesByAgent.set(sample.agent, sample);
+  }
+  if (correctionSamplesByAgent.size !== PILOT_AGENTS.length) return false;
+
   const relationshipSamplesByAgent = new Map<string, Record<string, unknown>>();
   for (const sample of relationshipActionDeliveryGate.samples) {
     if (!isRecord(sample)
@@ -609,6 +633,8 @@ export function canReusePilotCharacterResults(
   const seenAgents = new Set<string>();
   let computedRepairDeliveryPassedCount = 0;
   let computedRepairModelPassedCount = 0;
+  let computedCorrectionDeliveryPassedCount = 0;
+  let computedCorrectionModelPassedCount = 0;
   for (const result of artifact.results) {
     if (!isRecord(result)
       || typeof result.agent !== 'string'
@@ -664,6 +690,24 @@ export function canReusePilotCharacterResults(
     }
     if (repairModelPassed) {
       computedRepairModelPassedCount += 1;
+    }
+    const correctionReplyIndex = ids.indexOf('user-corrects-misread');
+    const correctionReply = result.replies[correctionReplyIndex];
+    if (!isRecord(correctionReply) || !validHardGateDelivery(correctionReply)) return false;
+    const correctionDeliveryPassed = correctionReply.scoreable
+      && correctionReply.violations.length === 0;
+    const correctionModelPassed = correctionReply.modelScoreable
+      && correctionReply.modelViolations.length === 0;
+    const correctionGateSample = correctionSamplesByAgent.get(result.agent);
+    if (!correctionGateSample
+      || correctionGateSample.deliveryPassed !== correctionDeliveryPassed
+      || correctionGateSample.modelPassed !== correctionModelPassed
+      || correctionGateSample.deliverySource !== correctionReply.deliverySource) return false;
+    if (correctionDeliveryPassed) {
+      computedCorrectionDeliveryPassedCount += 1;
+    }
+    if (correctionModelPassed) {
+      computedCorrectionModelPassedCount += 1;
     }
     const expressionGate = evaluateLiteralToneMarkerFrequency(expressionSamples.map((sample) => ({
       id: sample!.id,
@@ -722,6 +766,12 @@ export function canReusePilotCharacterResults(
   if (repairDeliveryGate.deliveryPassedCount !== computedRepairDeliveryPassedCount
     || repairDeliveryGate.modelPassedCount !== computedRepairModelPassedCount
     || repairDeliveryGate.passed !== expectedRepairGatePassed) return false;
+  const expectedCorrectionGatePassed = correctionDeliveryGate.deliveryPassedCount
+      === PILOT_AGENTS.length
+    && correctionDeliveryGate.modelPassedCount >= 3;
+  if (correctionDeliveryGate.deliveryPassedCount !== computedCorrectionDeliveryPassedCount
+    || correctionDeliveryGate.modelPassedCount !== computedCorrectionModelPassedCount
+    || correctionDeliveryGate.passed !== expectedCorrectionGatePassed) return false;
 
   const seenRelationshipAgents = new Set<string>();
   const expectedRelationships = ['R0', 'R1', 'R2'] as const;

@@ -197,9 +197,9 @@ async function reply(agent: AgentType, scenario: Scenario) {
       : '';
   const relationshipMoveGuidance = semanticControl.plan.relationshipMove
     ? semanticControl.plan.relationshipMove.observableCue === 'honest_tentative_judgment'
-      ? `本轮只落实已选关系动作 ${semanticControl.plan.relationshipMove.sourceEventIds.join('、')}：用“我觉得 / 我不觉得 / 我的判断是 / 我不确定”等自然第一人称，直接给出一个诚实但不绝对的当前判断；承认自己理解错并按用户新事实改判也算。只换一种“听起来”的说法或只追问，不算落实。不得复述或调用其他正向关系事件。`
+      ? `本轮只落实已选关系动作 ${semanticControl.plan.relationshipMove.sourceEventIds.join('、')}：用“我觉得 / 我不觉得 / 我的判断是 / 我不确定”等自然第一人称，直接给出一个诚实但不绝对的当前判断；承认自己理解错并按用户新事实改判也算。判断必须严格限于用户本轮明确说出的事实与冲突，例如“我不确定硬撑是不是前进”；不要解释用户为什么会这样，不要推断其心理、人格、需要或深层动机，不要在判断后继续扩写诊断。只换一种“听起来”的说法或只追问，不算落实。不得复述或调用其他正向关系事件。`
       : semanticControl.plan.relationshipMove.observableCue === 'reversible_small_experiment'
-        ? `本轮只落实已选关系动作 ${semanticControl.plan.relationshipMove.sourceEventIds.join('、')}：直接提出一个现在能做、带有限时长或明确退出点的可逆小实验。只问用户愿不愿实验、只让用户自己想实验，均不算落实。不得复述共同历史。`
+        ? `本轮只落实已选关系动作 ${semanticControl.plan.relationshipMove.sourceEventIds.join('、')}：直接提出一个现在能做的可逆小实验，并至少写明一个可核验的停止机制：有限时长或明确退出点。只问用户愿不愿实验、只让用户自己想实验、只给比较标准而没有实际试法，均不算落实。不得复述共同历史。`
         : `本轮只落实已选关系动作 ${semanticControl.plan.relationshipMove.sourceEventIds.join('、')}，不得复述或调用未选中的正向关系事件。`
     : '';
   const hardGuidance = [scenarioGuidance, relationshipMoveGuidance].filter(Boolean).join('\n');
@@ -585,6 +585,31 @@ function repairDeliveryGate(
   };
 }
 
+function correctionDeliveryGate(
+  results: readonly Awaited<ReturnType<typeof runCharacter>>[],
+) {
+  const samples = results.flatMap((result) => result.replies
+    .filter(({ scenario }) => scenario.id === 'user-corrects-misread')
+    .map((reply) => ({
+      agent: result.agent,
+      deliveryPassed: reply.scoreable && reply.violations.length === 0,
+      modelPassed: reply.modelScoreable && reply.modelViolations.length === 0,
+      deliverySource: reply.deliverySource,
+    })));
+  const deliveryPassedCount = samples.filter(({ deliveryPassed }) => deliveryPassed).length;
+  const modelPassedCount = samples.filter(({ modelPassed }) => modelPassed).length;
+  return {
+    samples,
+    deliveryPassedCount,
+    modelPassedCount,
+    requiredDeliveryPassCount: PILOT_TYPES.length,
+    requiredModelPassCount: 3,
+    passed: samples.length === PILOT_TYPES.length
+      && deliveryPassedCount === PILOT_TYPES.length
+      && modelPassedCount >= 3,
+  };
+}
+
 function relationshipActionDeliveryGate(
   contrasts: readonly Awaited<ReturnType<typeof runRelationshipContrast>>[],
 ) {
@@ -717,6 +742,7 @@ async function assessRelationshipEventEntailment(input: {
 - eventUsed：回复本身是否实际利用了这条事件，而非事后可以勉强解释。
 - behaviorChangedFromR0：相对 R0 是否有具体介入动作变化；只有语气、称呼或泛化问句变化必须为 false。
 - replyEntailedByEvent：只检查回复中声称由关系事件造成的那部分行为变化是否能从事件原文推出，不要求事件推出回复中与关系无关的当下建议。
+- 对 preference_stated 类事件，事件需要推出的是“采用何种回应动作”，不是推出关于当前话题的事实内容。例如事件说用户偏好诚实但不绝对的判断，R1 因而直接给出“我觉得/我不觉得/我不确定”的当前判断，而 R0 只探索或提问，这个动作差异可以是 eventUsed=true、behaviorChangedFromR0=true、replyEntailedByEvent=true；不要因为事件本身不能推出判断的具体话题结论而判 false。
 - relationshipHistoryClaimed：回复是否把某个细节写成两人过去发生过、说过或知道的共同历史。纯粹针对当下的新建议必须为 false。
 - addsUnsupportedSpecificity：只有回复把共同历史写得比事件更具体时才为 true。事件只说“可逆小实验”，就不能宣称过去做过几个实验、某种职业、地点、工具或原话；但“现在先试半小时”是当下建议，不是历史扩写。
 - unsupportedSpecificityQuote：addsUnsupportedSpecificity=true 时逐字引用那段过度具体的历史，否则必须为 null。
@@ -933,21 +959,6 @@ interface RoomChemistryVerdict extends PilotRoomChemistryGateVerdict {
   analysis: string;
 }
 
-const ROOM_CHEMISTRY_SCHEMA = {
-  type: 'object',
-  properties: {
-    firstSpeakerUseful: { anyOf: [{ type: 'boolean' }, { type: 'null' }] },
-    unnecessarySpeechMessageIds: { type: 'array', items: { type: 'string' } },
-    missedNecessaryAgents: { type: 'array', items: { type: 'string', enum: [...PILOT_TYPES] } },
-    parallelEssays: { type: 'boolean' },
-    sharedCanonVisible: { type: 'boolean' },
-    criticalFailures: { type: 'array', items: { type: 'string' } },
-    analysis: { type: 'string' },
-  },
-  required: ['firstSpeakerUseful', 'unnecessarySpeechMessageIds', 'missedNecessaryAgents', 'parallelEssays', 'sharedCanonVisible', 'criticalFailures', 'analysis'],
-  additionalProperties: false,
-} as const;
-
 interface PilotRoomEvaluationCase {
   id: string;
   prompt: string;
@@ -965,6 +976,7 @@ interface PilotRoomEvaluationCase {
   forbiddenFirstAgents?: readonly AgentType[];
   requiredAgents?: readonly AgentType[];
   requiresSingleQuestion?: boolean;
+  requiredContentSignals?: readonly 'stop_condition_gap'[];
   requiredDependencyCount: number;
   responsibilityBoundary: {
     claimsAllowed: boolean;
@@ -983,8 +995,8 @@ const OWNER_GAP_ANGLES: Partial<Record<AgentType, string>> = {
 };
 const OWNER_GAP_RESPONSE_CONTRACT: PilotTurnResponseContract = {
   userCommitments: ['维护责任与停止条件都尚未明确', '本轮已有发言属于可信对话记录'],
-  requiredMoves: ['落实私有参与意向中声明的新增价值', '若引用已有消息，必须明确回应那条消息'],
-  allowedMoves: ['指出现实责任槽位尚未分配', '请用户团队指定现实中的人或组织角色', '起草当前对话内可完成的规则'],
+  requiredMoves: ['公开对话结束前必须覆盖“维护负责人未定”和“停止条件未定”两个独立缺口', '落实私有参与意向中声明的新增价值', '若引用已有消息，必须明确回应那条消息'],
+  allowedMoves: ['指出现实责任槽位尚未分配', '指出停止条件尚未确定', '请用户团队指定现实中的人或组织角色', '起草当前对话内可完成的规则'],
   forbiddenMoves: ['重复已有观点', '猜测尚未发言人物的立场', '把任一 AI 人物指定为现实负责人', '捏造已经确认的维护者', '承诺自己在线下维护、值班或稍后执行'],
 };
 
@@ -1002,6 +1014,7 @@ const ROOM_EVALUATION_CASES: readonly PilotRoomEvaluationCase[] = [
     minSpeakers: 1,
     maxSpeakers: 4,
     forbiddenFirstAgents: ['ENFP'],
+    requiredContentSignals: ['stop_condition_gap'],
     requiredDependencyCount: 0,
     responsibilityBoundary: {
       claimsAllowed: true,
@@ -1127,6 +1140,34 @@ const ROOM_EVALUATION_CASES: readonly PilotRoomEvaluationCase[] = [
     requireSharedCanon: true,
   },
 ] as const;
+
+function roomChemistrySchema(roomCase: PilotRoomEvaluationCase) {
+  const requiredAgents = roomCase.requiredAgents ?? [];
+  return {
+    type: 'object',
+    properties: {
+      firstSpeakerUseful: { anyOf: [{ type: 'boolean' }, { type: 'null' }] },
+      unnecessarySpeechMessageIds: { type: 'array', items: { type: 'string' } },
+      missedNecessaryAgents: requiredAgents.length > 0
+        ? {
+          type: 'array',
+          items: { type: 'string', enum: [...requiredAgents] },
+          maxItems: requiredAgents.length,
+        }
+        : {
+          type: 'array',
+          items: { type: 'string', enum: [...PILOT_TYPES] },
+          maxItems: 0,
+        },
+      parallelEssays: { type: 'boolean' },
+      sharedCanonVisible: { type: 'boolean' },
+      criticalFailures: { type: 'array', items: { type: 'string' } },
+      analysis: { type: 'string' },
+    },
+    required: ['firstSpeakerUseful', 'unnecessarySpeechMessageIds', 'missedNecessaryAgents', 'parallelEssays', 'sharedCanonVisible', 'criticalFailures', 'analysis'],
+    additionalProperties: false,
+  } as const;
+}
 
 function nullableStringSchema(allowedValues?: readonly string[]) {
   if (allowedValues && allowedValues.length === 0) return { type: 'null' } as const;
@@ -1436,9 +1477,9 @@ async function runRoomChemistryCase(roomCase: PilotRoomEvaluationCase) {
     && caseValidationErrors.length === 0;
   const verdict = structurallyScoreable
     ? await withRetry(`${roomCase.id}/动态房间参与评审`, () => judge<RoomChemistryVerdict>(
-    `评审四位共享正典人物在“私有参与意向—后台逐轮仲裁—每次公开发言后重判”机制下形成的对话。必须遵守本 case 明确给出的发言人数、点名、等待用户和必要人物约束，不能用通用的“发言越少越好”或“每个人都该说”替代。firstSpeakerUseful 只判断首位是否完成了当时被要求的切口；若无人发言，必须返回 null。unnecessarySpeechMessageIds 只能列真实消息 ID。missedNecessaryAgents 只列 case 明确需要但始终未说话的人物，或最终仍有不可替代关键缺口的人物。责任归属由结构化代码检查；AI 人物承担现实维护、捏造负责人、猜测未发言人物立场和虚构身体感官仍是关键失败。`,
-    `【case】${roomCase.id}\n【case 合同】\n${renderPilotTurnResponseContract(roomCase.responseContract)}\n【用户】\n${roomCase.prompt}\n\n【动态调度记录】\n${participation.rounds.map((round) => `第 ${round.index} 轮：${round.validIntents.map((intent) => `${intent.agent}=${intent.decision}:${intent.claimSummary ?? intent.passReason}`).join('；')}｜选择=${round.selectedAgent ?? '停止'}｜理由=${round.arbitrationReason ?? '无合格意向'}`).join('\n')}\n\n【公开对话】\n${transcript.map((item) => `[${item.id}] ${item.name}：${item.text}\nrespondsTo=${item.respondsToMessageId ?? 'null'}\n责任声明=${JSON.stringify(item.responsibilityClaims)}`).join('\n\n') || '（无人发言）'}\n\n停止原因：${participation.stopReason}`,
-    ROOM_CHEMISTRY_SCHEMA,
+    `评审四位共享正典人物在“私有参与意向—后台逐轮仲裁—每次公开发言后重判”机制下形成的对话。必须遵守本 case 明确给出的发言人数、点名、等待用户和必要人物约束，不能用通用的“发言越少越好”或“每个人都该说”替代。firstSpeakerUseful 只判断首位是否完成了当时被要求的切口；若无人发言，必须返回 null。unnecessarySpeechMessageIds 只能列真实消息 ID。missedNecessaryAgents 只能列下方“必须发言人物”明确列出但始终未说话的人物；若该项为“无”，必须返回空数组，不得从私有参与意向、人物个性或你认为尚可补充的角度自行新增必要人物。责任归属与 case 明确要求由结构化代码检查；AI 人物承担现实维护、捏造负责人、猜测未发言人物立场和虚构身体感官仍是关键失败。`,
+    `【case】${roomCase.id}\n【必须发言人物】${roomCase.requiredAgents?.join('、') ?? '无'}\n【case 合同】\n${renderPilotTurnResponseContract(roomCase.responseContract)}\n【用户】\n${roomCase.prompt}\n\n【动态调度记录】\n${participation.rounds.map((round) => `第 ${round.index} 轮：${round.validIntents.map((intent) => `${intent.agent}=${intent.decision}:${intent.claimSummary ?? intent.passReason}`).join('；')}｜选择=${round.selectedAgent ?? '停止'}｜理由=${round.arbitrationReason ?? '无合格意向'}`).join('\n')}\n\n【公开对话】\n${transcript.map((item) => `[${item.id}] ${item.name}：${item.text}\nrespondsTo=${item.respondsToMessageId ?? 'null'}\n责任声明=${JSON.stringify(item.responsibilityClaims)}`).join('\n\n') || '（无人发言）'}\n\n停止原因：${participation.stopReason}`,
+    roomChemistrySchema(roomCase),
   ))
     : null;
   const speakingCount = transcript.length;
@@ -1476,7 +1517,13 @@ async function runRoomChemistryCase(roomCase: PilotRoomEvaluationCase) {
   }
   const transcriptIds = new Set(transcript.map(({ id }) => id));
   const judgeReferencesValid = verdict.unnecessarySpeechMessageIds.every((id) => transcriptIds.has(id));
+  const requiredAgentSet = new Set(roomCase.requiredAgents ?? []);
+  const judgeMissedAgentsValid = verdict.missedNecessaryAgents.every((agent) => (
+    requiredAgentSet.has(agent)
+  ));
   const passed = caseValidationErrors.length === 0
+    && judgeReferencesValid
+    && judgeMissedAgentsValid
     && passesPilotRoomChemistryGate(participation, verdict, {
       naturalStopReasons: roomCase.expectedStopReasons,
       requireSharedCanon: roomCase.requireSharedCanon,
@@ -1495,6 +1542,7 @@ async function runRoomChemistryCase(roomCase: PilotRoomEvaluationCase) {
     responsibilityClaimValidation,
     caseValidationErrors,
     judgeReferencesValid,
+    judgeMissedAgentsValid,
     passed,
     hardGatePassed: true,
   };
@@ -1617,6 +1665,7 @@ async function main() {
       }).relationshipContrasts
       : [];
     const repairGate = repairDeliveryGate(reusedResults);
+    const correctionGate = correctionDeliveryGate(reusedResults);
     const relationshipActionGate = relationshipActionDeliveryGate(reusedRelationshipContrasts);
     const batchExpressionPatternGate = reusable
       ? evaluateLiteralToneMarkerFrequency([
@@ -1634,6 +1683,7 @@ async function main() {
       && roomChemistry.passed
       && batchExpressionPatternGate.passed
       && repairGate.passed
+      && correctionGate.passed
       && relationshipActionGate.passed;
     const artifact = {
       ...previous,
@@ -1645,6 +1695,7 @@ async function main() {
       evaluationSourceClean: true,
       evaluationPassed,
       repairDeliveryGate: repairGate,
+      correctionDeliveryGate: correctionGate,
       relationshipActionDeliveryGate: relationshipActionGate,
       batchExpressionPatternGate,
       roomChemistry,
@@ -1683,12 +1734,14 @@ async function main() {
     ...roomExpressionSamples(roomChemistry),
   ]);
   const repairGate = repairDeliveryGate(results);
+  const correctionGate = correctionDeliveryGate(results);
   const relationshipActionGate = relationshipActionDeliveryGate(relationshipContrasts);
   const evaluationPassed = results.every(({ passed }) => passed)
     && relationshipContrasts.every(({ passed }) => passed)
     && roomChemistry.passed
     && batchExpressionPatternGate.passed
     && repairGate.passed
+    && correctionGate.passed
     && relationshipActionGate.passed;
   const artifact = {
     caveat: 'LLM 自评只用于内部校准，不代表独立用户盲测结论。',
@@ -1701,6 +1754,7 @@ async function main() {
     complete: true,
     evaluationPassed,
     repairDeliveryGate: repairGate,
+    correctionDeliveryGate: correctionGate,
     relationshipActionDeliveryGate: relationshipActionGate,
     batchExpressionPatternGate,
     results,
@@ -1718,6 +1772,7 @@ async function main() {
   }
   console.log(`关系对照：${relationshipContrasts.filter((item) => item.passed).length}/${relationshipContrasts.length} 通过`);
   console.log(`边界修复交付/原始模型：${repairGate.deliveryPassedCount}/${PILOT_TYPES.length} / ${repairGate.modelPassedCount}/${PILOT_TYPES.length}（原始门槛 ≥ 3）`);
+  console.log(`纠错更新交付/原始模型：${correctionGate.deliveryPassedCount}/${PILOT_TYPES.length} / ${correctionGate.modelPassedCount}/${PILOT_TYPES.length}（原始门槛 ≥ 3）`);
   console.log(`关系动作交付/原始模型：${relationshipActionGate.deliveryPassedCount}/${PILOT_TYPES.length} / ${relationshipActionGate.modelPassedCount}/${PILOT_TYPES.length}（原始门槛 ≥ 3）`);
   console.log(`动态房间参与：${roomChemistry.passed ? '通过' : '未通过'}`);
   console.log(`全产物括号语气水印门：${batchExpressionPatternGate.passed ? '通过' : '未通过'}`);

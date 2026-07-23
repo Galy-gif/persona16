@@ -1124,6 +1124,15 @@ export function semanticTurnFallback(control: SemanticTurnControl): string | und
   if (control.plan.interactionMode === 'listen') {
     return '嗯，我听着。';
   }
+  if (control.plan.relationshipMove?.observableCue === 'honest_tentative_judgment'
+    && control.plan.currentEvidenceSpans.some((span) => (
+      /你理解错了/u.test(span)
+      && /不是.{0,12}(?:害怕失败|怕(?:失败)?)/u.test(span)
+      && /不是.{0,12}(?:缺行动力|动不起来|动不了)/u.test(span)
+      && /(?:不想|不愿).{0,16}所有人.{0,12}(?:收拾残局|收尾|兜底)/u.test(span)
+    ))) {
+    return '你说得对，我理解错了。不是害怕失败，也不是缺行动力——是不想再替所有人收尾。';
+  }
   if (control.plan.relationshipMove?.observableCue === 'reversible_small_experiment') {
     return '先只选一边试一天，开始前写下退出条件；一天后再决定值不值得继续，随时可以停。';
   }

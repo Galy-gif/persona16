@@ -109,6 +109,19 @@ function completeArtifact(scenarioIds: readonly string[] = EXPECTED_IDS) {
       requiredModelPassCount: 3,
       passed: true,
     },
+    correctionDeliveryGate: {
+      samples: agents.map((agent) => ({
+        agent,
+        deliveryPassed: true,
+        modelPassed: true,
+        deliverySource: 'model',
+      })),
+      deliveryPassedCount: 4,
+      modelPassedCount: 4,
+      requiredDeliveryPassCount: 4,
+      requiredModelPassCount: 3,
+      passed: true,
+    },
     relationshipActionDeliveryGate: {
       samples: agents.map((agent) => ({
         agent,
@@ -479,6 +492,43 @@ test('room-only reuse requires a complete current-protocol nine-scenario artifac
   const forgedRepairSource = completeArtifact();
   forgedRepairSource.repairDeliveryGate.samples[0]!.deliverySource = 'semantic_fallback';
   assert.equal(canReuse(forgedRepairSource), false);
+
+  const allCorrectionFallbacks = completeArtifact();
+  allCorrectionFallbacks.results = allCorrectionFallbacks.results.map((result) => ({
+    ...result,
+    replies: result.replies.map((reply) => (
+      reply.scenario.id === 'user-corrects-misread'
+        ? {
+          ...reply,
+          modelText: '我不知道。',
+          modelViolations: [
+            'semantic_turn:relationship_move_not_observable:落实已确认的回应偏好：给出诚实但不过度笃定的判断，不用安慰套话，也不要复述关系记录。',
+          ],
+          modelScoreable: false,
+          deliverySource: 'semantic_fallback',
+          fallbackUsed: true,
+        }
+        : reply
+    )),
+  }));
+  allCorrectionFallbacks.correctionDeliveryGate = {
+    ...allCorrectionFallbacks.correctionDeliveryGate,
+    samples: allCorrectionFallbacks.correctionDeliveryGate.samples.map((sample) => ({
+      ...sample,
+      modelPassed: false,
+      deliverySource: 'semantic_fallback',
+    })),
+    modelPassedCount: 0,
+    passed: false,
+  };
+  assert.equal(canReuse(allCorrectionFallbacks), true);
+  assert.equal(canReuse({
+    ...allCorrectionFallbacks,
+    correctionDeliveryGate: {
+      ...allCorrectionFallbacks.correctionDeliveryGate,
+      passed: true,
+    },
+  }), false);
 
   const allMethodFallbacks = completeArtifact();
   allMethodFallbacks.relationshipContrasts = allMethodFallbacks.relationshipContrasts.map((contrast) => ({

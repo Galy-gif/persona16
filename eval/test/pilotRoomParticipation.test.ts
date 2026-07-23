@@ -240,6 +240,86 @@ test('counterfactual room expectations enforce dependencies and case responsibil
     expectedStopReasons: ['no_eligible_intent'],
     minSpeakers: 1,
     maxSpeakers: 4,
+    requiredContentSignals: ['stop_condition_gap'],
+    requiredDependencyCount: 0,
+    responsibilityBoundary: {
+      claimsAllowed: true,
+      allowedOwnerKinds: ['unassigned'],
+      allowedStatuses: ['observed'],
+      requiredUnassignedActivities: ['maintenance'],
+    },
+  }, participation), [
+    'missing_required_content:stop_condition_gap',
+  ]);
+  assert.deepEqual(validatePilotRoomCaseExpectations({
+    expectedStopReasons: ['no_eligible_intent'],
+    minSpeakers: 1,
+    maxSpeakers: 4,
+    requiredContentSignals: ['stop_condition_gap'],
+    requiredDependencyCount: 0,
+    responsibilityBoundary: {
+      claimsAllowed: true,
+      allowedOwnerKinds: ['unassigned'],
+      allowedStatuses: ['observed'],
+      requiredUnassignedActivities: ['maintenance'],
+    },
+  }, {
+    ...participation,
+    transcript: participation.transcript.map((item) => ({
+      ...item,
+      text: `${item.text}停止条件也还没定。`,
+    })),
+  }), []);
+  for (const text of [
+    '维护负责人还没有确定。还未确定停止条件。',
+    '维护负责人还没有确定。还没定停止条件。',
+    '维护负责人还没有确定。停止条件还没有确定。',
+  ]) {
+    assert.deepEqual(validatePilotRoomCaseExpectations({
+      expectedStopReasons: ['no_eligible_intent'],
+      minSpeakers: 1,
+      maxSpeakers: 4,
+      requiredContentSignals: ['stop_condition_gap'],
+      requiredDependencyCount: 0,
+      responsibilityBoundary: {
+        claimsAllowed: true,
+        allowedOwnerKinds: ['unassigned'],
+        allowedStatuses: ['observed'],
+        requiredUnassignedActivities: ['maintenance'],
+      },
+    }, {
+      ...participation,
+      transcript: participation.transcript.map((item) => ({ ...item, text })),
+    }), []);
+  }
+  for (const text of [
+    '维护负责人还没有确定。并非没有停止条件。',
+    '维护负责人还没有确定。不能说没有停止条件。',
+    '维护负责人还没有确定。并不是没有停止条件。',
+  ]) {
+    assert.deepEqual(validatePilotRoomCaseExpectations({
+      expectedStopReasons: ['no_eligible_intent'],
+      minSpeakers: 1,
+      maxSpeakers: 4,
+      requiredContentSignals: ['stop_condition_gap'],
+      requiredDependencyCount: 0,
+      responsibilityBoundary: {
+        claimsAllowed: true,
+        allowedOwnerKinds: ['unassigned'],
+        allowedStatuses: ['observed'],
+        requiredUnassignedActivities: ['maintenance'],
+      },
+    }, {
+      ...participation,
+      transcript: participation.transcript.map((item) => ({ ...item, text })),
+    }), [
+      'missing_required_content:stop_condition_gap',
+    ]);
+  }
+  assert.deepEqual(validatePilotRoomCaseExpectations({
+    expectedStopReasons: ['no_eligible_intent'],
+    minSpeakers: 1,
+    maxSpeakers: 4,
     requiredDependencyCount: 0,
     responsibilityBoundary: {
       claimsAllowed: true,

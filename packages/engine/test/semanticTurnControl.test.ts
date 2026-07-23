@@ -545,6 +545,29 @@ test('a sourced preference compiles into one observable relationship move', () =
     relationshipContext,
     relationshipFocus: 'conflict',
   });
+  assert.equal(
+    semanticTurnFallback(correction),
+    '你说得对，我理解错了。不是害怕失败，也不是缺行动力——是不想再替所有人收尾。',
+  );
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      semanticTurnFallback(correction)!,
+      correction.plan,
+    ),
+    [],
+  );
+  for (const userMessage of [
+    '我不是害怕失败，也不是缺行动力。我只是不想再替别人收尾。',
+    '你理解错了，我不是在逃避，我只是不想再替他收尾。',
+    '你理解错了。我不是害怕失败，也不是缺行动力；我只是不想再替他收尾。',
+  ]) {
+    const otherCorrection = compileSemanticTurnControl({
+      userMessage,
+      relationshipContext,
+      relationshipFocus: 'conflict',
+    });
+    assert.equal(semanticTurnFallback(otherCorrection), undefined);
+  }
   assert.deepEqual(
     validateUtteranceAgainstTurnPlan(
       '你说得对，我理解错了。不是害怕失败，也不是缺行动力——是不想再替所有人收尾。',
