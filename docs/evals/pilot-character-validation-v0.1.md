@@ -3,8 +3,8 @@
 > 对象：林衡、夏栩、周禾、许野
 > 前置人物稿：[首批四位正典人物 v0.3](../characters/pilot-cast-v0.3.md)（夏栩核心继承 v0.2，其余人物继承 v0.1）
 > 当前评测协议：`pilot-character-scenarios-v0.6`（跨样本表达门 + 关键场景语义门 + 逐事件关系蕴含 + 动态房间）
-> 最近结果：[2026-07-21 DeepSeek V4 Pro 基线样本 1](pilot-character-retest-v4-pro-sample-1-2026-07-21.md)（自动人物 0/4、关系 1/4、动态房间通过；人工人物/关系均 0/4）
-> 旧模型同协议两轮：[协议 0.6 第四轮复测](pilot-character-retest-protocol-v0.6-rerun-2026-07-21.md)（自动人物 1/4、关系 0/4）与[首次全量复测](pilot-character-retest-protocol-v0.6-2026-07-21.md)（自动人物 3/4、关系 0/4）；动态房间均通过
+> 最近结果：[2026-07-23 统一语义裁决三批回归](pilot-character-retest-semantic-control-aggregate-2026-07-23.md)（人物与完整关系三批均 0/4；R2 停止介入动作三批 4/4；动态房间与 0/51 水印三批通过）
+> 修复前 V4 Pro 基线：[2026-07-21 样本 1](pilot-character-retest-v4-pro-sample-1-2026-07-21.md)（自动人物 0/4、关系 1/4；人工均 0/4）；两者 Prompt 和控制链不同，不作纯模型 A/B
 
 ## 1. 要验证的假设
 

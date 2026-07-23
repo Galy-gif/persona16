@@ -122,8 +122,9 @@ const NO_ANALYSIS_REQUEST = /(?:不想|不要|别|不用)(?:再)?(?:被|对我|�
 const FINISHED_SPEAKING = /(?:我)?说完了|就这些|大概就是这样|好了[，,]?(?:你|现在)?(?:可以)?说了/u;
 const CANCEL_PENDING_REQUEST = /不用(?:再)?(?:分析|给建议|一起想)了|(?:别|不要)(?:再)?(?:分析|给建议)了/u;
 const ADVICE_ACT = /建议|你可以|不妨|最好|你应该|不如|(?:你)?先(?:把|去|做|写|列|停|休息).{1,24}再/u;
+const NEGATED_ADVICE_MENTION = /(?:我)?(?:不|别)(?:再|会|打算|准备|急着|继续|先)?(?:给(?:你|我)?|提供|提)?(?:任何)?(?:建议|方案)/gu;
 const PERMISSION_NOT_ADVICE = /^你可以(?:不回答|不说|拒绝|随时停|先不回答|先不说)/u;
-const ACKNOWLEDGEMENT_ACT = /(?:我(?:先)?听着|我在听|听起来|你(?:已经)?说(?:了|过)|我(?:知道|明白)(?:你|，(?:这|刚才|现在|你))|你可以(?:不回答|不说)|越界|我先停下来|我会停下来)/u;
+const ACKNOWLEDGEMENT_ACT = /(?:我(?:先)?听着|(?:我)?(?:就)?在这(?:儿|里)听(?:着)?|我在听|我听到了|我不(?:再)?(?:说|插嘴|分析|给建议)|听起来|你(?:已经)?说(?:了|过)|我(?:知道|明白)(?:你|，(?:这|刚才|现在|你))|你可以(?:不回答|不说)|越界|我先停下来|我会停下来)/u;
 const REFLECTION_ACT = /(?:听起来|你(?:现在|已经|刚刚|一边|会觉得)|这(?:件事|种处境|一下))/u;
 
 function unique<T>(items: readonly T[]): T[] {
@@ -378,7 +379,8 @@ export function validateUtteranceAgainstTurnPlan(
   }
   if (plan.advicePolicy === 'forbidden') {
     const advice = sentences(text).find((sentence) => (
-      ADVICE_ACT.test(sentence) && !PERMISSION_NOT_ADVICE.test(sentence)
+      ADVICE_ACT.test(sentence.replace(NEGATED_ADVICE_MENTION, ''))
+      && !PERMISSION_NOT_ADVICE.test(sentence)
     ));
     if (advice) {
       violations.push({

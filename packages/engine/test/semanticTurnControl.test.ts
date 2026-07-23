@@ -429,6 +429,29 @@ test('required acknowledgement is enforced instead of remaining prompt-only meta
   );
 });
 
+test('listen acknowledgements are not rejected for negating advice or using natural listening phrases', () => {
+  const control = compileSemanticTurnControl({
+    userMessage: '我现在不想听建议，也不想被分析，你就听我说一会儿。',
+  });
+
+  for (const reply of [
+    '好，我不给建议，也不分析。你继续说，我在这儿听。',
+    '好，我不给建议，也不分析。被当众否定，那种感觉很难受。我听到了。',
+    '好，我不说了。就在这儿听着。',
+    '好，我不插嘴。',
+  ]) {
+    assert.deepEqual(validateUtteranceAgainstTurnPlan(reply, control.plan), [], reply);
+  }
+
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '我不给建议，但你可以先把事情列出来再决定。',
+      control.plan,
+    ).map((violation) => violation.code),
+    ['forbidden_advice'],
+  );
+});
+
 test('the unified semantic plan owns conversation acts and always buffers before final validation', () => {
   const greeting = compileSemanticTurnControl({ userMessage: '你好' });
   const ordinary = compileSemanticTurnControl({ userMessage: '今天发生了一件事。' });
