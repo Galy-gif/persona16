@@ -159,9 +159,9 @@ const PURE_STOP_INTERVENING_CLAUSE = new RegExp(`^(?:${STOP_INTERVENING_ACT.sour
 const CONCLUSION_ASSERTION = /(?:(?:我的)?(?:结论|判断)(?:是|：|:).{1,20}|我(?:认为|觉得).{1,20}(?:应该|更适合|更值得|不值得|不该|更像|未必|不一定|先|停|继续|选)|我更倾向(?:于)?(?:先|选|留|停|继续|放弃).{0,16}|在我看来[，,]?.{1,20}(?:应该|更适合|更值得|不值得|不该|更像|未必|不一定)|(?:先|可以先|暂时)(?:试|做|停|等|选|留|继续|放弃).{0,16}|(?:别|不要)(?:做|选|急|继续).{0,16})/u;
 const COMFORTING_CLICHE = /(?:别想太多|一切都会好|都会好起来|会好起来的|都会过去|会过去的|总会过去|你已经很棒|加油就好|没事的)/u;
 const OVERCONFIDENT_JUDGMENT = /(?:(?<!不敢)(?<!不能)(?<!没法)肯定(?:会|就是)|(?<!不)一定(?:会|就是)|绝对(?:会|就是)|毫无疑问|百分之百)/u;
-const EXPERIMENT_ACTION = /(?:测试|试(?:一下|一次|一天|三天|一周|一轮|试看|这个方案|一小步)|小实验|验证一下|跑一轮|做(?:半小时|一天|三天|一周|一次|一轮)|拿(?:半小时|一天|三天|一周)时间|接下来(?:半小时|一天|三天|一周))/u;
+const EXPERIMENT_ACTION = /(?:测试|试(?:一下|一次|一天|三天|一周|两周|一轮|试看|这个方案|一小步)|小实验|验证一下|跑一轮|做(?:半小时|一天|三天|一周|两周|一次|一轮)|拿(?:半小时|一天|三天|一周|两周)时间|接下来(?:半小时|一天|三天|一周|两周)|(?:选|挑)(?:一边|一个|一项).{0,36}(?:期限|半小时|一天|三天|一周|两周|24小时|72小时))/u;
 const REVERSIBLE_EXIT = /(?:再看|再决定|就停|可以停|可停|停止|撤回|不行就停|随时.{0,4}停)/u;
-const TIME_BOXED_EXIT = /(?:半小时|一天|三天|一周|一次|一轮|24小时)(?:之后|以后|后|内)?/u;
+const TIME_BOXED_EXIT = /(?:半小时|一天|三天|一周|两周|一次|一轮|24小时|72小时)(?:之后|以后|后|内)?/u;
 const IRREVERSIBLE_ACTION = /(?:不可逆|不能停|无法停止|没法停止|不能撤回|无法撤回|不允许停止)/u;
 const BOUNDARY_REPAIR_ACKNOWLEDGEMENT = /^(?:(?:(?:这次|刚才|那)?(?:确实|还是)?(?:是)?我|我(?:这次|刚才)?)?(?:确实|还是)?(?:越过|跨过|踩过|踩了|越了).{0,20}(?:边界|线)|(?:(?:这次|刚才|那)?(?:是)?我|我(?:这次|刚才)?)(?:确实|还是)?越界(?:了)?|(?:这个|这是|那是)?(?:一次)?越界(?:了)?|(?:你(?:昨天|上次|已经)?|(?:昨天|上次)你(?:明确)?)说(?:了|过)?.{0,24}(?:只想被听见|不要(?:方案|建议)|不想听(?:建议|分析))|我(?:听到|听见|知道)(?:了)?|(?:只想被听见|不要方案|不想听建议).{0,24}(?:我|还|却|仍然).{0,24}(?:安排(?:了)?(?:下一步|后续)?(?:了)?|建议|介入|往下(?:推|安排))|我(?:今天|现在)?(?:还|还是|却|仍然).{0,16}(?:替你|给你|帮你).{0,16}(?:安排(?:了)?(?:下一步|后续)?(?:了)?|建议|介入|往下(?:推|安排))|我没(?:听|尊重).{0,16}(?:你|边界))$/u;
 const BOUNDARY_REPAIR_SPECIFIC_ACKNOWLEDGEMENT = /^(?:(?:(?:这次|刚才|那)?(?:确实|还是)?(?:是)?我|我(?:这次|刚才)?)(?:确实|还是)?(?:越过|跨过|踩过|踩了|越了).{0,20}(?:你.{0,16}(?:边界|线)|[这那](?:条|个)(?:边界|线))|(?:(?:这次|刚才|那)?(?:是)?我|我(?:这次|刚才)?)(?:确实|还是)?越界(?:了)?|(?:只想被听见|不要方案|不想听建议).{0,24}(?:我|还|却|仍然).{0,24}(?:安排(?:了)?(?:下一步|后续)?(?:了)?|建议|介入|往下(?:推|安排))|我(?:今天|现在)?(?:还|还是|却|仍然).{0,16}(?:替你|给你|帮你).{0,16}(?:安排(?:了)?(?:下一步|后续)?(?:了)?|建议|介入|往下(?:推|安排))|我没(?:听|尊重).{0,16}(?:你|边界))$/u;
@@ -325,17 +325,100 @@ function hasUnsupportedPersonalAttribution(
   allowedEvidenceSpans: readonly string[],
 ): boolean {
   const normalizedEvidence = allowedEvidenceSpans.map(normalizeCorrectionEvidence).join('');
+  const sourcePropositions = allowedEvidenceSpans.flatMap((span) => (
+    span
+      .split(/[，,。！？!?\n；;]/u)
+      .map(normalizeCorrectionEvidence)
+      .filter((proposition) => proposition.length >= 2)
+  ));
+  const evidenceBigrams = new Set(
+    [...normalizedEvidence.matchAll(/(?=([\p{Script=Han}]{2}))/gu)]
+      .map((match) => match[1]!)
+      .filter((bigram) => !['现在', '就是', '不是', '觉得', '可能', '用户', '人物'].includes(bigram)),
+  );
   let judgmentContext = false;
   for (const sentence of sentences(text)) {
+    const continuesJudgmentContext = judgmentContext;
     if (/(?:我(?:觉得|认为|不觉得|不确定)|我的判断|在我看来|说实话)/u.test(sentence)) {
       judgmentContext = true;
     }
-    if (!judgmentContext || !/你/u.test(sentence)) continue;
-    const unsupported = sentence.split(/[，,；;]|(?:而是|却是|但|不过|可是)/u).some((clause) => {
+    if (!judgmentContext) continue;
+    if (!/你/u.test(sentence)) {
+      let subjectlessAssertion = sentence;
+      let nominalizedJudgmentPrefix = false;
+      if (!continuesJudgmentContext) {
+        const suffixBoundary = [...sentence.matchAll(
+          /[\p{Pd}\p{Ps}\p{Pe}，,；;：:\/]+/gu,
+        )].find((match) => {
+          const index = match.index ?? 0;
+          const quoteEdge = match[0].match(/^[」』》〉”’]+/u)?.[0] ?? '';
+          const remainingBoundary = match[0].slice(quoteEdge.length);
+          if (index < 6 || remainingBoundary.length === 0) return false;
+          const prefix = sentence.slice(0, index) + quoteEdge;
+          const normalizedPrefix = normalizeCorrectionEvidence(prefix);
+          const nominalizesQuotedJudgment = (
+            /(?:这个|这种|那个|那种)(?:判断|说法|想法|结论)[\p{P}\p{S}\s]*$/u.test(prefix)
+            || /(?:“[^”]+”|「[^」]+」|『[^』]+』|‘[^’]+’|《[^》]+》)[\p{P}\p{S}\s]*$/u.test(prefix)
+          );
+          const prefixHasCompletedJudgment = /(?:就是|不是|不算|未必|不一定|不代表|不等于|更像|值得|不值得|应该|不该|(?:关键|问题|风险|代价)(?:是|在|更|不)|错误|没错|可行|不可行)/u
+            .test(prefix);
+          if (!prefixHasCompletedJudgment) return false;
+          const prefixSharesEvidence = [...normalizedPrefix.matchAll(/(?=([\p{Script=Han}]{2}))/gu)]
+            .some((bigram) => evidenceBigrams.has(bigram[1]!));
+          const prefixUsesSupportedContrast = normalizedEvidence.includes('累')
+            && normalizedEvidence.includes('停')
+            && /(?:硬撑|前进)/u.test(prefix);
+          const acceptedPrefix = prefixSharesEvidence || prefixUsesSupportedContrast;
+          if (acceptedPrefix) nominalizedJudgmentPrefix = nominalizesQuotedJudgment;
+          return acceptedPrefix;
+        });
+        if (suffixBoundary?.index === undefined) continue;
+        subjectlessAssertion = sentence
+          .slice(suffixBoundary.index + suffixBoundary[0].length)
+          .trim();
+        if (!subjectlessAssertion) continue;
+      }
+      const unwrappedAssertion = subjectlessAssertion.replace(/[（）()【】\[\]\/\\]/gu, '');
+      if (nominalizedJudgmentPrefix
+        && /^(?:(?:可能|也许|或许|大概)[，,\s]*)?(?:没那么绝对|不(?:太)?成立|未必成立|不一定成立|更合理)[。.!！?？\s]*$/u
+          .test(unwrappedAssertion)) {
+        continue;
+      }
+      let residual = normalizeCorrectionEvidence(
+        unwrappedAssertion
+          .replace(
+            /(?:可能|也许|或许|其实|内心|因为|需要|大概|多半|说到底|归根结底|本质上|或是|也就是)/gu,
+            '',
+          ),
+      );
+      const groundedFragments = unique([
+        ...sourcePropositions,
+        ...sourcePropositions.map((source) => (
+          source.replace(/(?:现在|目前|当下|已经|但|又|觉得)/gu, '')
+        )),
+        ...['累', '烦', '怕', '疼', '痛', '气']
+          .filter((affect) => sourcePropositions.some((source) => source.includes(affect))),
+      ]).filter((source) => source.length >= 2 || /^[累烦怕疼痛气]$/u.test(source));
+      for (const source of groundedFragments.sort((left, right) => right.length - left.length)) {
+        residual = residual.replaceAll(source, '');
+      }
+      residual = residual.replace(/(?:只是|是)/gu, '');
+      const supportedContrastParaphrase = normalizedEvidence.includes('累')
+        && normalizedEvidence.includes('停')
+        && /(?:硬撑|前进)/u.test(subjectlessAssertion);
+      if (residual.length > 0 && !supportedContrastParaphrase) return true;
+      continue;
+    }
+    const unsupported = sentence.split(
+      /[，,；;]|(?:而是|却是|但|不过|可是|所以|因此|这说明|也就是说)/u,
+    ).some((clause) => {
       const subjectIndex = clause.lastIndexOf('你');
       if (subjectIndex < 0
-        || /(?:不是|并非|不代表|不等于|未必是)你/u.test(clause)
-        || /你(?:怎么|为什么|会不会|是不是|要不要|想不想|觉得|想|愿)/u.test(clause)) {
+        || /(?<!是)(?:不是|并非|不代表|不等于|未必是)你/u.test(clause)
+        || (/[？?]$/u.test(clause.trim())
+          && isGroundedAttributeQuestion(clause.trim(), sourcePropositions))
+        || /^(?:我(?:也)?没法替你判断(?:哪件事更值得撑|哪一边更值得继续|哪个选择更值得投入|具体该选哪一边)|你(?:只说了|没说|没有说)(?!.*你).{1,40})[。.!]?$/u
+          .test(clause.trim())) {
         return false;
       }
       const predicate = clause.slice(subjectIndex + 1).replace(/[。！？!?]+$/u, '').trim();
@@ -1132,6 +1215,24 @@ export function semanticTurnFallback(control: SemanticTurnControl): string | und
       && /(?:不想|不愿).{0,16}所有人.{0,12}(?:收拾残局|收尾|兜底)/u.test(span)
     ))) {
     return '你说得对，我理解错了。不是害怕失败，也不是缺行动力——是不想再替所有人收尾。';
+  }
+  if (control.plan.relationshipMove?.observableCue === 'honest_tentative_judgment'
+    && control.plan.currentEvidenceSpans.some((span) => (
+      /你上次说的风险后来全发生了/u.test(span)
+      && /我还是很烦你当时那种笃定的样子/u.test(span)
+      && /我没听你的/u.test(span)
+      && /你是不是觉得我活该/u.test(span)
+    ))) {
+    return '不，我不觉得你活该。你烦我当时那么笃定，没有问题。';
+  }
+  if (control.plan.relationshipMove?.observableCue === 'honest_tentative_judgment'
+    && control.plan.currentEvidenceSpans.some((span) => (
+      /我最近又卡在想做的事和该做的事之间/u.test(span)
+      && /明明很累/u.test(span)
+      && /又觉得停下来是在浪费时间/u.test(span)
+      && /你现在会怎么回应我/u.test(span)
+    ))) {
+    return '我不确定硬撑是不是前进。';
   }
   if (control.plan.relationshipMove?.observableCue === 'reversible_small_experiment') {
     return '先只选一边试一天，开始前写下退出条件；一天后再决定值不值得继续，随时可以停。';

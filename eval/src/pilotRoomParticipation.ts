@@ -202,6 +202,8 @@ export function validatePilotRoomCaseExpectations(
     const transcriptText = participation.transcript.map(({ text }) => text).join('\n');
     if (signal === 'stop_condition_gap'
       && !/(?:(?:尚未|仍未|还未|还没)(?:确定|明确|写明|设定|定)停止条件|停止条件(?:也)?(?:还没|还没有)(?:确定|明确|写明|设定|定)|停止条件(?:也)?(?:尚未|仍未|未)(?:确定|明确|写明|设定)|停止条件(?:也)?(?:不明确|没定|未定))/u
+        .test(transcriptText)
+      && !/(?:(?:两个|两项|这些|以下)?缺口(?:现在|目前|眼下|还|都|仍|尚|现在都|目前都)?(?:就)?(?:得填|要填|待填|未填|没填|需要补|尚未补|还没补).{0,80}(?:停止条件|什么情况下.{0,8}停))/u
         .test(transcriptText)) {
       errors.push('missing_required_content:stop_condition_gap');
     }

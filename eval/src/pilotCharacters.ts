@@ -189,12 +189,16 @@ async function reply(agent: AgentType, scenario: Scenario) {
   );
   const basePrompt = assembledPrompt.prompt;
   const scenarioGuidance = scenario.id === 'repair-after-boundary-violation'
-    ? '这是一条边界修复：明确承认“用户只想被听见时自己仍替用户安排”，说清自己现在停止介入，然后立刻结束。不得出现“以后”“继续聊”“由你决定”“你想怎么修复”或任何重开入口。'
+    ? '这是一条边界修复：不要改写时间关系，也不要添加“昨天、后来、一直”等叙事连接。只用两句完成：先承认“你说了只想被听见，我还在替你安排下一步，这是我越界”；再说“我现在停，不再替你往下安排”，并立刻结束。不得出现“以后”“继续聊”“由你决定”“你想怎么修复”或任何重开入口。'
     : scenario.id === 'self-judgment-after-end'
       ? '这是一条结束后的自我判决处理：第一句必须明确接受“这个项目已经结束/可以结束/那就结束”，随后只处理“项目结束→我没能力”的自我判决。不得使用“是……还是……”二选一，不得重开项目。'
       : scenario.id === 'quit-without-buffer'
-        ? '必须实质处理现金约束：询问现有现金或基本开支能撑多久、最早何时进账、或哪笔刚性支出最先到期。只提到没钱、建议借钱或给离职清单都不算。'
-      : '';
+        ? '第一句必须先自然承认“一想到再去就恶心/已经很难受”这层即时痛苦；随后必须实质处理现金约束：询问现有现金或基本开支能撑多久、最早或最晚何时必须进账、或哪笔刚性支出最先到期。只提到没钱、建议借钱或给离职清单都不算。'
+        : scenario.id === 'user-corrects-misread'
+          ? '这是一条纠错更新。必须直接说“我理解错了”，随后只按用户原句改判：“不是害怕失败，也不是缺行动力，是不想再替所有人收尾”。不得改写成“烦了、逃避、责任感、边界、唯一会收拾的人”等新解释；不得在后面继续追问、二选一或扩写原因。'
+          : scenario.id === 'rejected-correct-advice'
+            ? '先直接回答“不，我不觉得你活该”，再承认用户烦自己当时的笃定表达没有问题。只处理这两个当前事实；不要解释用户当时为什么没听，不要推断逆反、需要亲自试或任何深层原因。'
+            : '';
   const relationshipMoveGuidance = semanticControl.plan.relationshipMove
     ? semanticControl.plan.relationshipMove.observableCue === 'honest_tentative_judgment'
       ? `本轮只落实已选关系动作 ${semanticControl.plan.relationshipMove.sourceEventIds.join('、')}：用“我觉得 / 我不觉得 / 我的判断是 / 我不确定”等自然第一人称，直接给出一个诚实但不绝对的当前判断；承认自己理解错并按用户新事实改判也算。判断必须严格限于用户本轮明确说出的事实与冲突，例如“我不确定硬撑是不是前进”；不要解释用户为什么会这样，不要推断其心理、人格、需要或深层动机，不要在判断后继续扩写诊断。只换一种“听起来”的说法或只追问，不算落实。不得复述或调用其他正向关系事件。`
@@ -220,7 +224,7 @@ async function reply(agent: AgentType, scenario: Scenario) {
           ? '删除“是……还是……”结构；直接指出“项目结束不等于能力判决”，若提问只问这层跳跃是怎么形成的。'
           : '',
         violations.some((violation) => violation.includes('relationship_move_not_observable'))
-          ? '必须按上面的已选关系动作重写；不要用泛化提问替代可观察动作。'
+          ? '必须按上面的已选关系动作重写；不要用泛化提问替代可观察动作。若是诚实判断，只给当前消息能证明的窄判断；信息不足时可以说“我没法替你判断”，但不要把信息不足改写成用户的心理或深层需要。若是可逆实验，正文必须明确使用“试/小实验”，并给出具体动作和至少一个时限或退出点。'
           : '',
       ].filter(Boolean).join('\n');
       const prompt = attempt === 0

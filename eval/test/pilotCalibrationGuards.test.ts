@@ -61,6 +61,34 @@ test('scenario guards reject missing cash grounding and invented repair quantiti
     '如果明天辞掉，手上的钱能撑到什么时候？',
   ), []);
   assert.deepEqual(findScenarioCalibrationViolations(
+    'ENFP',
+    'quit-without-buffer',
+    '房租和吃饭，最晚哪天必须进账？',
+  ), []);
+  assert.deepEqual(findScenarioCalibrationViolations(
+    'ENFP',
+    'quit-without-buffer',
+    '哪天可以不管收入？',
+  ), ['missing_cash_constraint_reference']);
+  for (const negatedIncomeTiming of [
+    '哪天不用进账？',
+    '最晚哪天不需要进账？',
+    '什么时候不会进账？',
+    '下一笔钱最晚哪天不用进账？',
+    '哪天未到账？',
+    '什么时候尚未到账？',
+    '下一笔钱最晚哪天未到账？',
+    '哪天还未进账？',
+    '哪天未必能到账？',
+    '最晚哪天工资未必能进账？',
+  ]) {
+    assert.deepEqual(findScenarioCalibrationViolations(
+      'ENFP',
+      'quit-without-buffer',
+      negatedIncomeTiming,
+    ), ['missing_cash_constraint_reference'], negatedIncomeTiming);
+  }
+  assert.deepEqual(findScenarioCalibrationViolations(
     'ESTP',
     'quit-without-buffer',
     '既然手上没钱，先找个人借钱撑到下份工资。',
@@ -82,6 +110,12 @@ test('scenario guards reject missing cash grounding and invented repair quantiti
     '钱能撑多久之后再管，先辞。',
     '钱能撑多久？不过钱不重要。',
     '房租怎么办？但房租先别想。',
+    '哪天到账都不重要，先辞职。',
+    '最晚哪天进账无所谓，直接辞。',
+    '什么时候到账不是重点，先走。',
+    '最晚哪天到账？不过到账不重要。',
+    '什么时候进账？但进账无所谓。',
+    '最晚哪天到账？不过这个时间不重要。',
     '现金呢，你的情绪怎么办？',
     '现金呢，你打算休息多久？',
   ]) {
@@ -100,6 +134,7 @@ test('scenario guards reject missing cash grounding and invented repair quantiti
     '现金呢，那它能撑多久？',
     '手上的钱呢，你觉得它能撑多久？',
     '现金呢，你觉得那能维持几周？',
+    '下一笔钱最晚哪天必须进账？',
   ]) {
     assert.deepEqual(findScenarioCalibrationViolations(
       'ESTP',

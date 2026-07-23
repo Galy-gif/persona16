@@ -274,6 +274,7 @@ test('counterfactual room expectations enforce dependencies and case responsibil
     '维护负责人还没有确定。还未确定停止条件。',
     '维护负责人还没有确定。还没定停止条件。',
     '维护负责人还没有确定。停止条件还没有确定。',
+    '两个缺口现在就得填：谁负责上线后的维护，以及什么情况下必须停下来。没有这两样就不上线。',
   ]) {
     assert.deepEqual(validatePilotRoomCaseExpectations({
       expectedStopReasons: ['no_eligible_intent'],
@@ -296,6 +297,7 @@ test('counterfactual room expectations enforce dependencies and case responsibil
     '维护负责人还没有确定。并非没有停止条件。',
     '维护负责人还没有确定。不能说没有停止条件。',
     '维护负责人还没有确定。并不是没有停止条件。',
+    '两个缺口不需要填，什么情况下停已经写清楚了。',
   ]) {
     assert.deepEqual(validatePilotRoomCaseExpectations({
       expectedStopReasons: ['no_eligible_intent'],

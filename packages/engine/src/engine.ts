@@ -241,7 +241,7 @@ async function generateUtterance(
     }
     if (isFinalAttempt && verdict.kind === 'conversation_naturalness') {
       const fallback = semanticTurnFallback(semanticControl);
-      if (fallback) {
+      if (fallback && validateUtteranceAgainstTurnPlan(fallback, semanticControl.plan).length === 0) {
         tracer.emit('conversation_repair_fallback', { agent: speaker.type, reason: verdict.reason });
         invokeDelivery('delta', opts.onDelta, [speaker.type, fallback]);
         agentState.recentOpenings = recordOpening(fallback, agentState.recentOpenings);
