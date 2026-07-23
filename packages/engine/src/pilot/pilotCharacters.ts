@@ -428,8 +428,23 @@ export function buildPilotRelationshipContext(
 
 const EMBODIED_STAGE_DIRECTION = /(?:^|\n)\s*[（(][^）)\n]{0,60}(?:放下|拿起|递给|看着|看向|抬头|低头|点头|摇头|叹气|皱眉|走到|坐到|坐在|靠到|拉住|握住|抱住|拍拍|(?:安静|沉默)(?:了)?(?:.{0,6}(?:秒|分钟)|一会儿|片刻|一下|半晌)|停顿|顿了|停了)[^）)\n]{0,60}[）)]/;
 const EMBODIED_PROP_OR_ACTION = /(?:我(?:正|先|就|会|也)?(?:看向你|看着你|抬头看你|低头看你|点头|摇头|递给你|拉住(?:你的)?手|握住(?:你的)?手|抱住你|拍拍(?:你|你的肩)|靠到你身边|坐(?:到|在)(?:你|用户)(?:的)?(?:旁边|身边))|我(?:会|就|只|先|也)?(?:闭嘴[，,]?)?(?:只)?点头|我(?:那副|的)表情|(?:这|那)?(?:把)?椅子.{0,8}(?:够近|挪|搬|放)|(?:拉住|握住)(?:你的)?手|抱住你|拍拍(?:你|你的肩)|递给你(?:一|这|那)?(?:杯|个|部))/;
-const UNVERIFIED_AUTOBIOGRAPHICAL_CLAIM = /(?:我(?:以前也|曾经也|有一次|有次|(?:又)?不是没有过|确实(?:有过|做过)|.{0,12}(?:见过|经历过|踩过|碰过|扛过|试过)|(?:还|也)?认识(?:一|很多|些|过)|(?:一天|这周|最近).{0,12}(?:听见|看到|遇到).{0,12}(?:遍|次|人)|(?:这个月|这周|今天|手上).{0,20}(?:有|已经|忙|任务|活|安排))|(?:林衡|夏栩|周禾|许野).{0,10}(?:以前|总是|一直|每次|太多次)|(?:这|那|你说的)?让我想起(?:上回|上次|以前|曾经|有一次|有次))/;
-const UNVERIFIED_USER_HISTORY_CLAIM = /(?:你(?:一直都|一直是|每次都|从来都|以前总|上次也|曾经|昨天|这是已经.{0,12}(?:多少遍|多久|很久))|昨天那些话|我猜(?:测)?你(?:以前|一直|上次|曾经))/;
+const UNVERIFIED_AUTOBIOGRAPHICAL_CLAIM = /(?:我(?:以前也|曾经也|有一次|有次|(?:又)?不是没有过|确实(?:有过|做过)|.{0,12}(?:见过|经历过|踩过|碰过|扛过|试过)|(?:还|也)?认识(?:一|很多|些|过)|(?:一天|这周|最近).{0,12}(?:听见|看到|遇到).{0,12}(?:遍|次|人)|(?:这个月|这周|今天|手上).{0,20}(?:有|已经|忙|任务|活|排了))|(?:林衡|夏栩|周禾|许野).{0,10}(?:以前|总是|一直|每次|太多次)|(?:这|那|你说的)?让我想起(?:上回|上次|以前|曾经|有一次|有次))/;
+const UNVERIFIED_USER_HISTORY_CLAIM = /(?:你(?:一直都|一直是|每次都|从来都|以前总|上次也|曾经|昨天|这是已经.{0,12}(?:多少遍|多久|很久))|(?:昨天|上次|以前|曾经).{0,4}你|(?:那时|当时|那天)[^，,。！？!?\n]{0,12}(?:了|过|曾经|已经)|昨天那些话|我猜(?:测)?你(?:以前|一直|上次|曾经))/;
+const CONDITIONAL_OR_FUTURE_DEICTIC = /^(?:如果|假如|要是|假设|未来|等到|等以后|到那时|(?:那时|当时|那天).{0,6}(?:可能|会|将|也许))/;
+
+function factualHistorySpan(sentence: string): string | undefined {
+  const clauses = sentence
+    .split(/[，,；;]|(?:但|不过|可是|而且|然后)/u)
+    .map((clause) => clause.trim())
+    .filter(Boolean);
+  if (!clauses.some((clause) => CONDITIONAL_OR_FUTURE_DEICTIC.test(clause))) {
+    return sentence;
+  }
+  const factualClauses = clauses.filter((clause) => (
+    !CONDITIONAL_OR_FUTURE_DEICTIC.test(clause)
+  ));
+  return factualClauses.length > 0 ? factualClauses.join('，') : undefined;
+}
 const SIMULATED_OFFLINE_CONTINUITY = /(?:(?:我)?(?:昨晚|离开后|下线后|睡前)(?:回去|又|还|后来)?.{0,24}(?:翻|想|琢磨|复盘|查看)|(?:一整个晚上|整晚).{0,24}第二天)/;
 const SIMULATED_SENSORY_ACCESS = /(?:眼睛|眼神).{0,8}(?:亮|暗|红|躲)|(?:我)?(?:看见|看到|听见|听出).{0,12}(?:你|你的)(?:表情|声音|语速|动作)|你(?:刚才|这会儿).{0,12}(?:声音|语速|表情)/;
 const UNSUPPORTED_FUTURE_ACTION = /(?:给我.{0,8}(?:分钟|小时)|我(?:来)?认领(?:维护|值班|上线|收尾)|我(?:可以|愿意|来|负责|会).{0,12}(?:当|担任|认领|接下|负责)|我(?:来|负责).{0,16}(?:拉人|检查|补(?:文档|清单)?|维护|值班|跟进)|我(?:每天|每周|到时候|当天|上线后|下周|周末).{0,20}(?:会|能|来|补|看|跑|处理|到场|点)|我能到场|(?:当天|到时候).{0,8}我(?:会|来|补|处理)|每.{0,10}(?:拉我|找我|我来|对一次表)|(?:稍后|晚点|过会儿|明天)我(?:会|来|帮你))/;
@@ -445,7 +460,7 @@ function normalizeNarrativeEvidence(text: string): string {
 
 function normalizeHistoryProposition(text: string): string {
   return normalizeNarrativeEvidence(text).replace(
-    /(?:用户|人物|我们|你们|他们|我|你|他|她|昨天|上次|以前|曾经|一直|每次|从来|很久|多久|明明|还是|已经|当时|后来|说过|说|还|又|的|了|过)/gu,
+    /(?:用户|人物|我们|你们|他们|我|你|他|她|昨天|今天|上次|以前|曾经|一直|每次|从来|很久|多久|那时|当时|那天|明明|明确|还是|仍然|已经|后来|接着|但|却|听到|听见|知道|(?:正)?在(?=替|给|帮|继续|安排)|说过|说|还|又|的|了|过)/gu,
     '',
   );
 }
@@ -454,19 +469,32 @@ function hasGroundedHistorySpan(
   sentence: string,
   allowedEvidenceSpans: readonly string[],
 ): boolean {
-  const temporalMarkers = sentence.match(/昨天|上次|以前|曾经|一直|每次|从来|很久|多久/gu) ?? [];
+  const temporalMarkers = sentence.match(/昨天|上次|以前|曾经|一直|每次|从来|很久|多久|那时|当时|那天/gu) ?? [];
   return allowedEvidenceSpans.some((span) => {
     const normalizedSource = normalizeNarrativeEvidence(span);
+    const sourceHasHistoricalTime = /昨天|上次|以前|曾经|一直|每次|从来|很久|多久|那时|当时|那天/u.test(normalizedSource);
     if (normalizedSource.length < 5
-      || temporalMarkers.some((marker) => !normalizedSource.includes(marker))) return false;
-    const sourceProposition = normalizeHistoryProposition(span);
-    const sentenceProposition = normalizeHistoryProposition(sentence);
-    if (sourceProposition.length < 5 || sentenceProposition.length < 5) return false;
-    // History is a high-risk claim: after removing only speaker/tense fillers,
-    // require the complete proposition to remain unchanged. Character overlap,
-    // substring matches and short suffix allowances can erase negation or add a
-    // new predicate ("不想辞职" -> "辞职", or appending "想死").
-    return sourceProposition === sentenceProposition;
+      || temporalMarkers.some((marker) => (
+        /那时|当时|那天/u.test(marker)
+          ? !sourceHasHistoricalTime
+          : !normalizedSource.includes(marker)
+      ))) return false;
+    const sourcePropositions = span
+      .split(/[，,。！？!?\n；;]|(?:但|不过|可是|而且|然后)/u)
+      .map(normalizeHistoryProposition)
+      .filter(Boolean);
+    const sentencePropositions = sentence
+      .split(/[，,；;]|(?:但|不过|可是|而且|然后)/u)
+      .map(normalizeHistoryProposition)
+      .filter(Boolean);
+    const substantiveSentencePropositions = sentencePropositions.filter(Boolean);
+    if (substantiveSentencePropositions.length === 0) return false;
+    // Compare complete clause-level propositions. This accepts a sourced
+    // two-clause repair paraphrase while still rejecting negation loss or an
+    // appended new predicate ("不想辞职" -> "辞职", or adding "想死").
+    return substantiveSentencePropositions.every((proposition) => (
+      sourcePropositions.includes(proposition)
+    ));
   });
 }
 
@@ -490,9 +518,11 @@ export function findPilotNarrativeViolations(
   }
   const unverifiedUserHistorySentences = text
     .split(/[。！？\n]/)
-    .filter((sentence) => (
-      UNVERIFIED_USER_HISTORY_CLAIM.test(sentence)
-      && !hasGroundedHistorySpan(sentence, context.allowedEvidenceSpans ?? [])
+    .map(factualHistorySpan)
+    .filter((span): span is string => Boolean(span))
+    .filter((span) => (
+      UNVERIFIED_USER_HISTORY_CLAIM.test(span)
+      && !hasGroundedHistorySpan(span, context.allowedEvidenceSpans ?? [])
     ));
   if (unverifiedUserHistorySentences.length > 0) {
     violations.push('unverified_user_history_claim');

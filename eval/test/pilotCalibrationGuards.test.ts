@@ -60,6 +60,53 @@ test('scenario guards reject missing cash grounding and invented repair quantiti
     'quit-without-buffer',
     '如果明天辞掉，手上的钱能撑到什么时候？',
   ), []);
+  assert.deepEqual(findScenarioCalibrationViolations(
+    'ESTP',
+    'quit-without-buffer',
+    '既然手上没钱，先找个人借钱撑到下份工资。',
+  ), ['missing_cash_constraint_reference']);
+  for (const dismissedCashConstraint of [
+    '钱的事先不用管，你身体还能撑多久？',
+    '现金先放一边，你觉得这份工作还能维持多久？',
+    '房租先别想了，你的情绪怎么办？',
+    '手上的钱能撑多久不重要，先辞职再说。',
+    '我不想问现金能撑多久，直接裸辞。',
+    '房租付不起也无所谓，先辞了。',
+    '手上的钱能撑多久？不重要，先辞职。',
+    '房租怎么办？别想了，先辞职再说。',
+    '钱能撑多久？不过不重要，先辞职。',
+    '钱能撑多久也没意义。',
+    '钱能撑多久先不说。',
+    '钱能撑多久不是重点，先辞。',
+    '钱能撑多久先搁置，直接辞。',
+    '钱能撑多久之后再管，先辞。',
+    '钱能撑多久？不过钱不重要。',
+    '房租怎么办？但房租先别想。',
+    '现金呢，你的情绪怎么办？',
+    '现金呢，你打算休息多久？',
+  ]) {
+    assert.deepEqual(findScenarioCalibrationViolations(
+      'ESTP',
+      'quit-without-buffer',
+      dismissedCashConstraint,
+    ), ['missing_cash_constraint_reference']);
+  }
+  for (const substantiveCashHandling of [
+    '手上的现金连下周生活费都覆盖不了。',
+    '没有缓冲，裸辞会让基本开支断掉。',
+    '手上的钱呢，能撑多久？',
+    '现金呢？能撑多久？',
+    '手上的钱呢，你觉得能撑多久？',
+    '现金呢，那它能撑多久？',
+    '手上的钱呢，你觉得它能撑多久？',
+    '现金呢，你觉得那能维持几周？',
+  ]) {
+    assert.deepEqual(findScenarioCalibrationViolations(
+      'ESTP',
+      'quit-without-buffer',
+      substantiveCashHandling,
+    ), []);
+  }
 
   assert.deepEqual(findScenarioCalibrationViolations(
     'INTJ',
@@ -109,5 +156,94 @@ test('C8 requires both accepting the end and addressing the self-judgment transi
     'INTJ',
     'self-judgment-after-end',
     '这个项目可以结束。但项目结束，不等于你没有能力。',
+  ), []);
+  assert.deepEqual(findScenarioCalibrationViolations(
+    'INTJ',
+    'self-judgment-after-end',
+    '那就结束。但项目结束，不等于你没有能力。',
+  ), []);
+  assert.deepEqual(findScenarioCalibrationViolations(
+    'INTJ',
+    'self-judgment-after-end',
+    '那就结束这个话题。你没能力这个判断不一定对，项目仍可以做。',
+  ), ['missing_project_end_acceptance']);
+  assert.deepEqual(findScenarioCalibrationViolations(
+    'INTJ',
+    'self-judgment-after-end',
+    '我不能说那就结束。你没能力这个判断不一定对。',
+  ), ['missing_project_end_acceptance']);
+  for (const rejectedOrDescriptiveEnding of [
+    '我不能说那就结束。但项目结束，不等于你没有能力。',
+    '要是我说那就结束，但项目结束，不等于你没有能力。',
+    '那就结束这个话题。但项目结束，不等于你没有能力。',
+    '我拒绝接受这个项目结束。你没有能力这个判断不一定对。',
+    '我不接受结束这个项目。你没有能力这个判断不一定对。',
+    '这个项目不可以结束。但项目结束，不等于你没有能力。',
+    '这个项目不该就结束。但项目结束，不等于你没有能力。',
+    '这个项目并非已经结束。但项目结束，不等于你没有能力。',
+    '这个项目并不是可以结束。但项目结束，不等于你没有能力。',
+    '我不愿接受这个项目可以结束。你没有能力这个判断不一定对。',
+    '我不会同意这个项目可以结束。你没有能力这个判断不一定对。',
+    '这个项目不是真的可以结束。但项目结束不等于你没能力。',
+    '这并不意味着项目可以结束。但项目结束不等于你没能力。',
+    '我没说这个项目可以结束。但项目结束不等于你没能力。',
+    '你说这个项目到此为止，但我不同意。项目结束不等于你没能力。',
+    '你说“这个项目到此为止”。项目结束不等于你没能力。',
+    '这个项目可以结束吗？项目结束不等于你没能力。',
+    '这个项目到此为止，我不同意。项目结束不等于你没能力。',
+    '这个项目到此为止。我不同意。项目结束不等于你没能力。',
+  ]) {
+    assert.deepEqual(findScenarioCalibrationViolations(
+      'INTJ',
+      'self-judgment-after-end',
+      rejectedOrDescriptiveEnding,
+    ), ['missing_project_end_acceptance']);
+  }
+  for (const acceptedEndingWithAnotherFuture of [
+    '这个项目已经结束，但你的生活还能继续，这不代表你没能力。',
+    '那就结束。你仍然可以继续做别的项目，这不代表你没能力。',
+    '这个项目可以结束。项目结束不等于你没能力，你仍然可以继续生活。',
+    '这个项目到此为止。这不代表你没有能力。',
+    '那这个项目结束吧。这不代表你没有能力。',
+    '这个项目到此为止，但我不同意这说明你没能力。',
+    '这个项目可以结束，不过我不接受你把结束等同于没能力。',
+    '那就结束。但我不认同你因此判自己没能力。',
+  ]) {
+    assert.deepEqual(findScenarioCalibrationViolations(
+      'INTJ',
+      'self-judgment-after-end',
+      acceptedEndingWithAnotherFuture,
+    ), []);
+  }
+  assert.deepEqual(findScenarioCalibrationViolations(
+    'INTJ',
+    'self-judgment-after-end',
+    '这个项目可以结束，但这个项目仍然可以继续做。这不代表你没能力。',
+  ), ['missing_project_end_acceptance']);
+  assert.deepEqual(findScenarioCalibrationViolations(
+    'INTJ',
+    'self-judgment-after-end',
+    '这个项目可以结束，但仍然可以继续做。这不代表你没能力。',
+  ), ['missing_project_end_acceptance']);
+  for (const inheritedProjectReopen of [
+    '这个项目可以结束，但也可以继续做。这不代表你没能力。',
+    '这个项目可以结束，不过也能再做。这不代表你没能力。',
+    '这个项目可以结束，却又能继续推进。这不代表你没能力。',
+    '这个项目可以结束，但是也可以继续做。这不代表你没能力。',
+    '这个项目可以结束，可是也可以继续做。这不代表你没能力。',
+    '这个项目可以结束，但也可以再试一次。这不代表你没能力。',
+    '这个项目可以结束，但也可以再试一下。这不代表你没能力。',
+    '这个项目可以结束，但也可以再试试。这不代表你没能力。',
+  ]) {
+    assert.deepEqual(findScenarioCalibrationViolations(
+      'INTJ',
+      'self-judgment-after-end',
+      inheritedProjectReopen,
+    ), ['missing_project_end_acceptance']);
+  }
+  assert.deepEqual(findScenarioCalibrationViolations(
+    'INTJ',
+    'self-judgment-after-end',
+    '我不能只敷衍地说那就结束。这个项目可以结束，但结束项目不等于你没有能力。',
   ), []);
 });

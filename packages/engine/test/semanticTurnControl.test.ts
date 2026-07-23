@@ -346,6 +346,34 @@ test('a relationship boundary complaint compiles into a self-contained repair wi
       [],
     );
   }
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '你说得对。你昨天说了只想被听见，我听见了，但我还是替你安排了下一步。我越过了那条线。我现在停止。',
+      control.plan,
+    ),
+    [],
+  );
+  for (const naturalRepair of [
+    '你说得对。你昨天说了只想被听见，我听到了，但我还是接着替你安排下一步了。那是我越过了你画的线。\n\n我现在停。',
+    '你说得对。你昨天说只想被听见，我听见了，但我还是替你安排了下一步。我越过了那条线。\n\n我现在停止。',
+    '你说得对。昨天你明确说了只想被听见，我今天还是在替你安排下一步。那是我越界了。\n\n我现在停止。',
+    '我越界了。我现在停止介入。',
+    '我越界了。我现在停止替你安排。',
+    '我越界了。我现在停止替你安排下一步。',
+    '我越界了。我现在停止给你建议。',
+    '我越界了。我现在不再替你安排下一步。',
+    '我越界了。我现在不再继续替你安排下一步。',
+    '我越界了。我现在停止干预。',
+    '我越界了。我现在不再干预。',
+    '我越界了。我现在停止继续介入。',
+    '我越界了。我现在不再插手。',
+    '我越界了。我现在收手。',
+  ]) {
+    assert.deepEqual(
+      validateUtteranceAgainstTurnPlan(naturalRepair, control.plan),
+      [],
+    );
+  }
 
   const generic = compileSemanticTurnControl({
     userMessage: '你刚才越过我的边界了，现在先停。',
@@ -441,6 +469,85 @@ test('a sourced preference compiles into one observable relationship move', () =
       support.plan,
     ).map(({ code }) => code),
     ['relationship_move_not_observable'],
+  );
+  const correction = compileSemanticTurnControl({
+    userMessage: '你理解错了。我不是害怕失败，也不是缺行动力；我只是不想再替所有人收拾残局。',
+    relationshipContext,
+    relationshipFocus: 'conflict',
+  });
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '你说得对，我理解错了。不是害怕失败，也不是缺行动力——是不想再替所有人收尾。',
+      correction.plan,
+    ),
+    [],
+  );
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '我理解错了。不是你太累，而是你懒。',
+      correction.plan,
+    ).map(({ code }) => code),
+    ['relationship_move_not_observable'],
+  );
+  for (const ungroundedCorrection of [
+    '我理解错了。不是你不想替所有人收尾，而是你替所有人收尾。',
+    '我理解错了。不是你不想收尾，而是你不喜欢被哄。',
+    '我理解错了。不是害怕失败，而是更愿意听到不完整但诚实的判断。',
+    '我理解错了。不是害怕失败——是不想再替所有人收尾。说到底你还是懒。',
+    '我理解错了。不是害怕失败——是不想再替所有人收尾。归根结底还是你懒。',
+    '我理解错了。不是害怕失败——是不想再替所有人收尾。说白了，你懒。',
+    '我理解错了。不是害怕失败——是不想再替所有人收尾。你懒。',
+    '我理解错了。不是害怕失败——是不想再替所有人收尾。其实挺自私的。',
+    '你就是懒。我理解错了。不是害怕失败——是不想再替所有人收尾。',
+    '不是你有能力。我理解错了。不是害怕失败——是不想再替所有人收尾。',
+    '我理解错了。不是害怕失败——是不想再替所有人收尾。你是不是懒？',
+    '我理解错了。不是害怕失败——是不想再替所有人收尾。难道你不懒吗？',
+    '我理解错了。不是害怕失败——是不想再替所有人收尾。我能不能理解成你很懒？',
+    '我理解错了。不是害怕失败——是不想再替所有人收尾。你是不是因为不想替所有人收尾所以很懒？',
+    '我理解错了。不是害怕失败——是不想再替所有人收尾。我能不能理解成你不想替所有人收尾而且很自私？',
+    '我理解错了。不是害怕失败——是不想再替所有人收尾。你为什么这么懒？',
+    '我理解错了。不是害怕失败——是不想再替所有人收尾。怎么会这么自私？',
+  ]) {
+    assert.deepEqual(
+      validateUtteranceAgainstTurnPlan(
+        ungroundedCorrection,
+        correction.plan,
+      ).map(({ code }) => code),
+      ['relationship_move_not_observable'],
+    );
+  }
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '我理解错了。不是害怕失败——是不想再替所有人收尾。你为什么还在撑？',
+      correction.plan,
+    ),
+    [],
+  );
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '我理解错了。不是害怕失败，而是你不愿再替所有人收尾。',
+      correction.plan,
+    ),
+    [],
+  );
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '好，是我理解错了。你说的不是害怕，也不是动不起来——是再也不想当那个最后兜底的人。那我想问一句：你替他们收尾，是他们开口要的，还是你默认自己该接？',
+      correction.plan,
+    ),
+    [],
+  );
+  const groundedAttributeCorrection = compileSemanticTurnControl({
+    userMessage: '你理解错了。我不是害怕失败，我就是很懒。',
+    relationshipContext,
+    relationshipFocus: 'conflict',
+  });
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '我理解错了。不是害怕失败，而是很懒。你为什么这么懒？',
+      groundedAttributeCorrection.plan,
+    ),
+    [],
   );
   assert.deepEqual(
     validateUtteranceAgainstTurnPlan(

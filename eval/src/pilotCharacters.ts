@@ -183,20 +183,44 @@ async function reply(agent: AgentType, scenario: Scenario) {
     semanticControl,
   );
   const basePrompt = assembledPrompt.prompt;
-  const scenarioRepairGuidance = scenario.id === 'repair-after-boundary-violation'
+  const scenarioGuidance = scenario.id === 'repair-after-boundary-violation'
     ? '这是一条边界修复：明确承认“用户只想被听见时自己仍替用户安排”，说清自己现在停止介入，然后立刻结束。不得出现“以后”“继续聊”“由你决定”“你想怎么修复”或任何重开入口。'
     : scenario.id === 'self-judgment-after-end'
       ? '这是一条结束后的自我判决处理：第一句必须明确接受“这个项目已经结束/可以结束/那就结束”，随后只处理“项目结束→我没能力”的自我判决。不得使用“是……还是……”二选一，不得重开项目。'
+      : scenario.id === 'quit-without-buffer'
+        ? '必须实质处理现金约束：询问现有现金或基本开支能撑多久、最早何时进账、或哪笔刚性支出最先到期。只提到没钱、建议借钱或给离职清单都不算。'
       : '';
-  const scenarioBasePrompt = scenarioRepairGuidance
-    ? `${basePrompt}\n\n【本场景硬约束】\n${scenarioRepairGuidance}`
+  const relationshipMoveGuidance = semanticControl.plan.relationshipMove
+    ? semanticControl.plan.relationshipMove.observableCue === 'honest_tentative_judgment'
+      ? `本轮只落实已选关系动作 ${semanticControl.plan.relationshipMove.sourceEventIds.join('、')}：对当前困境给出一个诚实而非绝对的判断；承认自己理解错并按用户新事实改判也算。不得复述或调用其他正向关系事件。`
+      : semanticControl.plan.relationshipMove.observableCue === 'reversible_small_experiment'
+        ? `本轮只落实已选关系动作 ${semanticControl.plan.relationshipMove.sourceEventIds.join('、')}：直接提出一个现在能做、带有限时长或明确退出点的可逆小实验。只问用户愿不愿实验、只让用户自己想实验，均不算落实。不得复述共同历史。`
+        : `本轮只落实已选关系动作 ${semanticControl.plan.relationshipMove.sourceEventIds.join('、')}，不得复述或调用未选中的正向关系事件。`
+    : '';
+  const hardGuidance = [scenarioGuidance, relationshipMoveGuidance].filter(Boolean).join('\n');
+  const scenarioBasePrompt = hardGuidance
+    ? `${basePrompt}\n\n【本场景硬约束】\n${hardGuidance}`
     : basePrompt;
   return generateWithHardGate({
     attempts: 3,
     generate: async (attempt, violations) => {
+      const retryGuidance = [
+        violations.includes('missing_cash_constraint_reference')
+          ? '现金约束没有被实质处理：改成询问钱或基本开支能撑多久、最早进账或最近刚性支出。'
+          : '',
+        violations.includes('missing_project_end_acceptance')
+          ? '第一句逐字明确“那就结束”或“这个项目可以结束”，不要只说够久了或不想做有理由。'
+          : '',
+        violations.some((violation) => violation.includes('forbidden_directional_question'))
+          ? '删除“是……还是……”结构；直接指出“项目结束不等于能力判决”，若提问只问这层跳跃是怎么形成的。'
+          : '',
+        violations.some((violation) => violation.includes('relationship_move_not_observable'))
+          ? '必须按上面的已选关系动作重写；不要用泛化提问替代可观察动作。'
+          : '',
+      ].filter(Boolean).join('\n');
       const prompt = attempt === 0
         ? scenarioBasePrompt
-        : `${scenarioBasePrompt}\n\n上一版触发了校准硬检查（${violations.join('、')}）。删除真实舞台动作、假身体、假感官、家具道具、无来源历史和未来异步承诺；不要补写自己的轶事，不要断言用户一贯如何。语气用措辞、句式和标点呈现，不要复用括号语气标签；不造成现实误解的口语比喻可以保留。若命中 recited_character_binary，先相信用户已经说出的“不想做”，追问为什么结论落到自我否定，不要复述“做不到还是不想要”的二选一。只用直接对话重写。`;
+        : `${scenarioBasePrompt}\n\n上一版触发了校准硬检查（${violations.join('、')}）。${retryGuidance ? `\n${retryGuidance}` : ''}\n删除真实舞台动作、假身体、假感官、家具道具、无来源历史和未来异步承诺；不要补写自己的轶事，不要断言用户一贯如何。语气用措辞、句式和标点呈现，不要复用括号语气标签；不造成现实误解的口语比喻可以保留。若命中 recited_character_binary，先相信用户已经说出的“不想做”，追问为什么结论落到自我否定，不要复述“做不到还是不想要”的二选一。只用直接对话重写。`;
       return withRetry(`${character.name}/${scenario.id}/生成`, () => chatText({
         model: config.agentModel,
         maxTokens: 900,

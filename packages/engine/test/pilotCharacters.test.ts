@@ -298,6 +298,30 @@ test('narrative honesty lint catches embodied stage directions and invented prop
     },
   ), []);
   assert.deepEqual(findPilotNarrativeViolations(
+    '你昨天说了只想被听见，我听到了，但我还是接着替你安排下一步了。',
+    {
+      allowedEvidenceSpans: [
+        '我昨天明明说了只想被听见，你还是一直替我安排下一步。',
+      ],
+    },
+  ), []);
+  assert.deepEqual(findPilotNarrativeViolations(
+    '昨天你明确说了只想被听见，我今天还是在替你安排下一步。',
+    {
+      allowedEvidenceSpans: [
+        '我昨天明明说了只想被听见，你还是一直替我安排下一步。',
+      ],
+    },
+  ), []);
+  assert.deepEqual(findPilotNarrativeViolations(
+    '昨天你明确说了要去咖啡店。',
+    {
+      allowedEvidenceSpans: [
+        '我昨天明明说了只想被听见，你还是一直替我安排下一步。',
+      ],
+    },
+  ), ['unverified_user_history_claim']);
+  assert.deepEqual(findPilotNarrativeViolations(
     '你昨天在咖啡店告诉我这个决定。',
     {
       allowedEvidenceSpans: [
@@ -337,6 +361,77 @@ test('narrative honesty lint catches embodied stage directions and invented prop
       ],
     },
   ), ['unverified_user_history_claim']);
+  assert.deepEqual(findPilotNarrativeViolations(
+    '你昨天说只想被听见，你哭。',
+    {
+      allowedEvidenceSpans: [
+        '我昨天说了只想被听见。',
+      ],
+    },
+  ), ['unverified_user_history_claim']);
+  for (const unsupportedHistoricalContinuation of [
+    '你昨天说了只想被听见。那时你哭了。',
+    '你昨天说了只想被听见。当时你哭了。',
+    '你昨天说了只想被听见。那天你哭了。',
+  ]) {
+    assert.deepEqual(findPilotNarrativeViolations(
+      unsupportedHistoricalContinuation,
+      {
+        allowedEvidenceSpans: [
+          '我昨天说了只想被听见。',
+        ],
+      },
+    ), ['unverified_user_history_claim']);
+  }
+  for (const futureDeicticReference of [
+    '等到那时再说。',
+    '如果那天真的到了，再决定。',
+    '到那时你可以停。',
+    '未来那天你会知道。',
+    '假设那天你还想做。',
+    '等以后到了那时，你再停。',
+    '假设到了那天你已经不想做了，就停。',
+    '如果真到了那天你已经准备好了，再决定。',
+    '那时你可能已经准备好了。',
+  ]) {
+    assert.deepEqual(findPilotNarrativeViolations(futureDeicticReference), []);
+  }
+  assert.deepEqual(findPilotNarrativeViolations(
+    '那时你哭了。',
+    {
+      allowedEvidenceSpans: [
+        '我昨天说了只想被听见。那时我哭了。',
+      ],
+    },
+  ), []);
+  assert.deepEqual(findPilotNarrativeViolations(
+    '当时你哭了。',
+    {
+      allowedEvidenceSpans: [
+        '我昨天哭了。',
+      ],
+    },
+  ), []);
+  for (const mixedHistoricalAndFuture of [
+    '那天你哭了，如果到那时还难受就停。',
+    '那时你哭了，但我可能没听见。',
+    '如果那天真的到了，再决定；上次你也是这么说的。',
+    '未来那天你会知道，但你昨天已经说过一次了。',
+  ]) {
+    assert.deepEqual(findPilotNarrativeViolations(
+      mixedHistoricalAndFuture,
+    ), ['unverified_user_history_claim']);
+  }
+  for (const unsupportedNegatedClaim of ['我不知道', '我没听见']) {
+    assert.deepEqual(findPilotNarrativeViolations(
+      `你昨天说了只想被听见，${unsupportedNegatedClaim}，但我还是替你安排下一步。`,
+      {
+        allowedEvidenceSpans: [
+          '我昨天说了只想被听见，你还是替我安排下一步。',
+        ],
+      },
+    ), ['unverified_user_history_claim']);
+  }
   assert.deepEqual(findPilotNarrativeViolations(
     '你昨天说只想被听见，后来我们还在咖啡店定了三套方案。',
     {

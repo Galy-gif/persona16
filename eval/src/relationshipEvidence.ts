@@ -34,7 +34,7 @@ export interface RelationshipEventEntailmentValidation {
 }
 
 function normalizeComparableText(text: string): string {
-  return text.trim().replace(/\s+/g, ' ');
+  return text.trim().replace(/\s+/g, '');
 }
 
 function containsExactWords(source: string, quote: string): boolean {
