@@ -13,6 +13,9 @@ test('hard gate rejects an unclean final attempt instead of returning scoreable 
   assert.equal(result.regenerated, true);
   assert.deepEqual(result.violations, ['embodied_stage_direction']);
   assert.match(result.text, /第3次/);
+  assert.equal(result.modelScoreable, false);
+  assert.equal(result.deliverySource, 'model');
+  assert.equal(result.fallbackUsed, false);
 });
 
 test('hard gate accepts the first clean regeneration', async () => {
@@ -26,6 +29,25 @@ test('hard gate accepts the first clean regeneration', async () => {
   assert.equal(result.regenerated, true);
   assert.deepEqual(result.violations, []);
   assert.equal(result.text, '你继续说，我在听。');
+  assert.equal(result.modelScoreable, true);
+  assert.equal(result.deliverySource, 'model');
+  assert.equal(result.fallbackUsed, false);
+});
+
+test('hard gate records model failure separately when a semantic fallback is delivered', async () => {
+  const result = await generateWithHardGate({
+    attempts: 2,
+    generate: async () => '你想让我听，还是给建议？',
+    validate: (text) => text.includes('还是') ? ['forbidden_menu'] as const : [],
+    fallback: () => '嗯，我听着。',
+  });
+
+  assert.equal(result.scoreable, true);
+  assert.equal(result.modelScoreable, false);
+  assert.equal(result.text, '嗯，我听着。');
+  assert.equal(result.deliverySource, 'semantic_fallback');
+  assert.equal(result.fallbackUsed, true);
+  assert.deepEqual(result.modelViolations, ['forbidden_menu']);
 });
 
 for (const scope of ['character', 'relationship', 'room'] as const) {

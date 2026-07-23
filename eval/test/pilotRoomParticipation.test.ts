@@ -6,6 +6,7 @@ import {
   normalizeResponsibilityEvidenceSources,
   passesPilotRoomChemistryGate,
   runPilotRoomParticipation,
+  validatePilotRoomCaseExpectations,
   validateResponsibilityClaimDetails,
   validateResponsibilityClaims,
   validateResponsibilityStatementCoverage,
@@ -120,6 +121,63 @@ test('a four-person pilot permits all four speakers when each still claims uniqu
 
   assert.equal(result.transcript.length, 4);
   assert.equal(result.stopReason, 'all_agents_spoke');
+});
+
+test('counterfactual room cases enforce silence, naming, user input, and all-four participation', () => {
+  const message = (agent: AgentType, text: string, index: number) => ({
+    id: `room-${index}`,
+    agent,
+    name: agent,
+    text,
+    respondsToMessageId: null,
+    responsibilityClaims: [],
+  });
+  const result = (
+    transcript: ReturnType<typeof message>[],
+    stopReason: 'no_eligible_intent' | 'needs_user_input' | 'all_agents_spoke',
+  ) => ({
+    transcript,
+    rounds: [],
+    stopReason,
+    validationErrors: [],
+  });
+
+  assert.deepEqual(validatePilotRoomCaseExpectations({
+    expectedStopReasons: ['no_eligible_intent'],
+    minSpeakers: 0,
+    maxSpeakers: 0,
+  }, result([], 'no_eligible_intent')), []);
+  assert.deepEqual(validatePilotRoomCaseExpectations({
+    expectedStopReasons: ['no_eligible_intent', 'all_agents_spoke'],
+    minSpeakers: 1,
+    maxSpeakers: 4,
+    firstSpeaker: 'ISFJ',
+  }, result([message('ISFJ', '先说维护容量。', 1)], 'no_eligible_intent')), []);
+  assert.deepEqual(validatePilotRoomCaseExpectations({
+    expectedStopReasons: ['needs_user_input'],
+    minSpeakers: 1,
+    maxSpeakers: 1,
+    requiresSingleQuestion: true,
+  }, result([message('ENFP', '两个方案分别是什么？', 1)], 'needs_user_input')), []);
+  assert.deepEqual(validatePilotRoomCaseExpectations({
+    expectedStopReasons: ['all_agents_spoke'],
+    minSpeakers: 4,
+    maxSpeakers: 4,
+    requiredAgents: AGENTS,
+  }, result(AGENTS.map((agent, index) => message(agent, `${agent} 的独立判断。`, index + 1)), 'all_agents_spoke')), []);
+
+  assert.deepEqual(validatePilotRoomCaseExpectations({
+    expectedStopReasons: ['all_agents_spoke'],
+    minSpeakers: 4,
+    maxSpeakers: 4,
+    requiredAgents: AGENTS,
+  }, result([message('INTJ', '只有一人说了。', 1)], 'no_eligible_intent')), [
+    'unexpected_stop_reason:no_eligible_intent',
+    'unexpected_speaking_count:1',
+    'missing_required_agent:ENFP',
+    'missing_required_agent:ISFJ',
+    'missing_required_agent:ESTP',
+  ]);
 });
 
 test('an intent targeting a future message is rejected before arbitration', async () => {
@@ -501,6 +559,41 @@ test('a message that crosses the character budget stops as budget exhaustion', a
 
   assert.equal(result.stopReason, 'budget_exhausted');
   assert.equal(result.transcript.length, 0);
+});
+
+test('an ask_user intent emits one question and stops for user input', async () => {
+  const result = await runPilotRoomParticipation({
+    agents: ['ENFP', 'INTJ'],
+    assess: async (agent) => agent === 'ENFP'
+      ? {
+          agent,
+          decision: 'ask_user',
+          contributionKind: 'clarify',
+          claimSummary: '需要用户补充正在比较的两个方案',
+          targetMessageId: null,
+          passReason: null,
+        }
+      : {
+          agent,
+          decision: 'pass',
+          contributionKind: null,
+          claimSummary: null,
+          targetMessageId: null,
+          passReason: '先等用户补充。',
+        },
+    arbitrate: async () => ({ selectedAgent: 'ENFP', reason: '只有澄清意向' }),
+    generate: async (agent) => ({
+      agent,
+      name: '夏栩',
+      text: '你正在比较的两个方案分别是什么？',
+      respondsToMessageId: null,
+      responsibilityClaims: [],
+    }),
+  });
+
+  assert.equal(result.stopReason, 'needs_user_input');
+  assert.equal(result.transcript.length, 1);
+  assert.equal(result.rounds.length, 1);
 });
 
 test('generation deadline exhaustion takes precedence over generated validation errors', async () => {

@@ -25,6 +25,7 @@ import type {
   TurnMessage,
 } from './types';
 import type { SafetyLevel } from './safety/safetyRouter';
+import type { RelationshipContextFocus } from './relationship/relationshipContext';
 
 /**
  * 6 层 prompt 组装（spec §1）：
@@ -129,10 +130,18 @@ function pilotFocus(
   semanticControl: SemanticTurnControl,
 ): PilotCharacterContextFocus {
   if (semanticControl.plan.conversationAct === 'style_repair') return 'repair';
-  if (ctx.room.agents.filter((agent) => !agent.paused).length > 1) return 'room';
-  if (ctx.plan.scene === '决策' || ctx.plan.scene === '复盘') return 'decision';
-  if (ctx.plan.scene === '陪伴' || ctx.plan.scene === '吐槽') return 'support';
-  if (ctx.plan.scene === '冲突') return 'conflict';
+  if (semanticControl.plan.conversationAct === 'boundary_repair') return 'repair';
+  return relationshipFocusForTurn(ctx.plan, ctx.room);
+}
+
+export function relationshipFocusForTurn(
+  plan: TurnPlan,
+  room: RoomState,
+): RelationshipContextFocus {
+  if (room.agents.filter((agent) => !agent.paused).length > 1) return 'room';
+  if (plan.scene === '决策' || plan.scene === '复盘') return 'decision';
+  if (plan.scene === '陪伴' || plan.scene === '吐槽') return 'support';
+  if (plan.scene === '冲突') return 'conflict';
   return 'ordinary';
 }
 
@@ -166,6 +175,7 @@ export function buildTurnPrompt(ctx: HostContext): string {
     relationshipContext,
     previousUserMessage,
     safetyMode: ctx.safetyMode === 'sensitive' ? 'sensitive' : 'normal',
+    relationshipFocus: relationshipFocusForTurn(plan, room),
   });
   const focus = pilotFocus(ctx, semanticControl);
   const expressionInstruction = renderExpressionEvidenceInstruction(
@@ -203,13 +213,7 @@ ${expressionInstruction}${ctx.antiTemplateNote ? `\n${ctx.antiTemplateNote}` : '
 
     `【关系记忆】
 ${renderRelationshipPromptContext(relationshipContext, {
-  focus: plan.scene === '冲突'
-    ? 'conflict'
-    : plan.scene === '陪伴' || plan.scene === '吐槽'
-      ? 'support'
-      : plan.scene === '决策' || plan.scene === '复盘'
-        ? 'decision'
-        : 'ordinary',
+  focus,
   maxEvidence: 3,
 })}`,
 

@@ -1,4 +1,8 @@
-import type { RelationshipBranch, RelationshipClimate } from './relationshipBranch';
+import type {
+  RelationshipBranch,
+  RelationshipClimate,
+  RelationshipEvent,
+} from './relationshipBranch';
 
 export type RelationshipContextEvidenceKind =
   | 'shared_context'
@@ -20,6 +24,7 @@ export type RelationshipContextEvidence = RelationshipContextEvidenceBase & (
       traceability: 'traceable';
       sourceTurnId: string;
       sourceEventId?: string;
+      sourceEventType?: RelationshipEvent['type'];
     }
   | {
       traceability: 'legacy_untraceable';
@@ -131,6 +136,7 @@ export function relationshipBranchToPromptContext(
         traceability: 'traceable',
         sourceEventId: value.sourceEventId,
         sourceTurnId: value.sourceTurnId,
+        ...(sourceType ? { sourceEventType: sourceType } : {}),
       });
     }
   };

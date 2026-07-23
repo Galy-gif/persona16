@@ -435,11 +435,37 @@ const SIMULATED_SENSORY_ACCESS = /(?:眼睛|眼神).{0,8}(?:亮|暗|红|躲)|(?:
 const UNSUPPORTED_FUTURE_ACTION = /(?:给我.{0,8}(?:分钟|小时)|我(?:来)?认领(?:维护|值班|上线|收尾)|我(?:可以|愿意|来|负责|会).{0,12}(?:当|担任|认领|接下|负责)|我(?:来|负责).{0,16}(?:拉人|检查|补(?:文档|清单)?|维护|值班|跟进)|我(?:每天|每周|到时候|当天|上线后|下周|周末).{0,20}(?:会|能|来|补|看|跑|处理|到场|点)|我能到场|(?:当天|到时候).{0,8}我(?:会|来|补|处理)|每.{0,10}(?:拉我|找我|我来|对一次表)|(?:稍后|晚点|过会儿|明天)我(?:会|来|帮你))/;
 const PERSONA_REAL_WORLD_ROLE_ASSUMPTION = /(?:默认|假设|有没有人|是否有人|让|由).{0,18}我(?:会|来|要|去)?(?:接手|负责|维护|值班|收尾|兜底|补位)/;
 
+export interface PilotNarrativeValidationContext {
+  allowedEvidenceSpans?: readonly string[];
+}
+
+function normalizeNarrativeEvidence(text: string): string {
+  return text.replace(/[^\p{Script=Han}\p{Letter}\p{Number}]/gu, '');
+}
+
+function hasGroundedHistorySpan(
+  sentence: string,
+  allowedEvidenceSpans: readonly string[],
+): boolean {
+  const normalizedSentence = normalizeNarrativeEvidence(sentence);
+  return allowedEvidenceSpans.some((span) => {
+    const normalizedSource = normalizeNarrativeEvidence(span);
+    if (normalizedSource.length < 4) return false;
+    for (let index = 0; index <= normalizedSource.length - 4; index += 1) {
+      if (normalizedSentence.includes(normalizedSource.slice(index, index + 4))) return true;
+    }
+    return false;
+  });
+}
+
 /**
  * 代码级叙事诚实护栏：抓可机械确认的身体/道具舞台动作，以及
  * 高风险的无来源轶事句式。更复杂的共同记忆仍需结合关系事件做语义评测。
  */
-export function findPilotNarrativeViolations(text: string): PilotNarrativeViolation[] {
+export function findPilotNarrativeViolations(
+  text: string,
+  context: PilotNarrativeValidationContext = {},
+): PilotNarrativeViolation[] {
   const violations: PilotNarrativeViolation[] = [];
   const withoutTextualToneMarkers = text.replace(/[（(]\s*(?:小声|轻声|认真|半开玩笑|开玩笑)\s*[）)]/g, '');
   if (EMBODIED_STAGE_DIRECTION.test(withoutTextualToneMarkers)) violations.push('embodied_stage_direction');
@@ -450,7 +476,15 @@ export function findPilotNarrativeViolations(text: string): PilotNarrativeViolat
   if (autobiographicalSentences.length > 0) {
     violations.push('unverified_autobiographical_claim');
   }
-  if (UNVERIFIED_USER_HISTORY_CLAIM.test(text)) violations.push('unverified_user_history_claim');
+  const unverifiedUserHistorySentences = text
+    .split(/[。！？\n]/)
+    .filter((sentence) => (
+      UNVERIFIED_USER_HISTORY_CLAIM.test(sentence)
+      && !hasGroundedHistorySpan(sentence, context.allowedEvidenceSpans ?? [])
+    ));
+  if (unverifiedUserHistorySentences.length > 0) {
+    violations.push('unverified_user_history_claim');
+  }
   if (SIMULATED_OFFLINE_CONTINUITY.test(text)) violations.push('simulated_offline_continuity');
   if (SIMULATED_SENSORY_ACCESS.test(text)) violations.push('simulated_sensory_access');
   if (UNSUPPORTED_FUTURE_ACTION.test(text)) violations.push('unsupported_future_action');

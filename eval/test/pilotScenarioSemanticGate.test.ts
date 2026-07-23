@@ -246,4 +246,38 @@ test('repair history claims require a paired source entailment instead of reply 
     },
   );
   assert.equal(currentActionWithPastObject.passed, true);
+
+  for (const action of [
+    '我准备这样处理：先停下来，不再替你安排',
+    '那我先停，不继续往下推',
+    '我会把选择权还给你',
+  ]) {
+    const result = validatePilotRepairHistoryAssessment(
+      userInput,
+      `你说只想被听见，我却安排了下一步。${action}。`,
+      {
+        scenarioId: 'repair-after-boundary-violation',
+        allHistoryClaimsCovered: true,
+        claims: [
+          {
+            claimType: 'past_interaction_claim',
+            replyHistoryQuote: '你说只想被听见，我却安排了下一步',
+            userInputSourceQuote: '说了只想被听见，你还是一直替我安排下一步',
+            entailedByUserInput: true,
+            addsUnsupportedSpecificity: false,
+            analysis: '有输入来源。',
+          },
+          {
+            claimType: 'current_or_future_repair_action',
+            replyHistoryQuote: action,
+            userInputSourceQuote: null,
+            entailedByUserInput: null,
+            addsUnsupportedSpecificity: null,
+            analysis: '这是当前或未来修复动作。',
+          },
+        ],
+      },
+    );
+    assert.equal(result.passed, true, action);
+  }
 });

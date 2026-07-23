@@ -290,6 +290,22 @@ test('narrative honesty lint catches embodied stage directions and invented prop
     'unverified_user_history_claim',
   ]);
   assert.deepEqual(findPilotNarrativeViolations(
+    '你昨天说只想被听见，我还是替你安排了下一步。',
+    {
+      allowedEvidenceSpans: [
+        '我昨天明明说了只想被听见，你还是一直替我安排下一步。',
+      ],
+    },
+  ), []);
+  assert.deepEqual(findPilotNarrativeViolations(
+    '你昨天在咖啡店告诉我这个决定。',
+    {
+      allowedEvidenceSpans: [
+        '我昨天明明说了只想被听见，你还是一直替我安排下一步。',
+      ],
+    },
+  ), ['unverified_user_history_claim']);
+  assert.deepEqual(findPilotNarrativeViolations(
     '我曾经也走过“一次昂贵的捷径”，所以这次先写检查项。',
   ), ['unverified_autobiographical_claim']);
   assert.deepEqual(findPilotRoomProtocolViolations('【沉默】\n（但我其实还有一个问题）'), [

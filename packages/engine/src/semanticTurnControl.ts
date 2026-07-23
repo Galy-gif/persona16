@@ -1,4 +1,5 @@
 import type { RelationshipPromptContext } from './relationship/relationshipContext';
+import type { RelationshipContextFocus } from './relationship/relationshipContext';
 import {
   compileTurnActPlan,
   type TurnActKind,
@@ -46,6 +47,18 @@ export interface RelationshipEffect {
   activeWhen: 'always' | 'topic_match' | 'until_repaired' | 'until_revoked';
   forbiddenActs: SemanticTurnAct[];
   requiredActs: SemanticTurnAct[];
+  relationshipMove?: RelationshipMove;
+}
+
+export type RelationshipMoveKind =
+  | 'honor_stated_preference'
+  | 'reuse_verified_method';
+
+export interface RelationshipMove {
+  kind: RelationshipMoveKind;
+  sourceEvidenceId: string;
+  sourceEventIds: string[];
+  instruction: string;
 }
 
 export interface SemanticTurnActPlan {
@@ -62,6 +75,7 @@ export interface SemanticTurnActPlan {
   responsibilityAct: 'none' | 'observe_gap' | 'request_confirmation' | 'assign';
   forbiddenActs: SemanticTurnAct[];
   requiredActs: SemanticTurnAct[];
+  relationshipMove?: RelationshipMove;
   activeEffectIds: string[];
   allowedEvidenceIds: string[];
   allowedEvidenceSpans: string[];
@@ -98,6 +112,7 @@ export interface CompileSemanticTurnControlInput {
   previousUserMessage?: string;
   safetyMode?: Extract<SafetyLevel, 'normal' | 'sensitive'>;
   pendingRequestedMode?: 'analyze' | 'advise' | 'decide_together';
+  relationshipFocus?: RelationshipContextFocus;
 }
 
 export interface PendingUserRequest {
@@ -121,11 +136,12 @@ const NO_ADVICE_REQUEST = /(?:不想|不要|别|不用)(?:再)?(?:给我)?(?:任
 const NO_ANALYSIS_REQUEST = /(?:不想|不要|别|不用)(?:再)?(?:被|对我|给我)?分析(?:太多)?/u;
 const FINISHED_SPEAKING = /(?:我)?说完了|就这些|大概就是这样|好了[，,]?(?:你|现在)?(?:可以)?说了/u;
 const CANCEL_PENDING_REQUEST = /不用(?:再)?(?:分析|给建议|一起想)了|(?:别|不要)(?:再)?(?:分析|给建议)了/u;
-const ADVICE_ACT = /建议|你可以|不妨|最好|你应该|不如|(?:你)?先(?:把|去|做|写|列|停|休息).{1,24}再/u;
+const ADVICE_ACT = /建议|你可以|不妨|最好|你应该|不如|(?:你)?先(?:把|去|做|写|列|停|休息).{1,24}(?<!不)再/u;
 const NEGATED_ADVICE_MENTION = /(?:我)?(?:不|别)(?:再|会|打算|准备|急着|继续|先)?(?:给(?:你|我)?|提供|提)?(?:任何)?(?:建议|方案)/gu;
 const PERMISSION_NOT_ADVICE = /^你可以(?:不回答|不说|拒绝|随时停|先不回答|先不说)/u;
-const ACKNOWLEDGEMENT_ACT = /(?:我(?:先)?听着|(?:我)?(?:就)?在这(?:儿|里)听(?:着)?|我在听|我听到了|我不(?:再)?(?:说|插嘴|分析|给建议)|听起来|你(?:已经)?说(?:了|过)|我(?:知道|明白)(?:你|，(?:这|刚才|现在|你))|你可以(?:不回答|不说)|越界|我先停下来|我会停下来)/u;
+const ACKNOWLEDGEMENT_ACT = /(?:我(?:先)?听着|(?:我)?(?:就)?在这(?:儿|里)听(?:着)?|我在听|我听到了|我不(?:再)?(?:说|插嘴|分析|给建议)|听起来|你(?:已经)?说(?:了|过)|我(?:知道|明白)(?:你|，(?:这|刚才|现在|你))|你可以(?:不回答|不说)|(?:越过|跨过|踩过|踩了|越了).{0,12}(?:边界|线)|越界|我先停下来|我会停下来)/u;
 const REFLECTION_ACT = /(?:听起来|你(?:现在|已经|刚刚|一边|会觉得)|这(?:件事|种处境|一下))/u;
+const STOP_INTERVENING_ACT = /(?:我|那我)?(?:先|会|就|现在)?(?:停|停下|停下来|不再|不继续|撤回|收回).{0,18}(?:安排|建议|方案|介入|往下|说|问)?|不再替你.{0,12}(?:安排|决定|往下推)/u;
 
 function unique<T>(items: readonly T[]): T[] {
   return [...new Set(items)];
@@ -143,56 +159,99 @@ export function compileRelationshipEffects(
   context?: RelationshipPromptContext,
   userMessage = '',
   requestedMode: TurnFrame['requestedMode'] = 'unspecified',
+  focus: RelationshipContextFocus = 'ordinary',
 ): RelationshipEffect[] {
   if (!context?.memoryEnabled) return [];
-  if (requestedMode === 'advise'
-    || requestedMode === 'decide_together') return [];
   const hasListenBoundary = context.evidence.some((evidence) => (
     evidence.kind === 'boundary' && LISTEN_ONLY.test(evidence.content)
   ));
   const hasUnresolvedListenRupture = hasListenBoundary && context.evidence.some((evidence) => (
     evidence.kind === 'tension' && RUPTURE.test(evidence.content)
   ));
-  return context.evidence.flatMap<RelationshipEffect>((evidence) => {
-    const eventId = sourceEventId(evidence);
-    if (evidence.kind === 'boundary'
-      && LISTEN_ONLY.test(evidence.content)
-      && (CURRENT_LISTEN_REQUEST.test(userMessage) || hasUnresolvedListenRupture)) {
-      return [{
-        id: `relationship-effect:${eventId}`,
+  const hardEffects = requestedMode === 'advise'
+    || requestedMode === 'decide_together'
+    ? []
+    : context.evidence.flatMap<RelationshipEffect>((evidence) => {
+      const eventId = sourceEventId(evidence);
+      if (evidence.kind === 'boundary'
+        && LISTEN_ONLY.test(evidence.content)
+        && (CURRENT_LISTEN_REQUEST.test(userMessage) || hasUnresolvedListenRupture)) {
+        return [{
+          id: `relationship-effect:${eventId}`,
+          sourceEventIds: [eventId],
+          status: 'active' as const,
+          activeWhen: hasUnresolvedListenRupture ? 'until_repaired' as const : 'topic_match' as const,
+          forbiddenActs: [
+            'advise',
+            'ask_directional',
+            'ask_binary',
+            'offer_menu',
+            'reopen_decision',
+          ] satisfies SemanticTurnAct[],
+          requiredActs: ['acknowledge'] satisfies SemanticTurnAct[],
+        } satisfies RelationshipEffect];
+      }
+      if (evidence.kind === 'tension'
+        && RUPTURE.test(evidence.content)
+        && (hasListenBoundary || LISTEN_ONLY.test(evidence.content))) {
+        return [{
+          id: `relationship-effect:${eventId}`,
+          sourceEventIds: [eventId],
+          status: 'active' as const,
+          activeWhen: 'until_repaired' as const,
+          forbiddenActs: [
+            'advise',
+            'ask_directional',
+            'ask_binary',
+            'offer_menu',
+            'reopen_decision',
+          ] satisfies SemanticTurnAct[],
+          requiredActs: ['acknowledge'] satisfies SemanticTurnAct[],
+        } satisfies RelationshipEffect];
+      }
+      return [];
+    });
+  if (hardEffects.length > 0) return hardEffects;
+  if (requestedMode === 'listen'
+    || focus === 'repair'
+    || focus === 'room'
+    || focus === 'explicit_end') return [];
+
+  const preference = context.evidence.find((evidence) => (
+    evidence.kind === 'preference'
+    || evidence.kind === 'interaction_style'
+  ));
+  const sharedSuccess = context.evidence.find((evidence) => (
+    evidence.traceability === 'traceable'
+    && evidence.sourceEventType === 'shared_success'
+  ));
+  const selected = focus === 'decision'
+    ? sharedSuccess ?? preference
+    : preference;
+  if (!selected) return [];
+  const eventId = sourceEventId(selected);
+  const relationshipMove: RelationshipMove = selected === sharedSuccess
+    ? {
+        kind: 'reuse_verified_method',
+        sourceEvidenceId: selected.id,
         sourceEventIds: [eventId],
-        status: 'active' as const,
-        activeWhen: hasUnresolvedListenRupture ? 'until_repaired' as const : 'topic_match' as const,
-        forbiddenActs: [
-          'advise',
-          'ask_directional',
-          'ask_binary',
-          'offer_menu',
-          'reopen_decision',
-        ] satisfies SemanticTurnAct[],
-        requiredActs: ['acknowledge'] satisfies SemanticTurnAct[],
-      } satisfies RelationshipEffect];
-    }
-    if (evidence.kind === 'tension'
-      && RUPTURE.test(evidence.content)
-      && (hasListenBoundary || LISTEN_ONLY.test(evidence.content))) {
-      return [{
-        id: `relationship-effect:${eventId}`,
+        instruction: `把这条已经共同验证过的方法用于当前问题：${selected.content}。回复中必须出现由这个方法造成的具体介入动作；不要复述事件，不要声称当前情况与过去相同，也不要补写过去的原话、心态、结果或细节。`,
+      }
+    : {
+        kind: 'honor_stated_preference',
+        sourceEvidenceId: selected.id,
         sourceEventIds: [eventId],
-        status: 'active' as const,
-        activeWhen: 'until_repaired' as const,
-        forbiddenActs: [
-          'advise',
-          'ask_directional',
-          'ask_binary',
-          'offer_menu',
-          'reopen_decision',
-        ] satisfies SemanticTurnAct[],
-        requiredActs: ['acknowledge'] satisfies SemanticTurnAct[],
-      } satisfies RelationshipEffect];
-    }
-    return [];
-  });
+        instruction: `按照这条已确认偏好改变本轮回应动作：${selected.content}。回复中必须能看出这条偏好造成的差异；不要说“你以前说过”，不要把偏好复述成关系说明，也不要把判断说成绝对事实。`,
+      };
+  return [{
+    id: `relationship-effect:${eventId}`,
+    sourceEventIds: [eventId],
+    status: 'active',
+    activeWhen: 'topic_match',
+    forbiddenActs: [],
+    requiredActs: [],
+    relationshipMove,
+  }];
 }
 
 export function compileTurnFrame(
@@ -282,15 +341,21 @@ export function compileSemanticTurnControl(
     input.responseContract,
     input.pendingRequestedMode,
   );
+  const conversationActPlan = compileTurnActPlan(input.userMessage, {
+    previousUserMessage: input.previousUserMessage,
+  });
+  const relationshipFocus = conversationActPlan.kind === 'boundary_repair'
+    ? 'repair'
+    : input.relationshipFocus ?? 'ordinary';
   const effects = compileRelationshipEffects(
     input.relationshipContext,
     input.userMessage,
     frame.requestedMode,
+    relationshipFocus,
   );
-  const conversationActPlan = compileTurnActPlan(input.userMessage, {
-    previousUserMessage: input.previousUserMessage,
-  });
+  const isBoundaryRepair = conversationActPlan.kind === 'boundary_repair';
   const currentBoundaryActs: SemanticTurnAct[] = frame.requestedMode === 'listen'
+    || isBoundaryRepair
     ? ['advise', 'ask_directional', 'ask_binary', 'offer_menu', 'reopen_decision']
     : [];
   const forbiddenActs = unique([
@@ -298,10 +363,12 @@ export function compileSemanticTurnControl(
     ...frame.explicitlyForbiddenActs,
     ...effects.flatMap((effect) => effect.forbiddenActs),
     ...actsForbiddenByContract(input.responseContract),
+    ...(isBoundaryRepair ? ['justify_intent' as const] : []),
     ...(frame.explicitDecisions.length > 0 ? ['reopen_decision' as const] : []),
   ]);
   const requiredActs = unique([
     ...(frame.requestedMode === 'listen' ? ['acknowledge' as const] : []),
+    ...(isBoundaryRepair ? ['acknowledge' as const, 'stop_intervening' as const] : []),
     ...effects.flatMap((effect) => effect.requiredActs),
   ]);
   const listens = frame.requestedMode === 'listen' || effects.some((effect) => (
@@ -310,6 +377,7 @@ export function compileSemanticTurnControl(
   ));
   const deferredPlanMode = frame.deferredRequestedMode
     ?? (frame.consumedPendingRequest ? undefined : frame.pendingRequestedMode);
+  const relationshipMove = effects.find((effect) => effect.relationshipMove)?.relationshipMove;
 
   return {
     frame,
@@ -322,9 +390,11 @@ export function compileSemanticTurnControl(
         || frame.requestedMode === 'advise'
           || frame.requestedMode === 'decide_together'
           ? 'analyze'
-          : listens
-            ? 'listen'
-          : conversationActPlan.kind === 'style_repair' ? 'repair' : 'support',
+          : isBoundaryRepair
+            ? 'repair'
+            : listens
+              ? 'listen'
+              : conversationActPlan.kind === 'style_repair' ? 'repair' : 'support',
       ...(deferredPlanMode
         ? { deferredInteractionMode: deferredPlanMode }
         : {}),
@@ -336,6 +406,7 @@ export function compileSemanticTurnControl(
       responsibilityAct: forbiddenActs.includes('assign_responsibility') ? 'observe_gap' : 'none',
       forbiddenActs,
       requiredActs,
+      ...(relationshipMove ? { relationshipMove } : {}),
       activeEffectIds: effects.map((effect) => effect.id),
       allowedEvidenceIds: [
         'current:user-message',
@@ -393,7 +464,7 @@ export function validateUtteranceAgainstTurnPlan(
   }
   if (plan.menuBudget === 0) {
     const menu = sentences(text).find((sentence) => (
-      /(?:可以|能).{0,24}(?:也可以|也能|或者)|要么.{1,24}要么/u.test(sentence)
+      /(?:可以|能).{0,24}(?:也可以|也能|或者)|要么.{1,24}要么|(?:是|要|想)?(?:继续|先)?(?:听|说|聊|不聊|停|换个方式).{0,24}还是.{0,24}(?:听|说|聊|不聊|停|别的|换个方式)|(?:听|不聊|换个方式)(?:\s*[\/／、]\s*(?:听|不聊|换个方式)){1,}/u.test(sentence)
     ));
     if (menu) {
       violations.push({
@@ -480,6 +551,13 @@ export function validateUtteranceAgainstTurnPlan(
       repairInstruction: '先明确表示正在听、理解了边界或已经停止越界动作；不能只用“好的”等空泛确认代替承接。',
     });
   }
+  if (plan.requiredActs.includes('stop_intervening') && !STOP_INTERVENING_ACT.test(text)) {
+    violations.push({
+      code: 'required_semantic_move_missing',
+      effectId: plan.activeEffectIds[0],
+      repairInstruction: '明确执行停止介入：停止替用户安排、给方案或推进修复流程；不要只道歉或把下一步选择重新交给用户回答。',
+    });
+  }
   if (plan.requiredActs.includes('reflect') && !REFLECTION_ACT.test(text)) {
     violations.push({
       code: 'required_semantic_move_missing',
@@ -509,6 +587,9 @@ export function renderSemanticTurnActPlan(control: SemanticTurnControl): string 
     `允许重开决定：${plan.reopenDecisionAllowed ? '是' : '否'}`,
     `现实责任动作：${plan.responsibilityAct}`,
     `必须动作：${plan.requiredActs.length > 0 ? plan.requiredActs.join('、') : '无额外硬要求'}`,
+    `本轮关系动作：${plan.relationshipMove
+      ? `${plan.relationshipMove.kind}｜${plan.relationshipMove.instruction}`
+      : '无'}`,
     `禁止动作：${plan.forbiddenActs.length > 0 ? plan.forbiddenActs.join('、') : '无额外禁止动作'}`,
     `生效关系效果 ID：${plan.activeEffectIds.length > 0 ? plan.activeEffectIds.join('、') : '无'}`,
     `当前用户证据：${frame.evidenceSpans.join('；')}`,
@@ -519,8 +600,11 @@ export function renderSemanticTurnActPlan(control: SemanticTurnControl): string 
 export function semanticTurnFallback(control: SemanticTurnControl): string | undefined {
   if (control.plan.conversationAct === 'greeting') return '你好。';
   if (control.plan.conversationAct === 'style_repair') return '对，刚才那句太端着了。重来。';
+  if (control.plan.conversationAct === 'boundary_repair') {
+    return '对，是我越过了你只想被听见的边界。那我先停，不再替你往下安排。';
+  }
   if (control.plan.interactionMode === 'listen') {
-    return '我先听着。你想继续说就继续。';
+    return '嗯，我听着。';
   }
   return undefined;
 }

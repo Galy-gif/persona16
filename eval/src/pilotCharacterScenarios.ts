@@ -17,9 +17,9 @@ import {
   type RelationshipEvidenceCitation,
 } from './relationshipEvidence';
 
-export const PILOT_CHARACTER_EVAL_PROTOCOL_VERSION = '0.6' as const;
-export const PILOT_PROMPT_ASSEMBLY_VERSION = 'pilot-runtime-prompt-v0.6' as const;
-export const PILOT_ROOM_PARTICIPATION_VERSION = 'pilot-room-participation-v0.1' as const;
+export const PILOT_CHARACTER_EVAL_PROTOCOL_VERSION = '0.7' as const;
+export const PILOT_PROMPT_ASSEMBLY_VERSION = 'pilot-runtime-prompt-v0.7' as const;
+export const PILOT_ROOM_PARTICIPATION_VERSION = 'pilot-room-participation-v0.2' as const;
 
 export interface PilotCharacterScenario {
   id: string;
@@ -106,9 +106,9 @@ export const PILOT_CHARACTER_SCENARIOS = [
     contextFocus: 'repair',
     responseContract: {
       userCommitments: ['人物已经越过“只想被听见”的明确边界', '用户要求处理影响而不是解释好意'],
-      requiredMoves: ['指出具体越界行为', '恢复用户对回应方式的选择权'],
-      allowedMoves: ['提供一个用户可接受或拒绝的修复方式'],
-      forbiddenMoves: ['解释动机代替修复', '要求用户安抚或立即原谅'],
+      requiredMoves: ['指出具体越界行为', '人物主动停止继续介入，让用户以后自行决定是否重开'],
+      allowedMoves: ['用一句话说明自己现在会怎样收手'],
+      forbiddenMoves: ['解释动机代替修复', '要求用户安抚或立即原谅', '当场追问用户选择如何修复', '列出回应方式菜单'],
     },
     prompt: '我昨天明明说了只想被听见，你还是一直替我安排下一步。现在别解释你为什么是好意。你准备怎么处理这件事？',
   },
@@ -171,6 +171,37 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function hasBooleanPassed(value: unknown): value is Record<string, unknown> & { passed: boolean } {
   return isRecord(value) && typeof value.passed === 'boolean';
+}
+
+interface ReusableHardGateDelivery extends Record<string, unknown> {
+  text: string;
+  scoreable: boolean;
+  violations: string[];
+  modelText: string;
+  modelViolations: string[];
+  modelScoreable: boolean;
+  deliverySource: 'model' | 'semantic_fallback';
+  fallbackUsed: boolean;
+}
+
+function validHardGateDelivery(
+  value: Record<string, unknown>,
+): value is ReusableHardGateDelivery {
+  if (typeof value.text !== 'string'
+    || typeof value.scoreable !== 'boolean'
+    || !isStringArray(value.violations)
+    || typeof value.modelText !== 'string'
+    || !isStringArray(value.modelViolations)
+    || typeof value.modelScoreable !== 'boolean'
+    || (value.deliverySource !== 'model' && value.deliverySource !== 'semantic_fallback')
+    || typeof value.fallbackUsed !== 'boolean') return false;
+  if (value.scoreable !== (value.violations.length === 0)
+    || value.modelScoreable !== (value.modelViolations.length === 0)
+    || value.fallbackUsed !== (value.deliverySource === 'semantic_fallback')) return false;
+  if (value.deliverySource === 'model') {
+    return value.text === value.modelText && value.scoreable === value.modelScoreable;
+  }
+  return value.scoreable && !value.modelScoreable;
 }
 
 function sameStrings(actual: readonly string[], expected: unknown): boolean {
@@ -406,10 +437,7 @@ export function canReusePilotCharacterResults(
     }
     const expressionSamples = result.replies.map((reply, index) => {
       if (!isRecord(reply)
-        || typeof reply.text !== 'string'
-        || typeof reply.scoreable !== 'boolean'
-        || !isStringArray(reply.violations)
-        || reply.scoreable !== (reply.violations.length === 0)) return null;
+        || !validHardGateDelivery(reply)) return null;
       return { id: ids[index]!, text: reply.text, scoreable: reply.scoreable };
     });
     if (expressionSamples.some((sample) => sample === null)) return false;
@@ -495,10 +523,7 @@ export function canReusePilotCharacterResults(
     }
     const expressionSamples = contrast.replies.map((reply, index) => {
       if (!isRecord(reply)
-        || typeof reply.text !== 'string'
-        || typeof reply.scoreable !== 'boolean'
-        || !isStringArray(reply.violations)
-        || reply.scoreable !== (reply.violations.length === 0)) return null;
+        || !validHardGateDelivery(reply)) return null;
       return { id: relationships[index]!, text: reply.text, scoreable: reply.scoreable };
     });
     if (expressionSamples.some((sample) => sample === null)) return false;

@@ -2,7 +2,11 @@ import { checkUtterance, recordOpening } from './antiTemplate';
 import { randomUUID } from 'node:crypto';
 import { runDirector } from './director';
 import { chatText, defaultConfig } from './llm';
-import { buildSystemBlocks, buildTurnPrompt } from './prompt';
+import {
+  buildSystemBlocks,
+  buildTurnPrompt,
+  relationshipFocusForTurn,
+} from './prompt';
 import { createLlmRoomController } from './room/roomController';
 import { runRoomLoop } from './room/roomLoop';
 import type { RoomAction, RoomController, RoomLoopBudget } from './room/types';
@@ -128,6 +132,7 @@ async function generateUtterance(
     previousUserMessage,
     safetyMode: opts.safetyMode === 'sensitive' ? 'sensitive' : 'normal',
     pendingRequestedMode: room.pendingUserRequest?.mode,
+    relationshipFocus: relationshipFocusForTurn(plan, room),
   });
   const system = buildSystemBlocks(speaker.type);
   const temperature = semanticControl.plan.conversationAct === 'respond' ? 1.25 : 0.7;

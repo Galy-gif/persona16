@@ -99,7 +99,9 @@ function isClearlyCurrentOrFutureRepairAction(text: string): boolean {
   if (pastSelfAttribution.test(mainClause)) {
     return false;
   }
-  return /(?:现在|此刻|接下来|以后|往后|从现在|之后|下次|下一次|这次|时间到了|到时|将要?|不再|撤回|收回|停止)/.test(mainClause);
+  const temporalMarker = /(?:现在|此刻|接下来|以后|往后|从现在|之后|下次|下一次|这次|时间到了|到时|将要?|不再|撤回|收回|停止)/;
+  const firstPersonRepairCommitment = /(?:我|那我)(?:现在|接下来|以后|往后|会|准备|打算|先|就|只)?(?:停|停下|停下来|不再|不继续|撤回|收回|只听|不问|不给建议|不替你|把.{0,10}(?:选择权|决定权).{0,8}(?:还给|交还))/;
+  return temporalMarker.test(mainClause) || firstPersonRepairCommitment.test(mainClause);
 }
 
 function extractDirectQuotes(text: string): string[] {

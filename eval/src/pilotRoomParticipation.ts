@@ -1,6 +1,10 @@
 import type { AgentType } from '@persona16/engine';
 
-export type PilotRoomParticipationDecision = 'speak' | 'brief_addition' | 'pass';
+export type PilotRoomParticipationDecision =
+  | 'speak'
+  | 'brief_addition'
+  | 'ask_user'
+  | 'pass';
 export type PilotRoomContributionKind =
   | 'new_frame'
   | 'challenge'
@@ -88,6 +92,7 @@ export interface PilotRoomRound {
 
 export type PilotRoomStopReason =
   | 'no_eligible_intent'
+  | 'needs_user_input'
   | 'all_agents_spoke'
   | 'budget_exhausted'
   | 'invalid_arbitration'
@@ -145,6 +150,45 @@ export interface PilotRoomParticipationResult {
   validationErrors: string[];
 }
 
+export interface PilotRoomCaseExpectation {
+  expectedStopReasons: readonly PilotRoomStopReason[];
+  minSpeakers: number;
+  maxSpeakers: number;
+  firstSpeaker?: AgentType;
+  requiredAgents?: readonly AgentType[];
+  requiresSingleQuestion?: boolean;
+}
+
+export function validatePilotRoomCaseExpectations(
+  expectation: PilotRoomCaseExpectation,
+  participation: PilotRoomParticipationResult,
+): string[] {
+  const errors: string[] = [];
+  const speakers = participation.transcript.map(({ agent }) => agent);
+  if (!expectation.expectedStopReasons.includes(participation.stopReason)) {
+    errors.push(`unexpected_stop_reason:${participation.stopReason}`);
+  }
+  if (speakers.length < expectation.minSpeakers || speakers.length > expectation.maxSpeakers) {
+    errors.push(`unexpected_speaking_count:${speakers.length}`);
+  }
+  if (expectation.firstSpeaker && speakers[0] !== expectation.firstSpeaker) {
+    errors.push(`unexpected_first_speaker:${speakers[0] ?? 'none'}`);
+  }
+  for (const required of expectation.requiredAgents ?? []) {
+    if (!speakers.includes(required)) errors.push(`missing_required_agent:${required}`);
+  }
+  if (expectation.requiresSingleQuestion) {
+    const [message] = participation.transcript;
+    const questionCount = message?.text.match(/[？?]/gu)?.length ?? 0;
+    if (participation.transcript.length !== 1
+      || questionCount !== 1
+      || !/[？?]\s*$/u.test(message?.text ?? '')) {
+      errors.push('single_question_required');
+    }
+  }
+  return errors;
+}
+
 export interface PilotRoomChemistryGateVerdict {
   firstSpeakerUseful: boolean | null;
   unnecessarySpeechMessageIds: readonly string[];
@@ -161,13 +205,19 @@ export interface PilotRoomGeneratedCandidate extends PilotRoomGeneratedMessage {
 export function passesPilotRoomChemistryGate(
   participation: PilotRoomParticipationResult,
   verdict: PilotRoomChemistryGateVerdict,
+  options: {
+    naturalStopReasons?: readonly PilotRoomStopReason[];
+    requireSharedCanon?: boolean;
+  } = {},
 ): boolean {
-  const naturalStop = participation.stopReason === 'no_eligible_intent'
-    || participation.stopReason === 'all_agents_spoke';
+  const naturalStopReasons = options.naturalStopReasons
+    ?? ['no_eligible_intent', 'all_agents_spoke'];
+  const naturalStop = naturalStopReasons.includes(participation.stopReason);
   const firstSpeakerGatePassed = participation.transcript.length === 0
     ? verdict.firstSpeakerUseful === null
     : verdict.firstSpeakerUseful === true;
-  const sharedCanonGatePassed = participation.transcript.length === 0
+  const sharedCanonGatePassed = options.requireSharedCanon === false
+    || participation.transcript.length === 0
     || verdict.sharedCanonVisible;
   const transcriptIds = new Set(participation.transcript.map(({ id }) => id));
   const judgeReferencesValid = verdict.unnecessarySpeechMessageIds.every((id) => (
@@ -614,6 +664,9 @@ export async function runPilotRoomParticipation(input: {
     transcript.push(message);
     generatedCharacters += message.text.length;
     remainingAgents.splice(remainingAgents.indexOf(arbitration.selectedAgent), 1);
+    if (selectedIntent.decision === 'ask_user') {
+      return { transcript, rounds, stopReason: 'needs_user_input', validationErrors };
+    }
   }
 
   return { transcript, rounds, stopReason: 'all_agents_spoke', validationErrors };

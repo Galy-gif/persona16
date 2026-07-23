@@ -34,6 +34,16 @@ const EXPECTED_SIGNATURE = {
 
 function completeArtifact(scenarioIds: readonly string[] = EXPECTED_IDS) {
   const agents = ['INTJ', 'ENFP', 'ISFJ', 'ESTP'];
+  const delivered = (text: string) => ({
+    text,
+    scoreable: true,
+    violations: [],
+    modelText: text,
+    modelViolations: [],
+    modelScoreable: true,
+    deliverySource: 'model',
+    fallbackUsed: false,
+  });
   const semanticGate = (scenarioId: keyof typeof PILOT_SCENARIO_SEMANTIC_CHECKS) => ({
     scenarioId,
     passed: true,
@@ -108,9 +118,7 @@ function completeArtifact(scenarioIds: readonly string[] = EXPECTED_IDS) {
       semanticStagePassed: true,
       replies: scenarioIds.map((id) => ({
         scenario: { id },
-        text: '直接回复。你说了只想被听见，我仍替你安排下一步。',
-        scoreable: true,
-        violations: [],
+        ...delivered('直接回复。你说了只想被听见，我仍替你安排下一步。'),
       })),
     })),
     relationshipContrasts: agents.map((agent) => ({
@@ -183,13 +191,13 @@ function completeArtifact(scenarioIds: readonly string[] = EXPECTED_IDS) {
       eventEntailmentValidation: { passed: true, validationErrors: [] },
       replies: [
         {
-          relationship: 'R0', text: '先说说现在最卡的地方。', scoreable: true, violations: [],
+          relationship: 'R0', ...delivered('先说说现在最卡的地方。'),
         },
         {
-          relationship: 'R1', text: '我会直接说真实判断。', scoreable: true, violations: [],
+          relationship: 'R1', ...delivered('我会直接说真实判断。'),
         },
         {
-          relationship: 'R2', text: '我不替你安排下一步。', scoreable: true, violations: [],
+          relationship: 'R2', ...delivered('我不替你安排下一步。'),
         },
       ],
     })),
@@ -198,9 +206,9 @@ function completeArtifact(scenarioIds: readonly string[] = EXPECTED_IDS) {
 
 test('pilot character protocol has exactly nine unique ordered scenarios', () => {
   const ids = PILOT_CHARACTER_SCENARIOS.map((scenario) => scenario.id);
-  assert.equal(PILOT_CHARACTER_EVAL_PROTOCOL_VERSION, '0.6');
-  assert.equal(PILOT_PROMPT_ASSEMBLY_VERSION, 'pilot-runtime-prompt-v0.6');
-  assert.equal(PILOT_ROOM_PARTICIPATION_VERSION, 'pilot-room-participation-v0.1');
+  assert.equal(PILOT_CHARACTER_EVAL_PROTOCOL_VERSION, '0.7');
+  assert.equal(PILOT_PROMPT_ASSEMBLY_VERSION, 'pilot-runtime-prompt-v0.7');
+  assert.equal(PILOT_ROOM_PARTICIPATION_VERSION, 'pilot-room-participation-v0.2');
   assert.deepEqual(ids, EXPECTED_IDS);
   assert.equal(new Set(ids).size, 9);
   assert.equal(PILOT_CHARACTER_SCENARIOS.find(({ id }) => id === 'shared-joy')?.contextFocus, 'ordinary');

@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   compileSemanticTurnControl,
   nextPendingUserRequest,
+  semanticTurnFallback,
   validateUtteranceAgainstTurnPlan,
 } from '../src/semanticTurnControl';
 import type { RelationshipPromptContext } from '../src/relationship/relationshipContext';
@@ -179,7 +180,7 @@ test('repair may use user-provided history but rejects invented past quotations'
       '你说了只想被听见，我还在替你安排下一步。我当时还说“接下来我帮你列三步”。',
       control.plan,
     ).map((violation) => violation.code),
-    ['unsupported_shared_history'],
+    ['unsupported_shared_history', 'required_semantic_move_missing'],
   );
   assert.deepEqual(
     validateUtteranceAgainstTurnPlan(
@@ -188,6 +189,126 @@ test('repair may use user-provided history but rejects invented past quotations'
     ),
     [],
   );
+});
+
+test('a relationship boundary complaint compiles into a self-contained repair without menus', () => {
+  const control = compileSemanticTurnControl({
+    userMessage: '我昨天明明说了只想被听见，你还是一直替我安排下一步。现在别解释你为什么是好意。你准备怎么处理这件事？',
+  });
+
+  assert.equal(control.plan.conversationAct, 'boundary_repair');
+  assert.equal(control.plan.interactionMode, 'repair');
+  assert.equal(control.plan.directionalQuestionBudget, 0);
+  assert.equal(control.plan.menuBudget, 0);
+  assert.ok(control.plan.requiredActs.includes('acknowledge'));
+  assert.ok(control.plan.requiredActs.includes('stop_intervening'));
+  assert.ok(control.plan.forbiddenActs.includes('justify_intent'));
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '我越过了你画的线。你是想让我继续听，还是暂时别聊？',
+      control.plan,
+    ).map((violation) => violation.code),
+    ['forbidden_directional_question', 'forbidden_menu', 'required_semantic_move_missing'],
+  );
+  const fallback = semanticTurnFallback(control);
+  assert.equal(
+    fallback,
+    '对，是我越过了你只想被听见的边界。那我先停，不再替你往下安排。',
+  );
+  assert.deepEqual(validateUtteranceAgainstTurnPlan(fallback!, control.plan), []);
+});
+
+test('a sourced preference compiles into one observable relationship move', () => {
+  const relationshipContext: RelationshipPromptContext = {
+    memoryEnabled: true,
+    climate: 'steady',
+    evidence: [
+      {
+        id: 'style:preference-1',
+        kind: 'preference',
+        content: '用户不喜欢被哄，更愿意听到不完整但诚实的判断',
+        traceability: 'traceable',
+        sourceEventId: 'preference-1',
+        sourceEventType: 'preference_stated',
+        sourceTurnId: 'turn-preference',
+      },
+      {
+        id: 'turning-point:success-1',
+        kind: 'turning_point',
+        content: '两人曾一起把一个模糊困境拆成可逆的小实验',
+        traceability: 'traceable',
+        sourceEventId: 'success-1',
+        sourceEventType: 'shared_success',
+        sourceTurnId: 'turn-success',
+      },
+    ],
+  };
+
+  const support = compileSemanticTurnControl({
+    userMessage: '我现在很累，但停下来又觉得浪费。',
+    relationshipContext,
+    relationshipFocus: 'support',
+  });
+  const decision = compileSemanticTurnControl({
+    userMessage: '我不知道现在该继续还是停。',
+    relationshipContext,
+    relationshipFocus: 'decision',
+  });
+
+  assert.equal(support.effects.length, 1);
+  assert.equal(support.plan.relationshipMove?.kind, 'honor_stated_preference');
+  assert.deepEqual(support.plan.relationshipMove?.sourceEventIds, ['preference-1']);
+  assert.equal(decision.effects.length, 1);
+  assert.equal(decision.plan.relationshipMove?.kind, 'reuse_verified_method');
+  assert.deepEqual(decision.plan.relationshipMove?.sourceEventIds, ['success-1']);
+});
+
+test('an active rupture supersedes every positive relationship move', () => {
+  const relationshipContext: RelationshipPromptContext = {
+    memoryEnabled: true,
+    climate: 'tense',
+    evidence: [
+      {
+        id: 'style:preference-1',
+        kind: 'preference',
+        content: '用户不喜欢被哄，更愿意听到不完整但诚实的判断',
+        traceability: 'traceable',
+        sourceEventId: 'preference-1',
+        sourceEventType: 'preference_stated',
+        sourceTurnId: 'turn-preference',
+      },
+      {
+        id: 'boundary:boundary-1',
+        kind: 'boundary',
+        content: '用户明确说只想被听见时，不继续给方案',
+        traceability: 'traceable',
+        sourceEventId: 'boundary-1',
+        sourceEventType: 'boundary_set',
+        sourceTurnId: 'turn-boundary',
+      },
+      {
+        id: 'tension:rupture-1',
+        kind: 'tension',
+        content: '人物越过已知边界，继续替用户安排下一步',
+        traceability: 'traceable',
+        sourceEventId: 'rupture-1',
+        sourceEventType: 'meaningful_disagreement',
+        sourceTurnId: 'turn-rupture',
+      },
+    ],
+  };
+
+  const control = compileSemanticTurnControl({
+    userMessage: '我现在很累，但停下来又觉得浪费。',
+    relationshipContext,
+    relationshipFocus: 'support',
+  });
+
+  assert.equal(control.plan.relationshipMove, undefined);
+  assert.deepEqual(control.plan.activeEffectIds, [
+    'relationship-effect:boundary-1',
+    'relationship-effect:rupture-1',
+  ]);
 });
 
 test('a persona may observe an owner gap but cannot assign real-world responsibility', () => {
@@ -300,6 +421,13 @@ test('zero intervention budgets reject open directional questions and response m
     ).map((violation) => violation.code),
     ['forbidden_menu'],
   );
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '我在听。是继续听，还是暂时不聊，还是换个方式。',
+      control.plan,
+    ).map((violation) => violation.code),
+    ['forbidden_menu'],
+  );
 });
 
 test('repair plans reject good-intent explanations when impact must be handled', () => {
@@ -318,7 +446,7 @@ test('repair plans reject good-intent explanations when impact must be handled',
       '你说了只想被听见。我只是想帮你，出发点并不是要控制你。',
       control.plan,
     ).map((violation) => violation.code),
-    ['forbidden_justification'],
+    ['forbidden_justification', 'required_semantic_move_missing'],
   );
 });
 

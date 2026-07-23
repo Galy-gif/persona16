@@ -1,7 +1,12 @@
 export * from './types';
 export { PERSONAS, getPersona } from './personas';
 export { SAFETY_LAYER, GLOBAL_CONTRACT } from './contract';
-export { buildPersonaCard, buildSystemBlocks, buildTurnPrompt } from './prompt';
+export {
+  buildPersonaCard,
+  buildSystemBlocks,
+  buildTurnPrompt,
+  relationshipFocusForTurn,
+} from './prompt';
 export { applyToneShift, renderToneInstruction } from './tone';
 export {
   expressionTendenciesForAgent,
@@ -139,6 +144,7 @@ export type {
   PilotCharacterSpec,
   PilotTurnResponseContract,
   PilotNarrativeViolation,
+  PilotNarrativeValidationContext,
   PilotRoomChemistry,
   PilotRoomProtocolViolation,
   PilotRoomTranscriptViolation,
