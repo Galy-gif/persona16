@@ -1,6 +1,20 @@
-import type { PilotCharacterContextFocus } from '@persona16/engine';
-import type { PilotTurnResponseContract } from '@persona16/engine';
+import type {
+  AgentType,
+  PilotCharacterContextFocus,
+  PilotTurnResponseContract,
+  RelationshipPromptContext,
+} from '@persona16/engine';
+import {
+  findPilotNarrativeViolations,
+  findPilotRoomProtocolViolations,
+  getPilotCharacter,
+} from '@persona16/engine';
+import {
+  compileSemanticTurnControl,
+  validateUtteranceAgainstTurnPlan,
+} from '@persona16/engine/semantic-turn-control';
 import { evaluateLiteralToneMarkerFrequency } from './pilotExpressionPatterns';
+import { findScenarioCalibrationViolations } from './pilotCalibrationGuards';
 import {
   PILOT_SCENARIO_SEMANTIC_CHECKS,
   isPilotSemanticScenario,
@@ -164,6 +178,135 @@ const REUSABLE_RELATIONSHIP_EVENTS = {
     { id: 'rupture-1', content: '人物越过已知边界，继续替用户安排下一步' },
   ],
 } as const;
+
+const REUSABLE_R2_CONTEXT: RelationshipPromptContext = {
+  memoryEnabled: true,
+  climate: 'tense',
+  evidence: [
+    {
+      id: 'boundary:boundary-1',
+      kind: 'boundary',
+      content: REUSABLE_RELATIONSHIP_EVENTS.R2[2].content,
+      traceability: 'traceable',
+      sourceEventId: 'boundary-1',
+      sourceEventType: 'boundary_set',
+      sourceTurnId: 'turn-8',
+    },
+    {
+      id: 'tension:rupture-1',
+      kind: 'tension',
+      content: REUSABLE_RELATIONSHIP_EVENTS.R2[3].content,
+      traceability: 'traceable',
+      sourceEventId: 'rupture-1',
+      sourceEventType: 'meaningful_disagreement',
+      sourceTurnId: 'turn-9',
+    },
+  ],
+};
+
+const REUSABLE_R1_CONTEXT: RelationshipPromptContext = {
+  memoryEnabled: true,
+  climate: 'warm',
+  evidence: [
+    {
+      id: 'preference:context-1',
+      kind: 'preference',
+      content: REUSABLE_RELATIONSHIP_EVENTS.R1[0].content,
+      traceability: 'traceable',
+      sourceEventId: 'context-1',
+      sourceEventType: 'preference_stated',
+      sourceTurnId: 'turn-3',
+    },
+    {
+      id: 'turning-point:success-1',
+      kind: 'turning_point',
+      content: REUSABLE_RELATIONSHIP_EVENTS.R1[1].content,
+      traceability: 'traceable',
+      sourceEventId: 'success-1',
+      sourceEventType: 'shared_success',
+      sourceTurnId: 'turn-6',
+    },
+  ],
+};
+
+function reusableRelationshipContext(
+  relationship: PilotCharacterScenario['relationship'],
+): RelationshipPromptContext | undefined {
+  if (relationship === 'R1') return REUSABLE_R1_CONTEXT;
+  if (relationship === 'R2') {
+    return {
+      ...REUSABLE_R2_CONTEXT,
+      evidence: [
+        ...REUSABLE_R2_CONTEXT.evidence,
+        ...REUSABLE_R1_CONTEXT.evidence,
+      ],
+    };
+  }
+  return undefined;
+}
+
+function characterDeliveryViolations(
+  agent: AgentType,
+  scenario: PilotCharacterScenario,
+  text: string,
+): string[] {
+  const relationshipContext = reusableRelationshipContext(scenario.relationship);
+  const semanticPlan = compileSemanticTurnControl({
+    userMessage: scenario.prompt,
+    responseContract: scenario.responseContract,
+    relationshipContext,
+    relationshipFocus: scenario.contextFocus,
+  }).plan;
+  return [
+    ...findPilotNarrativeViolations(text, {
+      allowedEvidenceSpans: [
+        scenario.prompt,
+        ...(relationshipContext?.evidence.map((evidence) => evidence.content) ?? []),
+      ],
+    }),
+    ...findPilotRoomProtocolViolations(text, getPilotCharacter(agent)?.name),
+    ...findScenarioCalibrationViolations(agent, scenario.id, text),
+    ...validateUtteranceAgainstTurnPlan(text, semanticPlan).map((violation) => (
+      `semantic_turn:${violation.code}:${violation.repairInstruction}`
+    )),
+  ];
+}
+
+export const RELATIONSHIP_PROBE = '我最近又卡在想做的事和该做的事之间，明明很累，又觉得停下来是在浪费时间。你现在会怎么回应我？';
+export const RELATIONSHIP_PROBE_RESPONSE_CONTRACT: PilotTurnResponseContract = {
+  userCommitments: ['用户正在“想做”和“该做”之间拉扯，并明确表示疲惫'],
+  requiredMoves: ['回应当前疲惫与选择冲突', '关系历史只能改变接话方式，不能替用户新增过去'],
+  allowedMoves: ['提出一个与当前选择直接相关的问题', '使用已提供的共同语言或边界'],
+  forbiddenMoves: ['编造未提供的共同经历', '把关系状态直接说给用户', '用熟悉关系替用户做决定'],
+};
+export const VERIFIED_METHOD_PROBE = '我在留下和离开之间卡住了。两个选择都不是非做不可，我想先知道哪边值得继续投入。';
+export const VERIFIED_METHOD_RESPONSE_CONTRACT: PilotTurnResponseContract = {
+  userCommitments: ['用户正在两个都可放弃的选择之间做决定'],
+  requiredMoves: ['给出一个用于比较两边的判断标准'],
+  allowedMoves: ['提出一个直接比较问题', '提出一个当前可执行的比较动作'],
+  forbiddenMoves: ['替用户直接选择', '复述共同历史', '编造过去实验细节'],
+};
+const REUSABLE_R2_PLAN = compileSemanticTurnControl({
+  userMessage: RELATIONSHIP_PROBE,
+  relationshipContext: REUSABLE_R2_CONTEXT,
+  relationshipFocus: 'support',
+}).plan;
+
+export function evaluatePilotR2StopGate(delivery: {
+  text: string;
+  modelText: string;
+  scoreable: boolean;
+  modelScoreable: boolean;
+  deliverySource: 'model' | 'semantic_fallback';
+}) {
+  return {
+    passed: delivery.scoreable
+      && validateUtteranceAgainstTurnPlan(delivery.text, REUSABLE_R2_PLAN).length === 0,
+    modelPassed: delivery.modelScoreable
+      && validateUtteranceAgainstTurnPlan(delivery.modelText, REUSABLE_R2_PLAN).length === 0,
+    deliverySource: delivery.deliverySource,
+  };
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -401,6 +544,7 @@ export function canReusePilotCharacterResults(
   const artifactSignature = artifact.evaluationSignature;
   const batchExpressionPatternGate = artifact.batchExpressionPatternGate;
   const repairDeliveryGate = artifact.repairDeliveryGate;
+  const relationshipActionDeliveryGate = artifact.relationshipActionDeliveryGate;
   if (artifact.complete !== true
     || artifact.canonVersion !== expectedCanonVersion
     || artifact.evaluationProtocolVersion !== PILOT_CHARACTER_EVAL_PROTOCOL_VERSION
@@ -421,9 +565,46 @@ export function canReusePilotCharacterResults(
     || repairDeliveryGate.requiredModelPassCount !== 3
     || typeof repairDeliveryGate.deliveryPassedCount !== 'number'
     || typeof repairDeliveryGate.modelPassedCount !== 'number'
-    || typeof repairDeliveryGate.passed !== 'boolean') {
+    || typeof repairDeliveryGate.passed !== 'boolean'
+    || !isRecord(relationshipActionDeliveryGate)
+    || !Array.isArray(relationshipActionDeliveryGate.samples)
+    || relationshipActionDeliveryGate.samples.length !== PILOT_AGENTS.length
+    || relationshipActionDeliveryGate.requiredDeliveryPassCount !== PILOT_AGENTS.length
+    || relationshipActionDeliveryGate.requiredModelPassCount !== 3
+    || typeof relationshipActionDeliveryGate.deliveryPassedCount !== 'number'
+    || typeof relationshipActionDeliveryGate.modelPassedCount !== 'number'
+    || typeof relationshipActionDeliveryGate.passed !== 'boolean') {
     return false;
   }
+
+  const repairSamplesByAgent = new Map<string, Record<string, unknown>>();
+  for (const sample of repairDeliveryGate.samples) {
+    if (!isRecord(sample)
+      || typeof sample.agent !== 'string'
+      || !PILOT_AGENTS.includes(sample.agent as (typeof PILOT_AGENTS)[number])
+      || repairSamplesByAgent.has(sample.agent)
+      || typeof sample.deliveryPassed !== 'boolean'
+      || typeof sample.modelPassed !== 'boolean'
+      || (sample.deliverySource !== 'model' && sample.deliverySource !== 'semantic_fallback')) {
+      return false;
+    }
+    repairSamplesByAgent.set(sample.agent, sample);
+  }
+  if (repairSamplesByAgent.size !== PILOT_AGENTS.length) return false;
+
+  const relationshipSamplesByAgent = new Map<string, Record<string, unknown>>();
+  for (const sample of relationshipActionDeliveryGate.samples) {
+    if (!isRecord(sample)
+      || typeof sample.agent !== 'string'
+      || !PILOT_AGENTS.includes(sample.agent as (typeof PILOT_AGENTS)[number])
+      || relationshipSamplesByAgent.has(sample.agent)
+      || typeof sample.deliveryPassed !== 'boolean'
+      || typeof sample.modelPassed !== 'boolean') {
+      return false;
+    }
+    relationshipSamplesByAgent.set(sample.agent, sample);
+  }
+  if (relationshipSamplesByAgent.size !== PILOT_AGENTS.length) return false;
 
   const seenAgents = new Set<string>();
   let computedRepairDeliveryPassedCount = 0;
@@ -452,16 +633,36 @@ export function canReusePilotCharacterResults(
     const expressionSamples = result.replies.map((reply, index) => {
       if (!isRecord(reply)
         || !validHardGateDelivery(reply)) return null;
+      const scenario = PILOT_CHARACTER_SCENARIOS[index]!;
+      const expectedDeliveryViolations = characterDeliveryViolations(
+        result.agent as AgentType,
+        scenario,
+        reply.text,
+      );
+      const expectedModelViolations = characterDeliveryViolations(
+        result.agent as AgentType,
+        scenario,
+        reply.modelText,
+      );
+      if (!sameStrings(expectedDeliveryViolations, reply.violations)
+        || !sameStrings(expectedModelViolations, reply.modelViolations)) return null;
       return { id: ids[index]!, text: reply.text, scoreable: reply.scoreable };
     });
     if (expressionSamples.some((sample) => sample === null)) return false;
     const repairReplyIndex = ids.indexOf('repair-after-boundary-violation');
     const repairReply = result.replies[repairReplyIndex];
     if (!isRecord(repairReply) || !validHardGateDelivery(repairReply)) return false;
-    if (repairReply.scoreable && repairReply.violations.length === 0) {
+    const repairDeliveryPassed = repairReply.scoreable && repairReply.violations.length === 0;
+    const repairModelPassed = repairReply.modelScoreable && repairReply.modelViolations.length === 0;
+    const repairGateSample = repairSamplesByAgent.get(result.agent);
+    if (!repairGateSample
+      || repairGateSample.deliveryPassed !== repairDeliveryPassed
+      || repairGateSample.modelPassed !== repairModelPassed
+      || repairGateSample.deliverySource !== repairReply.deliverySource) return false;
+    if (repairDeliveryPassed) {
       computedRepairDeliveryPassedCount += 1;
     }
-    if (repairReply.modelScoreable && repairReply.modelViolations.length === 0) {
+    if (repairModelPassed) {
       computedRepairModelPassedCount += 1;
     }
     const expressionGate = evaluateLiteralToneMarkerFrequency(expressionSamples.map((sample) => ({
@@ -523,7 +724,9 @@ export function canReusePilotCharacterResults(
     || repairDeliveryGate.passed !== expectedRepairGatePassed) return false;
 
   const seenRelationshipAgents = new Set<string>();
-  const expectedRelationships = ['R0', 'R1', 'R2'];
+  const expectedRelationships = ['R0', 'R1', 'R2'] as const;
+  let computedRelationshipDeliveryPassedCount = 0;
+  let computedRelationshipModelPassedCount = 0;
   for (const contrast of artifact.relationshipContrasts) {
     if (!isRecord(contrast)
       || typeof contrast.agent !== 'string'
@@ -533,6 +736,11 @@ export function canReusePilotCharacterResults(
       || typeof contrast.evidenceCitationsValid !== 'boolean'
       || !Array.isArray(contrast.eventEntailments)
       || !isRecord(contrast.verifiedMethodProbe)
+      || !isRecord(contrast.r2StopGate)
+      || typeof contrast.r2StopGate.passed !== 'boolean'
+      || typeof contrast.r2StopGate.modelPassed !== 'boolean'
+      || (contrast.r2StopGate.deliverySource !== 'model'
+        && contrast.r2StopGate.deliverySource !== 'semantic_fallback')
       || !hasBooleanPassed(contrast.expressionPatternGate)
       || !hasBooleanPassed(contrast.eventEntailmentValidation)
       || !isStringArray(contrast.eventEntailmentValidation.validationErrors)
@@ -553,6 +761,21 @@ export function canReusePilotCharacterResults(
     const expressionSamples = contrast.replies.map((reply, index) => {
       if (!isRecord(reply)
         || !validHardGateDelivery(reply)) return null;
+      const relationship = expectedRelationships[index]!;
+      const scenario: PilotCharacterScenario = {
+        id: `same-input-${relationship.toLowerCase()}`,
+        relationship,
+        contextFocus: 'support',
+        responseContract: RELATIONSHIP_PROBE_RESPONSE_CONTRACT,
+        prompt: RELATIONSHIP_PROBE,
+      };
+      if (!sameStrings(
+        characterDeliveryViolations(contrast.agent as AgentType, scenario, reply.text),
+        reply.violations,
+      ) || !sameStrings(
+        characterDeliveryViolations(contrast.agent as AgentType, scenario, reply.modelText),
+        reply.modelViolations,
+      )) return null;
       return { id: relationships[index]!, text: reply.text, scoreable: reply.scoreable };
     });
     if (expressionSamples.some((sample) => sample === null)) return false;
@@ -594,10 +817,17 @@ export function canReusePilotCharacterResults(
     });
     const eventValidation = validateRelationshipEventEntailments(
       contrast.eventEntailments,
-      citations,
+      citations.filter(({ relationship }) => relationship === 'R1'),
       replies,
       REUSABLE_RELATIONSHIP_EVENTS,
     );
+    const r2Delivery = contrast.replies[2]!;
+    if (!isRecord(r2Delivery) || !validHardGateDelivery(r2Delivery)) return false;
+    const computedR2StopGate = evaluatePilotR2StopGate(r2Delivery);
+    const r2StopPassed = computedR2StopGate.passed;
+    if (contrast.r2StopGate.passed !== computedR2StopGate.passed
+      || contrast.r2StopGate.modelPassed !== computedR2StopGate.modelPassed
+      || contrast.r2StopGate.deliverySource !== computedR2StopGate.deliverySource) return false;
     const methodProbe = contrast.verifiedMethodProbe;
     if (!Array.isArray(methodProbe.replies)
       || methodProbe.replies.length !== 2
@@ -608,13 +838,29 @@ export function canReusePilotCharacterResults(
       || !hasBooleanPassed(methodProbe.validation)
       || !isStringArray(methodProbe.validation.validationErrors)
       || typeof methodProbe.passed !== 'boolean') return false;
-    const methodRelationships = ['R0', 'R1'];
+    const methodRelationships = ['R0', 'R1'] as const;
     const methodSamples = methodProbe.replies.map((reply, index) => (
-      isRecord(reply)
-      && reply.relationship === methodRelationships[index]
-      && validHardGateDelivery(reply)
-        ? { id: methodRelationships[index]!, text: reply.text, scoreable: reply.scoreable }
-        : null
+      (() => {
+        if (!isRecord(reply)
+          || reply.relationship !== methodRelationships[index]
+          || !validHardGateDelivery(reply)) return null;
+        const relationship = methodRelationships[index]!;
+        const scenario: PilotCharacterScenario = {
+          id: `verified-method-${relationship.toLowerCase()}`,
+          relationship,
+          contextFocus: 'decision',
+          responseContract: VERIFIED_METHOD_RESPONSE_CONTRACT,
+          prompt: VERIFIED_METHOD_PROBE,
+        };
+        if (!sameStrings(
+          characterDeliveryViolations(contrast.agent as AgentType, scenario, reply.text),
+          reply.violations,
+        ) || !sameStrings(
+          characterDeliveryViolations(contrast.agent as AgentType, scenario, reply.modelText),
+          reply.modelViolations,
+        )) return null;
+        return { id: relationship, text: reply.text, scoreable: reply.scoreable };
+      })()
     ));
     if (methodSamples.some((sample) => sample === null)) return false;
     const methodExpressionGate = evaluateLiteralToneMarkerFrequency(methodSamples.map((sample) => ({
@@ -657,6 +903,24 @@ export function canReusePilotCharacterResults(
       return false;
     }
     if (methodProbe.passed !== methodPassed) return false;
+    const r1Delivery = contrast.replies[1]!;
+    const methodR1Delivery = methodProbe.replies[1]!;
+    if (!isRecord(r1Delivery)
+      || !validHardGateDelivery(r1Delivery)
+      || !isRecord(methodR1Delivery)
+      || !validHardGateDelivery(methodR1Delivery)) return false;
+    const relationshipDeliveryPassed = r1Delivery.scoreable
+      && eventValidation.passed
+      && methodR1Delivery.scoreable
+      && methodPassed;
+    const relationshipModelPassed = r1Delivery.modelScoreable
+      && methodR1Delivery.modelScoreable;
+    if (relationshipDeliveryPassed) computedRelationshipDeliveryPassedCount++;
+    if (relationshipModelPassed) computedRelationshipModelPassedCount++;
+    const relationshipGateSample = relationshipSamplesByAgent.get(contrast.agent);
+    if (!relationshipGateSample
+      || relationshipGateSample.deliveryPassed !== relationshipDeliveryPassed
+      || relationshipGateSample.modelPassed !== relationshipModelPassed) return false;
     const expectedPassed = contrast.verdict.r0Distinct
       && contrast.verdict.r1Distinct
       && contrast.verdict.r2Distinct
@@ -667,6 +931,7 @@ export function canReusePilotCharacterResults(
       && contrast.verdict.r2CausallyGrounded
       && citationsValid
       && eventValidation.passed
+      && r2StopPassed
       && methodPassed;
     if (contrast.evidenceCitationsValid !== citationsValid
       || contrast.eventEntailmentValidation.passed !== eventValidation.passed
@@ -677,6 +942,14 @@ export function canReusePilotCharacterResults(
       || contrast.passed !== expectedPassed) return false;
   }
 
+  const expectedRelationshipActionGatePassed = computedRelationshipDeliveryPassedCount
+      === PILOT_AGENTS.length
+    && computedRelationshipModelPassedCount >= 3;
   return PILOT_AGENTS.every((agent) => seenRelationshipAgents.has(agent))
-    && seenRelationshipAgents.size === PILOT_AGENTS.length;
+    && seenRelationshipAgents.size === PILOT_AGENTS.length
+    && relationshipActionDeliveryGate.deliveryPassedCount
+      === computedRelationshipDeliveryPassedCount
+    && relationshipActionDeliveryGate.modelPassedCount
+      === computedRelationshipModelPassedCount
+    && relationshipActionDeliveryGate.passed === expectedRelationshipActionGatePassed;
 }

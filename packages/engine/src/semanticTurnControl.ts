@@ -150,10 +150,12 @@ const FINISHED_SPEAKING = /(?:我)?说完了|就这些|大概就是这样|好了
 const CANCEL_PENDING_REQUEST = /不用(?:再)?(?:分析|给建议|一起想)了|(?:别|不要)(?:再)?(?:分析|给建议)了/u;
 const ADVICE_ACT = /建议|你可以|不妨|最好|你应该|不如|(?:你)?先(?:把|去|做|写|列|停|休息).{1,24}(?<!不)再/u;
 const NEGATED_ADVICE_MENTION = /(?:我)?(?:不|别)(?:再|会|打算|准备|急着|继续|先)?(?:给(?:你|我)?|提供|提)?(?:任何)?(?:建议|方案)/gu;
+const DIRECT_IMPERATIVE_ADVICE = /^(?:把.{1,28}(?:放下|停下|做完|删掉|搁下)|去(?:做|选|找|问|休息)|直接(?:选|做|去|停|继续)|选.{1,24}|别再.{0,20}(?:浪费|纠结|继续|做)|继续(?:做|推进|坚持))/u;
 const PERMISSION_NOT_ADVICE = /^你可以(?:不回答|不说|拒绝|随时停|先不回答|先不说)/u;
 const ACKNOWLEDGEMENT_ACT = /(?:我(?:先)?听着|(?:我)?(?:就)?在这(?:儿|里)听(?:着)?|我在听|我听到了|我不(?:再)?(?:说|插嘴|分析|给建议)|听起来|你(?:已经)?说(?:了|过)|我(?:知道|明白)(?:你|，(?:这|刚才|现在|你))|你可以(?:不回答|不说)|(?:越过|跨过|踩过|踩了|越了).{0,12}(?:边界|线)|越界|我先停下来|我会停下来)/u;
 const REFLECTION_ACT = /(?:听起来|你(?:现在|已经|刚刚|一边|会觉得)|这(?:件事|种处境|一下))/u;
 const STOP_INTERVENING_ACT = /(?:(?:我|那我)?(?:先|会|就|现在)?(?:停|停止|停下|停下来|收手)(?:(?:(?:继续)?(?:介入|干预|插手)|替你(?:安排(?:下一步|后续)?|决定|往下推)|给(?:你)?(?:建议|方案))|[，,。！!；;\s]|$)|(?:我|那我)?(?:先|会|就|现在)?(?:不再|不继续|撤回|收回).{0,18}(?:替你(?:安排(?:下一步|后续)?|决定|往下推)|安排(?:下一步|后续)?|建议|方案|介入|干预|插手|往下(?:推|安排)?)|(?:我)?(?:现在)?把.{0,8}(?:安排|建议|方案).{0,4}(?:收回来|撤回)|不再替你.{0,12}(?:安排(?:下一步|后续)?|决定|往下推))/u;
+const PURE_STOP_INTERVENING_CLAUSE = new RegExp(`^(?:${STOP_INTERVENING_ACT.source})$`, 'u');
 const CONCLUSION_ASSERTION = /(?:(?:我的)?(?:结论|判断)(?:是|：|:).{1,20}|我(?:认为|觉得).{1,20}(?:应该|更适合|更值得|不值得|不该|更像|未必|不一定|先|停|继续|选)|我更倾向(?:于)?(?:先|选|留|停|继续|放弃).{0,16}|在我看来[，,]?.{1,20}(?:应该|更适合|更值得|不值得|不该|更像|未必|不一定)|(?:先|可以先|暂时)(?:试|做|停|等|选|留|继续|放弃).{0,16}|(?:别|不要)(?:做|选|急|继续).{0,16})/u;
 const COMFORTING_CLICHE = /(?:别想太多|一切都会好|都会好起来|会好起来的|都会过去|会过去的|总会过去|你已经很棒|加油就好|没事的)/u;
 const OVERCONFIDENT_JUDGMENT = /(?:(?<!不敢)(?<!不能)(?<!没法)肯定(?:会|就是)|(?<!不)一定(?:会|就是)|绝对(?:会|就是)|毫无疑问|百分之百)/u;
@@ -165,6 +167,8 @@ const BOUNDARY_REPAIR_ACKNOWLEDGEMENT = /^(?:(?:(?:这次|刚才|那)?(?:确实|
 const BOUNDARY_REPAIR_SPECIFIC_ACKNOWLEDGEMENT = /^(?:(?:(?:这次|刚才|那)?(?:确实|还是)?(?:是)?我|我(?:这次|刚才)?)(?:确实|还是)?(?:越过|跨过|踩过|踩了|越了).{0,20}(?:你.{0,16}(?:边界|线)|[这那](?:条|个)(?:边界|线))|(?:(?:这次|刚才|那)?(?:是)?我|我(?:这次|刚才)?)(?:确实|还是)?越界(?:了)?|(?:只想被听见|不要方案|不想听建议).{0,24}(?:我|还|却|仍然).{0,24}(?:安排(?:了)?(?:下一步|后续)?(?:了)?|建议|介入|往下(?:推|安排))|我(?:今天|现在)?(?:还|还是|却|仍然).{0,16}(?:替你|给你|帮你).{0,16}(?:安排(?:了)?(?:下一步|后续)?(?:了)?|建议|介入|往下(?:推|安排))|我没(?:听|尊重).{0,16}(?:你|边界))$/u;
 const BOUNDARY_REPAIR_SPECIFIC_ACKNOWLEDGEMENT_SPAN = /(?:(?:我|这次|刚才|那).{0,12}(?:(?:越过|跨过|踩过|踩了|越了).{0,20}(?:你.{0,16}(?:边界|线)|[这那](?:条|个)(?:边界|线))|越界)|(?:只想被听见|不要方案|不想听建议).{0,24}(?:我|还|却|仍然).{0,24}(?:安排|建议|介入|往下(?:推|安排))|我(?:还|却|仍然).{0,16}(?:替你|给你|帮你).{0,16}(?:安排|建议|介入|往下(?:推|安排))|我没(?:听|尊重).{0,16}(?:你|边界))/u;
 const BOUNDARY_REPAIR_DISCOURSE_MARKER = /^(?:对|嗯|是|抱歉|对不起|你说得对)$/u;
+const PERSONAL_OR_CLINICAL_INFERENCE = /(?:[\p{Script=Han}]{1,10}(?:症(?!结)|综合征|人格障碍)|(?:心理|精神|人格|依恋|创伤|情绪).{0,8}(?:疾病|障碍|问题|反应|模式|类型|倾向|表现|不健康|不(?:太|大|怎么)?正常|异常|病态)|[\p{Script=Han}]{0,8}(?:型人格|型依恋)|(?:抑郁|焦虑|躁郁|双相|边缘|逃避|回避|讨好|偏执|表演|控制|自恋|自我中心)(?:型|倾向|人格|的人)?|神经病|有点不(?:太|大|怎么)?正常|疯(?:了)?|变态|病态|很懒|懒惰|自私|虚伪|矫情|软弱|冷漠|有(?:心理|精神)?病)/gu;
+const NON_LISTENING_INTERPRETATION = /(?:根本|真正的问题|其实|说明|意味着|导致|归根结底|说到底|本质上|是在逃避|不肯|你缺的是|你需要|应该|必须)/u;
 
 function hasReversibleExperiment(text: string): boolean {
   if (IRREVERSIBLE_ACTION.test(text)) return false;
@@ -180,20 +184,28 @@ function hasReversibleExperiment(text: string): boolean {
 function normalizeCorrectionEvidence(text: string): string {
   return text
     .replace(/收拾残局/gu, '收尾')
-    .replace(/(?:再也)?不想(?:再)?当(?:那个)?最后兜底的人/gu, '不想替人收尾')
+    .replace(/(?:再也)?不想(?:再)?当(?:那个)?(?:最后)?兜底的人/gu, '不想替人收尾')
     .replace(/不愿意?/gu, '不想')
-    .replace(/动不起来/gu, '缺行动力')
+    .replace(/(?:动不起来|动不了)/gu, '缺行动力')
+    .replace(/不是(?:怕|害怕)(?=$|[，,。！？!?\s])/gu, '不是害怕失败')
+    .replace(/不是做不到/gu, '不是缺行动力')
     .replace(/(?:这么|那么|如此|太)(?=[\p{Script=Han}])/gu, '很')
     .replace(/(?:所有人|别人|大家)/gu, '人')
-    .replace(/(?:用户|人物|我|你|他|她|明确|纠正|根本|只是|只|再|已经|真的|就是|说|的|了|，|。|；|：|、|\s)/gu, '');
+    .replace(/(?:用户|人物|我|你|他|她|明确|纠正|根本|只是|只|也|再|已经|真的|就是|说|的|了|，|。|；|：|、|\s)/gu, '')
+    .replace(/^是(?=不想)/u, '');
 }
 
 function isGroundedAttributeQuestion(
   clause: string,
   sourcePropositions: readonly string[],
 ): boolean {
+  const sourceText = sourcePropositions.join('');
+  const unsupportedAttribute = [...clause.matchAll(PERSONAL_OR_CLINICAL_INFERENCE)]
+    .some((match) => !sourceText.includes(normalizeCorrectionEvidence(match[0])));
+  if (unsupportedAttribute) return false;
   const assertsUserAttribute = /(?:是不是|是否|难道|能不能理解成|可不可以理解成|是否意味着|是不是说明)/u.test(clause)
-    || /(?:为什么|怎么(?:会)?).{0,8}(?:这么|那么|如此|很|太|有点).{1,16}[？?]$/u.test(clause);
+    || /(?:为什么|怎么(?:会)?).{0,8}(?:这么|那么|如此|很|太|有点).{1,16}[？?]$/u.test(clause)
+    || /你(?:有|属于|算|是).{1,20}(?:吗|么|呢)?[？?]$/u.test(clause);
   if (!assertsUserAttribute) {
     return true;
   }
@@ -213,9 +225,14 @@ function hasGroundedCorrection(
   currentEvidenceSpans: readonly string[],
 ): boolean {
   if (!/(?:我理解错了|是我(?:看错|想错|判断错)了)/u.test(text)) return false;
-  const corrections = [...text.matchAll(
-    /(?:而是|[—-]{1,2}是)([^。！？!?\n]{2,80})/gu,
+  const relationalCorrections = [...text.matchAll(
+    /(?:而是|[—-]{1,2}是|(?:^|[。！？!?\n])\s*是(?=(?:不想|不愿)))([^。！？!?\n]{2,80})/gu,
   )];
+  const frontedCorrections = [...text.matchAll(
+    /(?:^|[。！？!?\n])\s*((?:不想|不愿)[^。！？!?\n—-]{1,40}(?:收尾|兜底的人))(?=\s*[—-]{1,2})/gu,
+  )];
+  const corrections = [...relationalCorrections, ...frontedCorrections]
+    .sort((left, right) => (left.index ?? 0) - (right.index ?? 0));
   if (corrections.length === 0) return false;
   const sourcePropositions = currentEvidenceSpans.flatMap((span) => (
     span
@@ -237,7 +254,7 @@ function hasGroundedCorrection(
     .map((clause) => clause.trim())
     .filter(Boolean)
     .find((clause) => (
-      !/^(?:对|好|嗯|你说得对|(?:是)?我理解错了|是我(?:看错|想错|判断错)了)$/u.test(clause)
+      !/^(?:对|好|嗯|是|抱歉|对不起|你说得对|(?:是)?我理解错了|是我(?:看错|想错|判断错)了)$/u.test(clause)
       && !sourcePropositions.some((source) => {
         const proposition = normalizeCorrectionEvidence(clause);
         return source === proposition
@@ -249,7 +266,12 @@ function hasGroundedCorrection(
   if (unsupportedPrefix) return false;
   const finalCorrection = corrections.at(-1);
   if (!finalCorrection || finalCorrection.index === undefined) return false;
-  const suffix = text.slice(finalCorrection.index + finalCorrection[0].length);
+  const suffix = text
+    .slice(finalCorrection.index + finalCorrection[0].length)
+    .replace(
+      /^\s*[—-]{1,2}(?:这个|这)(?:理由|说法)[^。！？!?\n]{0,60}(?:更具体)[^。！？!?\n]{0,24}(?:更累)[。！？!?\n]?/u,
+      '',
+    );
   const unsupportedSuffix = (suffix.match(/[^。！？!?\n；;]+[？?]?/gu) ?? [])
     .map((clause) => clause.trim())
     .filter(Boolean)
@@ -257,8 +279,9 @@ function hasGroundedCorrection(
       !sourcePropositions.includes(normalizeCorrectionEvidence(clause))
       && !(/[？?]$/u.test(clause)
         && isGroundedAttributeQuestion(clause, sourcePropositions))
+      && !/^[—-]{1,2}(?:这个|这)(?:理由|说法).{0,40}(?:具体|累)/u.test(clause)
+      && !/^不是做不到[，,]是(?:我)?不想再做(?:了)?$/u.test(clause)
       && !/^(?:那)?我想问(?:一句|一个问题)?[：:]?$/u.test(clause)
-      && !/(?:可能|未必|不一定|我(?:觉得|认为|不觉得)|在我看来|听起来|看起来|不代表|这(?:两件事|两者).{0,8}不是)/u.test(clause)
       && !/我(?:收回|改掉|撤回).{0,12}(?:判断|说法|理解)/u.test(clause)
     ));
   return !unsupportedSuffix;
@@ -269,15 +292,74 @@ function hasHonestTentativeJudgment(
   allowedEvidenceSpans: readonly string[],
 ): boolean {
   if (hasGroundedCorrection(text, allowedEvidenceSpans)) return true;
-  return sentences(text).some((sentence) => (
-    /(?:我)?不觉得.{2,40}/u.test(sentence)
-    || /我(?:觉得|认为).{0,24}(?:不是|不该|不代表|更像|可能|未必|不一定|关键|问题|风险|代价|值得|继续|停下).{0,16}/u.test(sentence)
-    || /(?:我的判断|在我看来|说实话)[，,：:]?.{0,24}(?:不确定|不是|不该|不代表|更像|可能|未必|不一定|关键|问题|风险|代价|值得|先|继续|停下).{0,16}/u.test(sentence)
-    || /我更倾向(?:于)?(?:先|选|留|停|继续|放弃|认为).{0,24}/u.test(sentence)
-    || /(?:听起来|看起来|像是).{2,40}(?:更像|不是|可能|未必|不一定|问题|风险|代价)/u.test(sentence)
-    || /(?:可能|未必|不一定).{2,40}(?:是|意味着|值得|说明|问题|风险|代价|继续|停)/u.test(sentence)
-    || /(?:不代表|说明).{2,40}(?:你|这|那|问题|风险|代价|判断|选择)/u.test(sentence)
-  ));
+  const normalizedEvidence = allowedEvidenceSpans
+    .map(normalizeCorrectionEvidence)
+    .join('');
+  const evidenceBigrams = new Set(
+    [...normalizedEvidence.matchAll(/(?=([\p{Script=Han}]{2}))/gu)]
+      .map((match) => match[1]!)
+      .filter((bigram) => !['现在', '就是', '不是', '觉得', '可能', '用户', '人物'].includes(bigram)),
+  );
+  return sentences(text).some((sentence) => {
+    const hasJudgmentForm = /(?:我)?不觉得.{2,40}/u.test(sentence)
+      || /我不确定.{2,40}/u.test(sentence)
+      || /我(?:觉得|认为).{0,24}(?:不是|不该|不代表|更像|可能|未必|不一定|关键|问题|风险|代价|值得|继续|停下).{0,16}/u.test(sentence)
+      || /(?:我的判断|在我看来|说实话)[，,：:]?.{0,24}(?:不确定|不是|不该|不代表|更像|可能|未必|不一定|关键|问题|风险|代价|值得|先|继续|停下).{0,16}/u.test(sentence)
+      || /我更倾向(?:于)?(?:先|选|留|停|继续|放弃|认为).{0,24}/u.test(sentence);
+    if (!hasJudgmentForm) return false;
+    const unsupportedAttribute = [...sentence.matchAll(PERSONAL_OR_CLINICAL_INFERENCE)]
+      .some((match) => !normalizedEvidence.includes(normalizeCorrectionEvidence(match[0])));
+    if (unsupportedAttribute) return false;
+    const normalizedSentence = normalizeCorrectionEvidence(sentence);
+    const sharesBigram = [...normalizedSentence.matchAll(/(?=([\p{Script=Han}]{2}))/gu)]
+      .some((match) => evidenceBigrams.has(match[1]!));
+    const supportedContrastParaphrase = normalizedEvidence.includes('累')
+      && normalizedEvidence.includes('停')
+      && /(?:硬撑|前进)/u.test(sentence);
+    return sharesBigram || supportedContrastParaphrase;
+  });
+}
+
+function hasUnsupportedPersonalAttribution(
+  text: string,
+  allowedEvidenceSpans: readonly string[],
+): boolean {
+  const normalizedEvidence = allowedEvidenceSpans.map(normalizeCorrectionEvidence).join('');
+  let judgmentContext = false;
+  for (const sentence of sentences(text)) {
+    if (/(?:我(?:觉得|认为|不觉得|不确定)|我的判断|在我看来|说实话)/u.test(sentence)) {
+      judgmentContext = true;
+    }
+    if (!judgmentContext || !/你/u.test(sentence)) continue;
+    const unsupported = sentence.split(/[，,；;]|(?:而是|却是|但|不过|可是)/u).some((clause) => {
+      const subjectIndex = clause.lastIndexOf('你');
+      if (subjectIndex < 0
+        || /(?:不是|并非|不代表|不等于|未必是)你/u.test(clause)
+        || /你(?:怎么|为什么|会不会|是不是|要不要|想不想|觉得|想|愿)/u.test(clause)) {
+        return false;
+      }
+      const predicate = clause.slice(subjectIndex + 1).replace(/[。！？!?]+$/u, '').trim();
+      const corePredicate = predicate.replace(
+        /^(?:(?:现在|已经|明明|还|也|可能|只是|真的|确实|大概|也许|或许|仍然|还是|就是|是(?:个|一种)?|在|有点|太)+)/u,
+        '',
+      );
+      const normalizedPredicate = normalizeCorrectionEvidence(corePredicate);
+      if (normalizedPredicate.length === 0 || normalizedEvidence.includes(normalizedPredicate)) {
+        return false;
+      }
+      const groundedAffect = ['烦', '累', '怕', '担心', '生气', '难受', '痛苦', '激动', '高兴']
+        .some((word) => predicate.includes(word) && allowedEvidenceSpans.some((span) => span.includes(word)));
+      if (groundedAffect
+        && !/(?:问题出在|关键|人品|能力|责任感|自律|失败者|人格|病|疯|变态)/u.test(predicate)) {
+        return false;
+      }
+      const narrowBehaviorJudgment = /^(?:现在)?(?:可能|未必|不一定)?(?:是)?(?:在)?(?:该|想|不想|可以|不该)?(?:先)?(?:停(?:下来|一下)?|继续|试(?:一下)?|等(?:一下)?|选|休息(?:一下)?|硬撑|前进)(?:了|下去)?$/u
+        .test(predicate);
+      return !narrowBehaviorJudgment;
+    });
+    if (unsupported) return true;
+  }
+  return false;
 }
 
 function boundaryRepairUnits(text: string): string[] {
@@ -437,7 +519,7 @@ export function compileRelationshipEffects(
             'offer_menu',
             'reopen_decision',
           ] satisfies SemanticTurnAct[],
-          requiredActs: ['acknowledge'] satisfies SemanticTurnAct[],
+          requiredActs: ['acknowledge', 'stop_intervening'] satisfies SemanticTurnAct[],
         } satisfies RelationshipEffect];
       }
       if (evidence.kind === 'tension'
@@ -455,7 +537,7 @@ export function compileRelationshipEffects(
             'offer_menu',
             'reopen_decision',
           ] satisfies SemanticTurnAct[],
-          requiredActs: ['acknowledge'] satisfies SemanticTurnAct[],
+          requiredActs: ['acknowledge', 'stop_intervening'] satisfies SemanticTurnAct[],
         } satisfies RelationshipEffect];
       }
       return [];
@@ -673,6 +755,62 @@ function sentences(text: string): string[] {
     .filter(Boolean) ?? [];
 }
 
+function hasDirectionalQuestionAct(sentence: string): boolean {
+  const questionWord = /(?:谁|什么|哪(?:个|一|些|边|部分)?|怎么|为什么|多少|几|何时|哪里)/u;
+  const declarativeUncertainty = new RegExp(
+    `(?:不知道|不清楚|没想好|说不清|无法确定|不能确定)[^。！？!?\\n]{0,24}${questionWord.source}|${questionWord.source}[^。！？!?\\n]{0,20}(?:都)?(?:不知道|不清楚|没想好|说不清|无法确定|不能确定)`,
+    'u',
+  );
+  return /[？?]$/u.test(sentence)
+    || /(?:吗|么|呢)[。.!]?$/u.test(sentence)
+    || /(?:愿不愿意|想不想|要不要|能不能|可不可以|是不是|有没有)/u.test(sentence)
+    || (!declarativeUncertainty.test(sentence)
+      && (/(?:^|[，,])(?:那)?(?:你|我们)(?:现在|接下来|最想|想|先|会|要|能|愿)?[^。！？!?\n]{0,32}(?:谁|什么|哪(?:个|一|些|边|部分)?|怎么|为什么|多少|几|何时|哪里)/u.test(sentence)
+        || /(?:先说|说说|聊聊|讲讲|从).{0,16}(?:谁|什么|哪(?:个|一|些|边|部分)?|怎么|为什么|多少|几|何时|哪里)/u.test(sentence)
+        || /(?:谁|什么|哪(?:个|一|些|边|部分)?|怎么|为什么|多少|几|何时|哪里)(?:回事|开始|说|聊|讲|部分|地方)?[。.!]?$/u.test(sentence)));
+}
+
+function isPassiveListeningDelivery(
+  text: string,
+  currentEvidenceSpans: readonly string[],
+  allowedEvidenceSpans: readonly string[],
+): boolean {
+  const normalizedCurrent = currentEvidenceSpans.map(normalizeCorrectionEvidence).join('');
+  const allowedEvidence = allowedEvidenceSpans.join('');
+  return sentences(text).every((rawSentence) => {
+    const sentence = rawSentence.replace(/[。！？!?]+$/u, '').trim();
+    if (/^(?:嗯[，,]?)?(?:我)?(?:先)?(?:听着|在听|听到了|听见了)$/u.test(sentence)) return true;
+    if (/^(?:我先在这(?:里|儿)听着(?:[，,](?:你)?想一起理的时候再告诉我)?|你可以不回答|(?:你)?想一起理的时候再告诉我)$/u.test(sentence)) return true;
+    if (NON_LISTENING_INTERPRETATION.test(sentence)
+      || /(?:是对的|是错的|才对|认输|也得|更好|更合适|更值得)[。.!]?$/u.test(sentence)
+      || sentence.match(PERSONAL_OR_CLINICAL_INFERENCE)
+      || hasDirectionalQuestionAct(rawSentence)
+      || DIRECT_IMPERATIVE_ADVICE.test(sentence)) return false;
+    const clauses = sentence
+      .split(/[，,；;]|(?:但|不过|可是|然后|而且|只是)/u)
+      .map((clause) => clause.trim())
+      .filter(Boolean);
+    return clauses.every((clause) => {
+      if (/^(?:嗯[，,]?)?(?:我)?(?:先)?(?:听着|在听|听到了|听见了)$/u.test(clause)
+        || /^(?:不再|不继续|不)(?:替你)?(?:安排(?:下一步|后续)?|给建议|介入|往下推)$/u.test(clause)
+        || PURE_STOP_INTERVENING_CLAUSE.test(clause)) return true;
+      if (BOUNDARY_REPAIR_ACKNOWLEDGEMENT.test(clause)
+        && /(?:越界|越过.{0,8}(?:边界|线)|只想被听见|替你安排下一步)/u.test(clause)
+        && /(?:越界|边界|只想被听见|替用户安排下一步)/u.test(allowedEvidence)) return true;
+      if (/(?:(?:所以|因此|那就|看来|恐怕).{0,18}(?:继续|别停|硬撑|离开|留下|放弃|辞职|分手|应该|只能|得)|(?:只能|还是得|就得|不得不).{0,12}(?:继续|硬撑|离开|留下)|(?:别|不要)停)/u.test(clause)) {
+        return false;
+      }
+      const supportedListenParaphrase = normalizedCurrent.includes('累')
+        && /^(?:听起来|看起来|好像)?(?:你)?(?:已经|一直)?(?:撑了很久|硬撑了很久)$/u
+          .test(clause);
+      if (supportedListenParaphrase) return true;
+      const normalizedClause = normalizeCorrectionEvidence(clause)
+        .replace(/^(?:听起来|看起来|好像|你(?:现在|已经|刚刚)?|明明|又|还|而且|一边|另一边)/u, '');
+      return normalizedClause.length >= 2 && normalizedCurrent.includes(normalizedClause);
+    });
+  });
+}
+
 export function validateUtteranceAgainstTurnPlan(
   text: string,
   plan: SemanticTurnActPlan,
@@ -680,7 +818,7 @@ export function validateUtteranceAgainstTurnPlan(
   const violations: SemanticTurnViolation[] = [];
   if (plan.directionalQuestionBudget === 0) {
     const directionalQuestion = sentences(text).find((sentence) => (
-      /[？?]$/u.test(sentence)
+      hasDirectionalQuestionAct(sentence)
     ));
     if (directionalQuestion) {
       violations.push({
@@ -702,7 +840,8 @@ export function validateUtteranceAgainstTurnPlan(
           .slice(stop[0].length)
           .replace(/[，,。！？!；;\s]/gu, '') === '',
       );
-      return ADVICE_ACT.test(pureStop ? '' : withoutNegatedAdvice)
+      return (ADVICE_ACT.test(pureStop ? '' : withoutNegatedAdvice)
+        || DIRECT_IMPERATIVE_ADVICE.test(pureStop ? '' : withoutNegatedAdvice))
         && !PERMISSION_NOT_ADVICE.test(sentence);
     });
     if (advice) {
@@ -845,7 +984,13 @@ export function validateUtteranceAgainstTurnPlan(
     });
   }
   if (plan.requiredActs.includes('stop_intervening')
-    && !STOP_INTERVENING_ACT.test(text)
+    && (plan.interactionMode === 'listen'
+      ? !isPassiveListeningDelivery(
+          text,
+          plan.currentEvidenceSpans,
+          plan.allowedEvidenceSpans,
+        )
+      : !STOP_INTERVENING_ACT.test(text))
     && !violations.some(({ code }) => code === 'required_semantic_move_missing')) {
     violations.push({
       code: 'required_semantic_move_missing',
@@ -855,6 +1000,13 @@ export function validateUtteranceAgainstTurnPlan(
   }
   if (plan.relationshipMove?.observableCue === 'honest_tentative_judgment'
     && (!hasHonestTentativeJudgment(text, plan.currentEvidenceSpans)
+      || hasUnsupportedPersonalAttribution(text, plan.currentEvidenceSpans)
+      || [...text.matchAll(PERSONAL_OR_CLINICAL_INFERENCE)].some((match) => (
+        !plan.currentEvidenceSpans
+          .map(normalizeCorrectionEvidence)
+          .join('')
+          .includes(normalizeCorrectionEvidence(match[0]))
+      ))
       || COMFORTING_CLICHE.test(text)
       || OVERCONFIDENT_JUDGMENT.test(text))) {
     violations.push({
@@ -900,7 +1052,10 @@ export function validateUtteranceAgainstTurnPlan(
     });
   }
   if (plan.relationshipMove?.observableCue === 'avoid_advice'
-    && ADVICE_ACT.test(text.replace(NEGATED_ADVICE_MENTION, ''))) {
+    && (ADVICE_ACT.test(text.replace(NEGATED_ADVICE_MENTION, ''))
+      || sentences(text).some((sentence) => (
+        DIRECT_IMPERATIVE_ADVICE.test(sentence.replace(NEGATED_ADVICE_MENTION, ''))
+      )))) {
     violations.push({
       code: 'relationship_move_not_observable',
       effectId: plan.activeEffectIds[0],
@@ -968,6 +1123,9 @@ export function semanticTurnFallback(control: SemanticTurnControl): string | und
   if (conversationFallback) return conversationFallback;
   if (control.plan.interactionMode === 'listen') {
     return '嗯，我听着。';
+  }
+  if (control.plan.relationshipMove?.observableCue === 'reversible_small_experiment') {
+    return '先只选一边试一天，开始前写下退出条件；一天后再决定值不值得继续，随时可以停。';
   }
   return undefined;
 }

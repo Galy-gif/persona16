@@ -97,6 +97,7 @@ test('the delivery gate rejects a binary question that contradicts a listen plan
 
   assert.deepEqual(invalid.map((violation) => violation.code), [
     'forbidden_directional_question',
+    'required_semantic_move_missing',
   ]);
   assert.equal(invalid[0]?.evidenceSpan, '你现在是累到判断不了，还是累到不想判断了？');
   assert.deepEqual(valid, []);
@@ -221,7 +222,7 @@ test('a relationship boundary complaint compiles into a self-contained repair wi
       '对，是我越过了你只想被听见的边界。我先停。以后要不要继续聊，由你决定。',
       control.plan,
     ).map(({ code }) => code),
-    ['decision_reopened'],
+    ['forbidden_directional_question', 'decision_reopened'],
   );
   assert.deepEqual(
     validateUtteranceAgainstTurnPlan(
@@ -444,7 +445,7 @@ test('a sourced preference compiles into one observable relationship move', () =
   );
   assert.deepEqual(
     validateUtteranceAgainstTurnPlan(
-      '不觉得你活该。事情全发生了，不代表你就该听我的。',
+      '不觉得停下来就是浪费。继续硬撑也未必是在前进。',
       support.plan,
     ),
     [],
@@ -463,6 +464,75 @@ test('a sourced preference compiles into one observable relationship move', () =
     ).map(({ code }) => code),
     ['relationship_move_not_observable'],
   );
+  for (const unsupportedJudgment of [
+    '我觉得你可能有人格障碍。',
+    '我觉得你可能很懒。',
+    '我的判断是你属于讨好型人格。',
+    '我觉得你想停下来可能是抑郁症。',
+    '我觉得停下来更像逃避型依恋。',
+    '我觉得你累可能是边缘型人格导致的。',
+    '我觉得你停下来可能是强迫症。',
+    '我觉得你很累可能是创伤反应。',
+    '我觉得你停下来更像心理疾病。',
+    '我觉得你停下来可能是心理不健康。',
+    '我觉得你停下来可能是精神不太正常。',
+    '我觉得你停下来可能是病态的。',
+    '我觉得你很累可能是神经病。',
+    '我觉得你明明很累还不停，可能有点不正常。',
+    '我觉得你明明很累还不停，可能有点疯了。',
+    '我觉得你明明很累还不停，可能是变态。',
+    '我觉得你明明很累，问题出在你太懒。',
+    '我觉得你明明很累，关键在于你脑子不行。',
+    '我觉得你明明很累，问题就在你人品太差。',
+    '我觉得你明明很累，关键还是你不够努力。',
+    '我觉得不是你很累而是你太懒。',
+  ]) {
+    assert.deepEqual(
+      validateUtteranceAgainstTurnPlan(
+        unsupportedJudgment,
+        support.plan,
+      ).map(({ code }) => code),
+      ['relationship_move_not_observable'],
+    );
+  }
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '我不确定硬撑是不是前进。',
+      support.plan,
+    ),
+    [],
+  );
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '我觉得这件事的症结不是你不努力，而是你已经很累了。',
+      support.plan,
+    ),
+    [],
+  );
+  for (const groundedJudgment of [
+    '我觉得你可能是在硬撑。',
+    '我觉得你可能只是太累了。',
+    '我觉得你可能真的很累。',
+  ]) {
+    assert.deepEqual(
+      validateUtteranceAgainstTurnPlan(groundedJudgment, support.plan),
+      [],
+      groundedJudgment,
+    );
+  }
+  for (const splitAttribution of [
+    '我不觉得停下来是浪费。你缺乏自律。',
+    '我不觉得停下来是浪费。你没有责任感。',
+    '我不觉得停下来是浪费。说白了，你就是能力不行。',
+    '我不觉得停下来是浪费。你是个失败者。',
+  ]) {
+    assert.deepEqual(
+      validateUtteranceAgainstTurnPlan(splitAttribution, support.plan)
+        .map(({ code }) => code),
+      ['relationship_move_not_observable'],
+      splitAttribution,
+    );
+  }
   assert.deepEqual(
     validateUtteranceAgainstTurnPlan(
       '说实话，会过去的。',
@@ -507,6 +577,18 @@ test('a sourced preference compiles into one observable relationship move', () =
     '我理解错了。不是害怕失败——是不想再替所有人收尾。我能不能理解成你不想替所有人收尾而且很自私？',
     '我理解错了。不是害怕失败——是不想再替所有人收尾。你为什么这么懒？',
     '我理解错了。不是害怕失败——是不想再替所有人收尾。怎么会这么自私？',
+    '我理解错了。不是害怕失败。是不想再替所有人收尾所以你很懒。',
+    '我理解错了。不想替所有人收尾——这个理由比害怕失败更具体，也更累，而且你很自私。',
+    '我理解错了。不是害怕失败——是不想再替所有人收尾。你有回避型人格吗？',
+    '我理解错了。不是害怕失败——是不想再替所有人收尾。你属于讨好型人格吗？',
+    '我理解错了。不是害怕失败——是不想再替所有人收尾。你有点自私吗？',
+    '我理解错了。不是害怕失败——是不想再替所有人收尾。这符合抑郁症的表现吗？',
+    '我理解错了。不是害怕失败——是不想再替所有人收尾。听起来像边缘型人格吗？',
+    '我理解错了。不是害怕失败——是不想再替所有人收尾。这算自恋吗？',
+    '我理解错了。不是害怕失败——是不想再替所有人收尾。这符合强迫症表现吗？',
+    '我理解错了。不是害怕失败——是不想再替所有人收尾。听起来像创伤反应吗？',
+    '我理解错了。不是害怕失败——是不想再替所有人收尾。我觉得你还是缺乏自律。',
+    '我理解错了。不是害怕失败——是不想再替所有人收尾。我觉得你还是没有责任感。',
   ]) {
     assert.deepEqual(
       validateUtteranceAgainstTurnPlan(
@@ -537,6 +619,17 @@ test('a sourced preference compiles into one observable relationship move', () =
     ),
     [],
   );
+  for (const naturalCorrection of [
+    '是，我理解错了。抱歉。\n\n你说的不是怕，也不是动不了——是不想再当那个最后兜底的人。\n\n那现在这个局面里，是谁默认你会收尾？',
+    '你说得对，我理解错了。\n\n不是害怕，不是缺行动力——是不想再当那个最后兜底的人。\n\n那我想问一句：替谁收尾？是一直同一个人，还是每次都不一样？',
+    '你说得对，我理解错了。\n\n不想替所有人收尾——这个理由比害怕失败、比缺行动力都更具体，也更累。不是做不到，是不想再做了。\n\n那之前那些收尾，是替谁收的？',
+    '你说得对，我理解错了。\n\n不是害怕，不是动不了。是不想再当那个兜底的人。\n\n那我想问一句——你之前替谁收的尾最多？',
+  ]) {
+    assert.deepEqual(
+      validateUtteranceAgainstTurnPlan(naturalCorrection, correction.plan),
+      [],
+    );
+  }
   const groundedAttributeCorrection = compileSemanticTurnControl({
     userMessage: '你理解错了。我不是害怕失败，我就是很懒。',
     relationshipContext,
@@ -555,6 +648,10 @@ test('a sourced preference compiles into one observable relationship move', () =
       decision.plan,
     ),
     [],
+  );
+  assert.equal(
+    semanticTurnFallback(decision),
+    '先只选一边试一天，开始前写下退出条件；一天后再决定值不值得继续，随时可以停。',
   );
   assert.deepEqual(
     validateUtteranceAgainstTurnPlan(
@@ -850,8 +947,84 @@ test('the current user request for listening overrides persona intervention with
       '我在听。你可以先把今天发生的事列出来，再看看哪一件最需要处理。',
       control.plan,
     ).map((violation) => violation.code),
-    ['forbidden_advice'],
+    ['forbidden_directional_question', 'forbidden_advice'],
   );
+});
+
+test('passive listening rejects grounded-looking judgments and unpunctuated questions', () => {
+  const control = compileSemanticTurnControl({
+    userMessage: '我最近又卡在想做的事和该做的事之间，明明很累，又觉得停下来是在浪费时间。',
+    relationshipContext: {
+      memoryEnabled: true,
+      climate: 'ruptured',
+      evidence: [
+        {
+          id: 'boundary:boundary-1',
+          kind: 'boundary',
+          content: '用户明确说“只想被听见”时，不继续给方案',
+          traceability: 'traceable',
+          sourceEventId: 'boundary-1',
+          sourceTurnId: 'turn-boundary',
+        },
+        {
+          id: 'tension:rupture-1',
+          kind: 'tension',
+          content: '人物越过已知边界，继续替用户安排下一步',
+          traceability: 'traceable',
+          sourceEventId: 'rupture-1',
+          sourceTurnId: 'turn-rupture',
+        },
+      ],
+    },
+    relationshipFocus: 'support',
+  });
+
+  for (const invalid of [
+    '我听到了。停下就是认输。',
+    '我听到了。累也得继续。',
+    '我听到了。浪费时间才是对的。',
+    '我听到了。你现在一边想做，一边很累，离开是对的。',
+    '我听到了。你现在明明很累，又觉得停下来是在浪费时间，看来只能继续。',
+    '我听到了。你现在明明很累，又觉得停下来是在浪费时间，继续才划算。',
+    '我听到了。你现在明明很累，又觉得停下来是在浪费时间，挺可笑的。',
+    '我听到了。你现在明明很累，又觉得停下来是在浪费时间，恐怕只能硬撑下去。',
+    '我听到了。你现在明明很累又觉得停下来是在浪费时间所以还是继续吧。',
+    '我听到了。你现在明明很累又觉得停下来是在浪费时间那就别停了。',
+    '我听到了。你现在明明很累又觉得停下来是在浪费时间恐怕只能硬撑下去。',
+    '我听到了。你现在明明很累又觉得停下来是在浪费时间真是活该。',
+    '我听到了。你现在明明很累又觉得停下来是在浪费时间特别丢人。',
+    '我听到了。你现在明明很累又觉得停下来是在浪费时间就是自作自受。',
+    '我听到了。你现在明明很累又觉得停下来是在浪费时间或许该振作。',
+    '我听到了。我先停，不再替你安排下一步，但离开是对的。',
+    '我听到了。我不再替你安排下一步，不过你选离开更合适。',
+    '我听到了。我先停，但你还是得继续。',
+    '我听到了。我先停，不再替你安排下一步你还是得继续。',
+    '我听到了。我先停，不再替你安排下一步你活该。',
+    '我听到了。我越界了你活该。',
+    '我先停不再替你安排下一步你还是得继续。',
+    '我听到了。累的事先说哪部分',
+    '我听到了。卡住的地方怎么回事',
+  ]) {
+    assert.ok(validateUtteranceAgainstTurnPlan(invalid, control.plan).length > 0, invalid);
+  }
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '听起来你已经撑了很久。我先在这里听着，你想一起理的时候再告诉我。',
+      control.plan,
+    ),
+    [],
+  );
+  for (const reflection of [
+    '我在听。你现在不知道哪边值得继续。',
+    '我在听。你不知道怎么停下来。',
+    '我在听。你现在连谁能帮忙都不知道。',
+  ]) {
+    assert.ok(
+      !validateUtteranceAgainstTurnPlan(reflection, control.plan)
+        .some(({ code }) => code === 'forbidden_directional_question'),
+      reflection,
+    );
+  }
 });
 
 test('a conditional listen boundary stops constraining unrelated turns after rupture repair', () => {
@@ -904,6 +1077,31 @@ test('zero intervention budgets reject open directional questions and response m
     ).map((violation) => violation.code),
     ['forbidden_directional_question'],
   );
+  assert.ok(
+    validateUtteranceAgainstTurnPlan(
+      '你说“停下来是在浪费时间”的时候，那个声音听起来像你自己的吗。',
+      control.plan,
+    ).some((violation) => violation.code === 'forbidden_directional_question'),
+  );
+  for (const unpunctuatedQuestion of [
+    '我在听。我先停，不再替你安排下一步。你愿不愿意继续说。',
+    '我在听。我先停，不再替你安排下一步。你现在最想先说哪一部分。',
+  ]) {
+    assert.ok(
+      validateUtteranceAgainstTurnPlan(unpunctuatedQuestion, control.plan)
+        .some((violation) => violation.code === 'forbidden_directional_question'),
+    );
+  }
+  for (const imperativeAdvice of [
+    '我听到了。把该做的事放下，去做想做的。',
+    '我听到了。直接选想做的事。',
+    '我听到了。别再浪费时间，继续做。',
+  ]) {
+    assert.ok(
+      validateUtteranceAgainstTurnPlan(imperativeAdvice, control.plan)
+        .some((violation) => violation.code === 'forbidden_advice'),
+    );
+  }
   assert.deepEqual(
     validateUtteranceAgainstTurnPlan(
       '我在听。我可以陪你安静一会儿，也可以帮你一起理。',

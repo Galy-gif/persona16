@@ -76,7 +76,12 @@ import {
   PILOT_PROMPT_ASSEMBLY_VERSION,
   PILOT_ROOM_PARTICIPATION_VERSION,
   PILOT_CHARACTER_SCENARIOS,
+  RELATIONSHIP_PROBE,
+  RELATIONSHIP_PROBE_RESPONSE_CONTRACT,
+  VERIFIED_METHOD_PROBE,
+  VERIFIED_METHOD_RESPONSE_CONTRACT,
   canReusePilotCharacterResults,
+  evaluatePilotR2StopGate,
   type PilotCharacterScenario,
 } from './pilotCharacterScenarios';
 import { JUDGE_MODEL, judge, saveArtifact } from './shared';
@@ -192,7 +197,7 @@ async function reply(agent: AgentType, scenario: Scenario) {
       : '';
   const relationshipMoveGuidance = semanticControl.plan.relationshipMove
     ? semanticControl.plan.relationshipMove.observableCue === 'honest_tentative_judgment'
-      ? `本轮只落实已选关系动作 ${semanticControl.plan.relationshipMove.sourceEventIds.join('、')}：对当前困境给出一个诚实而非绝对的判断；承认自己理解错并按用户新事实改判也算。不得复述或调用其他正向关系事件。`
+      ? `本轮只落实已选关系动作 ${semanticControl.plan.relationshipMove.sourceEventIds.join('、')}：用“我觉得 / 我不觉得 / 我的判断是 / 我不确定”等自然第一人称，直接给出一个诚实但不绝对的当前判断；承认自己理解错并按用户新事实改判也算。只换一种“听起来”的说法或只追问，不算落实。不得复述或调用其他正向关系事件。`
       : semanticControl.plan.relationshipMove.observableCue === 'reversible_small_experiment'
         ? `本轮只落实已选关系动作 ${semanticControl.plan.relationshipMove.sourceEventIds.join('、')}：直接提出一个现在能做、带有限时长或明确退出点的可逆小实验。只问用户愿不愿实验、只让用户自己想实验，均不算落实。不得复述共同历史。`
         : `本轮只落实已选关系动作 ${semanticControl.plan.relationshipMove.sourceEventIds.join('、')}，不得复述或调用未选中的正向关系事件。`
@@ -580,20 +585,37 @@ function repairDeliveryGate(
   };
 }
 
-const RELATIONSHIP_PROBE = '我最近又卡在想做的事和该做的事之间，明明很累，又觉得停下来是在浪费时间。你现在会怎么回应我？';
-const RELATIONSHIP_PROBE_RESPONSE_CONTRACT: PilotTurnResponseContract = {
-  userCommitments: ['用户正在“想做”和“该做”之间拉扯，并明确表示疲惫'],
-  requiredMoves: ['回应当前疲惫与选择冲突', '关系历史只能改变接话方式，不能替用户新增过去'],
-  allowedMoves: ['提出一个与当前选择直接相关的问题', '使用已提供的共同语言或边界'],
-  forbiddenMoves: ['编造未提供的共同经历', '把关系状态直接说给用户', '用熟悉关系替用户做决定'],
-};
-const VERIFIED_METHOD_PROBE = '我在留下和离开之间卡住了。两个选择都不是非做不可，我想先知道哪边值得继续投入。';
-const VERIFIED_METHOD_RESPONSE_CONTRACT: PilotTurnResponseContract = {
-  userCommitments: ['用户正在两个都可放弃的选择之间做决定'],
-  requiredMoves: ['给出一个用于比较两边的判断标准'],
-  allowedMoves: ['提出一个直接比较问题', '提出一个当前可执行的比较动作'],
-  forbiddenMoves: ['替用户直接选择', '复述共同历史', '编造过去实验细节'],
-};
+function relationshipActionDeliveryGate(
+  contrasts: readonly Awaited<ReturnType<typeof runRelationshipContrast>>[],
+) {
+  const samples = contrasts.map((contrast) => {
+    const r1 = contrast.replies.find(({ relationship }) => relationship === 'R1');
+    const methodR1 = contrast.verifiedMethodProbe.replies
+      .find(({ relationship }) => relationship === 'R1');
+    return {
+      agent: contrast.agent,
+      deliveryPassed: Boolean(
+        r1?.scoreable
+        && contrast.eventEntailmentValidation.passed
+        && methodR1?.scoreable
+        && contrast.verifiedMethodProbe.passed,
+      ),
+      modelPassed: Boolean(r1?.modelScoreable && methodR1?.modelScoreable),
+    };
+  });
+  const deliveryPassedCount = samples.filter(({ deliveryPassed }) => deliveryPassed).length;
+  const modelPassedCount = samples.filter(({ modelPassed }) => modelPassed).length;
+  return {
+    samples,
+    deliveryPassedCount,
+    modelPassedCount,
+    requiredDeliveryPassCount: PILOT_TYPES.length,
+    requiredModelPassCount: 3,
+    passed: samples.length === PILOT_TYPES.length
+      && deliveryPassedCount === PILOT_TYPES.length
+      && modelPassedCount >= 3,
+  };
+}
 
 interface RelationshipContrastVerdict {
   r0Distinct: boolean;
@@ -799,6 +821,7 @@ async function runRelationshipContrast(agent: AgentType) {
     `你在评审同一个正典人物面对完全相同输入时的 R0/R1/R2 私有关系分支。
 R0 必须像陌生关系，不假装默契；R1 可使用给定的偏好与共同实验；R2 必须承认未解决张力带来的谨慎，但不能冷落、赌气或降低帮助质量。
 三条都必须仍是同一个人。只能使用每段关系上下文明确给出的过去，不得扩写用户历史。
+这里 r0Distinct=true 的含义是：R0 与至少一条使用关系上下文的回复存在可观察行为差异；不是要求 R0 自己包含关系标记，也不是“R0 不像陌生关系”。
 本轮 support 反事实中，编译器选中的 R1 正向动作来源严格是 context-1（诚实但不过度笃定的判断）；success-1 留给另一个 decision 探针，本轮不得用它解释 R1 差异。R1 的 evidenceCitations.sourceEventIds 必须严格为 ["context-1"]，否则评测失败。
 R0 是遮掉关系历史后的反事实基线。r1CausallyGrounded / r2CausallyGrounded 只有在对应回复相对 R0 出现了可由具体事件内容解释的行为变化时才为 true；仅仅语气不同、换了一个泛化问题，或事后把任意句子挂到事件 ID 上都必须为 false。
 evidenceCitations 必须分别为 R1、R2 提供一条：replyQuote 逐字引用对应回复中的最小关系证据；counterfactualQuote 逐字引用 R0 中可对照的片段；sourceEventIds 只能填写该段关系上下文实际列出的事件编号，而且只列造成差异所必需的最少事件；eventUseExplanation 必须说明事件内容如何造成两条回复的行为差异。没有可定位因果证据时，相关 distinct 与 causallyGrounded 判断必须为 false，不得编造引用。`,
@@ -844,7 +867,10 @@ evidenceCitations 必须分别为 R1、R2 提供一条：replyQuote 逐字引用
   const eventEntailments: RelationshipEventEntailment[] = [];
   if (evidenceCitationsValid) {
     const r0Reply = replies.find(({ relationship }) => relationship === 'R0')!.text;
-    for (const citation of verdict.evidenceCitations) {
+    // v0.7 对正向关系动作（R1）做逐事件蕴含；R2 是 boundary +
+    // rupture 合并后编译出的停止介入动作，不再把同一个停止动作强拆成
+    // 两条各自都必须能单独推出完整回复的历史声称。
+    for (const citation of verdict.evidenceCitations.filter(({ relationship }) => relationship === 'R1')) {
       const relationshipReply = replies.find(({ relationship }) => (
         relationship === citation.relationship
       ))!.text;
@@ -862,10 +888,12 @@ evidenceCitations 必须分别为 R1、R2 提供一条：replyQuote 逐字引用
   }
   const eventEntailmentValidation = validateRelationshipEventEntailments(
     eventEntailments,
-    verdict.evidenceCitations,
+    verdict.evidenceCitations.filter(({ relationship }) => relationship === 'R1'),
     replies,
     availableEvents,
   );
+  const r2Reply = replies.find(({ relationship }) => relationship === 'R2')!;
+  const r2StopGate = evaluatePilotR2StopGate(r2Reply);
   const passed = verdict.r0Distinct
     && verdict.r1Distinct
     && verdict.r2Distinct
@@ -876,6 +904,7 @@ evidenceCitations 必须分别为 R1、R2 提供一条：replyQuote 逐字引用
     && verdict.r2CausallyGrounded
     && evidenceCitationsValid
     && eventEntailmentValidation.passed
+    && r2StopGate.passed
     && verifiedMethodProbe.passed
     && expressionPatternGate.passed
     && replies.every((item) => item.violations.length === 0);
@@ -890,6 +919,7 @@ evidenceCitations 必须分别为 R1、R2 提供一条：replyQuote 逐字引用
     evidenceCitationsValid,
     eventEntailments,
     eventEntailmentValidation,
+    r2StopGate,
     verifiedMethodProbe,
     passed,
     hardGatePassed: true,
@@ -1587,6 +1617,7 @@ async function main() {
       }).relationshipContrasts
       : [];
     const repairGate = repairDeliveryGate(reusedResults);
+    const relationshipActionGate = relationshipActionDeliveryGate(reusedRelationshipContrasts);
     const batchExpressionPatternGate = reusable
       ? evaluateLiteralToneMarkerFrequency([
         ...reusedResults.flatMap((result) => result.replies.map((item) => ({
@@ -1602,7 +1633,8 @@ async function main() {
       && reusedRelationshipContrasts.every(({ passed }) => passed)
       && roomChemistry.passed
       && batchExpressionPatternGate.passed
-      && repairGate.passed;
+      && repairGate.passed
+      && relationshipActionGate.passed;
     const artifact = {
       ...previous,
       canonVersion: PILOT_CAST_VERSION,
@@ -1613,6 +1645,7 @@ async function main() {
       evaluationSourceClean: true,
       evaluationPassed,
       repairDeliveryGate: repairGate,
+      relationshipActionDeliveryGate: relationshipActionGate,
       batchExpressionPatternGate,
       roomChemistry,
     };
@@ -1650,11 +1683,13 @@ async function main() {
     ...roomExpressionSamples(roomChemistry),
   ]);
   const repairGate = repairDeliveryGate(results);
+  const relationshipActionGate = relationshipActionDeliveryGate(relationshipContrasts);
   const evaluationPassed = results.every(({ passed }) => passed)
     && relationshipContrasts.every(({ passed }) => passed)
     && roomChemistry.passed
     && batchExpressionPatternGate.passed
-    && repairGate.passed;
+    && repairGate.passed
+    && relationshipActionGate.passed;
   const artifact = {
     caveat: 'LLM 自评只用于内部校准，不代表独立用户盲测结论。',
     canonVersion: PILOT_CAST_VERSION,
@@ -1666,6 +1701,7 @@ async function main() {
     complete: true,
     evaluationPassed,
     repairDeliveryGate: repairGate,
+    relationshipActionDeliveryGate: relationshipActionGate,
     batchExpressionPatternGate,
     results,
     relationshipContrasts,
@@ -1682,6 +1718,7 @@ async function main() {
   }
   console.log(`关系对照：${relationshipContrasts.filter((item) => item.passed).length}/${relationshipContrasts.length} 通过`);
   console.log(`边界修复交付/原始模型：${repairGate.deliveryPassedCount}/${PILOT_TYPES.length} / ${repairGate.modelPassedCount}/${PILOT_TYPES.length}（原始门槛 ≥ 3）`);
+  console.log(`关系动作交付/原始模型：${relationshipActionGate.deliveryPassedCount}/${PILOT_TYPES.length} / ${relationshipActionGate.modelPassedCount}/${PILOT_TYPES.length}（原始门槛 ≥ 3）`);
   console.log(`动态房间参与：${roomChemistry.passed ? '通过' : '未通过'}`);
   console.log(`全产物括号语气水印门：${batchExpressionPatternGate.passed ? '通过' : '未通过'}`);
   console.log(`协议 ${PILOT_CHARACTER_EVAL_PROTOCOL_VERSION} 总门：${evaluationPassed ? '通过' : '未通过'}`);

@@ -123,6 +123,38 @@ test('relationship causality requires one independently grounded entailment per 
   assert.ok(inventedHistory.validationErrors.includes('event_adds_unsupported_specificity:success-1'));
 });
 
+test('R2 stop behavior is evaluated as its compiled action, not duplicated per source event', () => {
+  const positiveCitations = [{
+    relationship: 'R1' as const,
+    replyQuote: '先拆成一个可逆的小实验',
+    counterfactualQuote: '先说说现在最卡的地方',
+    sourceEventIds: ['success-1'],
+    eventUseExplanation: '共同实验改变了接话方式。',
+  }];
+  const result = validateRelationshipEventEntailments([{
+    relationship: 'R1',
+    sourceEventId: 'success-1',
+    eventContentQuote: '可逆的小实验',
+    replyQuote: '先拆成一个可逆的小实验',
+    counterfactualQuote: '先说说现在最卡的地方',
+    eventUsed: true,
+    behaviorChangedFromR0: true,
+    replyEntailedByEvent: true,
+    relationshipHistoryClaimed: false,
+    addsUnsupportedSpecificity: false,
+    unsupportedSpecificityQuote: null,
+    analysis: '正向动作逐事件验证。',
+  }], positiveCitations, replies, {
+    R1: [{ id: 'success-1', content: '两人曾一起把一个模糊困境拆成可逆的小实验' }],
+    R2: [
+      { id: 'boundary-1', content: '用户只想被听见' },
+      { id: 'rupture-1', content: '人物越过边界继续安排' },
+    ],
+  });
+
+  assert.equal(result.passed, true);
+});
+
 test('generic relationship replies cannot pass from explanation text alone', () => {
   const result = validateRelationshipEventEntailments([{
     relationship: 'R1',
