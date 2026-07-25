@@ -31,6 +31,10 @@ const EXPECTED_SIGNATURE = {
   judgeModel: 'test-judge',
   roomArbitratorModel: 'test-room-arbitrator',
   roomParticipationVersion: PILOT_ROOM_PARTICIPATION_VERSION,
+  agentGenerationAttempts: 2,
+  agentGenerationTemperature: 1.25,
+  agentGenerationMaxTokens: 900,
+  agentRetryPolicyVersion: 'engine-semantic-retry-v0.7',
 } as const;
 
 function completeArtifact(scenarioIds: readonly string[] = EXPECTED_IDS) {
@@ -359,6 +363,18 @@ test('room-only reuse requires a complete current-protocol nine-scenario artifac
   assert.equal(canReuse({
     ...completeArtifact(),
     evaluationSignature: { ...EXPECTED_SIGNATURE, provider: 'different-provider' },
+  }), false);
+  assert.equal(canReuse({
+    ...completeArtifact(),
+    evaluationSignature: { ...EXPECTED_SIGNATURE, agentGenerationAttempts: 3 },
+  }), false);
+  assert.equal(canReuse({
+    ...completeArtifact(),
+    evaluationSignature: { ...EXPECTED_SIGNATURE, agentGenerationTemperature: 0 },
+  }), false);
+  assert.equal(canReuse({
+    ...completeArtifact(),
+    evaluationSignature: { ...EXPECTED_SIGNATURE, agentRetryPolicyVersion: 'other-retry' },
   }), false);
   const { relationshipContrasts: _, ...withoutRelationshipContrasts } = completeArtifact();
   assert.equal(canReuse(withoutRelationshipContrasts), false);

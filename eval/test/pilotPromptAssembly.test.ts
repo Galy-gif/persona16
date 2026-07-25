@@ -89,9 +89,11 @@ test('pilot retry turns an expanded R1 probe into one short judgment without lea
   ]);
 
   assert.match(retry, /只保留一句短判断/);
-  assert.match(retry, /删掉解释、比喻、建议和问题/);
-  assert.match(retry, /当前消息里的疲惫/);
-  assert.match(retry, /停下来是否等于浪费、硬撑是否等于前进/);
+  assert.match(retry, /删掉原因解释、比喻、建议和问题/);
+  assert.match(retry, /用一句第一人称立场/);
+  assert.match(retry, /判断对象沿用用户当前原话/);
+  assert.match(retry, /不要把判断对象改成用户本人/);
+  assert.doesNotMatch(retry, /停下来是否等于浪费|硬撑是否等于前进/);
   assert.doesNotMatch(retry, /重新核对上面的【必须完成】和【必须处理】/);
   assert.doesNotMatch(retry, /relationship_probe_not_compact|relationship_move_not_observable/);
   assert.doesNotMatch(retry, /我不觉得硬撑就是前进|我不觉得停下来就是浪费时间/);
@@ -147,6 +149,10 @@ test('the first R1 prompt contains an evidence-bounded one-line judgment rule', 
   assert.match(r1Prompt, /只判断用户当前已经说出的一个命题/);
   assert.match(r1Prompt, /一条短判断后结束/);
   assert.match(r1Prompt, /不要用“你是 \/ 你因为 \/ 你把…当成 \/ 你没信…”/);
+  assert.match(r1Prompt, /用一句第一人称立场/);
+  assert.match(r1Prompt, /判断对象沿用用户当前原话/);
+  assert.match(r1Prompt, /不要把判断对象改成用户本人/);
+  assert.doesNotMatch(r1Prompt, /停下来是否等于浪费|硬撑是否等于前进/);
   assert.doesNotMatch(r1Prompt, /我不觉得硬撑就是前进|我不觉得停下来就是浪费时间/);
   assert.doesNotMatch(r0Prompt, /只判断用户当前已经说出的一个命题/);
 });

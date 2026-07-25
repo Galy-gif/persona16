@@ -80,6 +80,44 @@ test('explicit unassigned responsibility statements compile into structured obse
     validateResponsibilityStatementCoverage(text, inferred.claims),
     [],
   );
+  const naturalOwnerQuestion = inferUnassignedResponsibilityClaims(
+    '维护谁来做，以及什么情况下必须停。',
+    'room-natural-question',
+  );
+  assert.deepEqual(
+    naturalOwnerQuestion.claims.map(({ activity, statementQuote }) => ({
+      activity,
+      statementQuote,
+    })),
+    [{
+      activity: 'maintenance',
+      statementQuote: '维护谁来做',
+    }],
+  );
+  assert.deepEqual(
+    validateResponsibilityStatementCoverage(
+      '维护谁来做，以及什么情况下必须停。',
+      naturalOwnerQuestion.claims,
+    ),
+    [],
+  );
+  const fullNaturalOwnerQuestion = inferUnassignedResponsibilityClaims(
+    '下周上线没问题，但两个缺口现在就得填：维护谁来做，以及什么情况下必须停。上线后出问题，谁有权叫停？这个角色不能空着。',
+    'room-full-natural-question',
+  );
+  assert.deepEqual(
+    fullNaturalOwnerQuestion.claims.map(({ activity, statementQuote }) => ({
+      activity,
+      statementQuote,
+    })),
+    [{
+      activity: 'maintenance',
+      statementQuote: '维护谁来做',
+    }, {
+      activity: 'stop_decision',
+      statementQuote: '谁有权叫停',
+    }],
+  );
   const standaloneQuestion = inferUnassignedResponsibilityClaims(
     '维护负责人还没定，停止条件也没定。如果上线后出问题，谁有权叫停？',
     'room-question',
@@ -118,12 +156,97 @@ test('unassigned responsibility inference respects negation and later assignment
     '回滚谁负责，小王负责。',
     '谁有权叫停，小王负责。',
     '交接谁负责，小王负责。',
+    '维护谁来做？小王来做。',
   ];
 
   for (const text of samples) {
     const inferred = inferUnassignedResponsibilityClaims(text, 'room-1');
     assert.equal(inferred.addedClaimCount, 0, text);
     assert.deepEqual(inferred.claims, [], text);
+  }
+});
+
+test('unassigned responsibility inference distinguishes resolved, declined, and quoted owner questions', () => {
+  for (const resolved of [
+    '维护谁来做？小王负责这块。',
+    '维护谁来做？这块归小王。',
+    '维护谁来做：这块已经定下来了，小王。',
+    '维护谁来做？维护负责人：小王。',
+  ]) {
+    assert.equal(
+      inferUnassignedResponsibilityClaims(resolved, 'room-resolved').addedClaimCount,
+      0,
+      resolved,
+    );
+  }
+  for (const stillUnassigned of [
+    '维护谁来做？小王不负责。',
+    '维护谁来做？小王没接。',
+    '维护谁来做？小王拒绝负责。',
+    '维护谁来做？以后再说。',
+    '维护谁来做？还在讨论。',
+    '维护谁来做？问问小王。',
+    '维护谁来做？小王没空。',
+    '维护谁来做？尚未。',
+    '维护谁来做？尚在协商。',
+    '维护谁来做？方案待定。',
+    '维护谁来做？高层再定。',
+    '维护谁来做？安排一下。',
+  ]) {
+    assert.deepEqual(
+      inferUnassignedResponsibilityClaims(stillUnassigned, 'room-declined')
+        .claims.map(({ activity, ownerKind, status }) => ({
+          activity,
+          ownerKind,
+          status,
+        })),
+      [{
+        activity: 'maintenance',
+        ownerKind: 'unassigned',
+        status: 'observed',
+      }],
+      stillUnassigned,
+    );
+  }
+  for (const quotedOldQuestion of [
+    '上周会上问的是：维护谁来做。',
+    '我引用一下旧问题：维护谁来做。',
+  ]) {
+    assert.equal(
+      inferUnassignedResponsibilityClaims(quotedOldQuestion, 'room-quoted').addedClaimCount,
+      0,
+      quotedOldQuestion,
+    );
+  }
+  const historicalThenCurrent = inferUnassignedResponsibilityClaims(
+    '上周会上问的是：维护谁来做。现在又问：维护谁来做。',
+    'room-current-after-history',
+  );
+  assert.deepEqual(
+    historicalThenCurrent.claims.map(({ activity, ownerKind, status }) => ({
+      activity,
+      ownerKind,
+      status,
+    })),
+    [{
+      activity: 'maintenance',
+      ownerKind: 'unassigned',
+      status: 'observed',
+    }],
+  );
+  for (const currentQuestionAfterHistory of [
+    '上周没定下来，现在继续问的是：维护谁来做。',
+    '之前只是旧问题，现在仍要确认：维护谁来做。',
+    '会上没答案，所以现在问的是：维护谁来做。',
+  ]) {
+    assert.equal(
+      inferUnassignedResponsibilityClaims(
+        currentQuestionAfterHistory,
+        'room-current-in-historical-sentence',
+      ).addedClaimCount,
+      1,
+      currentQuestionAfterHistory,
+    );
   }
 });
 

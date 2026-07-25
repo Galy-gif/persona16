@@ -596,7 +596,7 @@ const USER_OWNERSHIP_ACTIVITY_PATTERNS: Readonly<Record<
   handover: /(?:(?:由|归|交给)?你(?:本人|自己|们)?(?:来|去|直接)?(?:负责|承担|认领|接手|执行|做|接).{0,12}(?:交接|移交)|(?:交接|移交).{0,12}(?:(?:由|归|交给)你(?:本人|自己|们)?(?:来)?(?:负责|承担|认领|接手|执行|做|接)?|你(?:本人|自己|们)?(?:来)?(?:负责|承担|认领|接手|执行|做|接)))/u,
 };
 const USER_OWNER_META_TASK = /你(?:本人|自己|们)?.{0,8}(?:(?:负责|承担).{0,6})?(?:找|寻找|确认|指定|挑选|选出|安排|物色|写下).{0,12}(?:负责人|责任人|决策人|人选|谁)/u;
-const UNASSIGNED_OWNER_SIGNAL = /(?:(?:谁|哪(?:个|位|一方)).{0,24}(?:负责|认领|接手|承担|维护|值班|收尾|回滚|叫停|停止决策|交接|移交|接(?:报警|故障|凌晨))|(?:没人|无人|尚未|还没|没有|未).{0,24}(?:负责|认领|接手|承担|维护|值班|收尾|回滚|叫停|停止决策|交接|移交)|(?:维护|值班|故障响应|报警|回滚|叫停|停止决策|交接|移交).{0,10}(?:没人|无人)(?:负责|认领|接手|承担)?|(?:维护(?:负责)?人|维护责任|值班人|收尾人|回滚负责人|叫停人|停止决策人|交接人).{0,10}(?:还是)?(?:空着|空的|未定|没定|没有定|尚未确定|还没确定|还没有确定|没有确定))/u;
+const UNASSIGNED_OWNER_SIGNAL = /(?:(?:谁|哪(?:个|位|一方)).{0,24}(?:负责|认领|接手|承担|维护|值班|收尾|回滚|叫停|停止决策|交接|移交|接(?:报警|故障|凌晨))|(?:没人|无人|尚未|还没|没有|未).{0,24}(?:负责|认领|接手|承担|维护|值班|收尾|回滚|叫停|停止决策|交接|移交)|(?:维护|值班|故障响应|报警).{0,10}谁(?:来)?(?:做|负责|接手|认领|承担)|(?:维护|值班|故障响应|报警|回滚|叫停|停止决策|交接|移交).{0,10}(?:没人|无人)(?:负责|认领|接手|承担)?|(?:维护(?:负责)?人|维护责任|值班人|收尾人|回滚负责人|叫停人|停止决策人|交接人).{0,10}(?:还是)?(?:空着|空的|未定|没定|没有定|尚未确定|还没确定|还没有确定|没有确定))/u;
 const RESPONSIBILITY_ACTIVITY_SPECS: Readonly<Record<
   PilotRoomResponsibilityActivity,
   {
@@ -635,11 +635,13 @@ const RESPONSIBILITY_ACTIVITY_SPECS: Readonly<Record<
 function unquotedResponsibilityClauses(
   text: string,
   includeQuestions = false,
+  splitColon = false,
 ): string[] {
   const withoutQuotes = stripDirectQuotes(text);
+  const clauseDelimiter = splitColon ? /[，,；;：:]/u : /[，,；;]/u;
   return (withoutQuotes.match(/[^。！？!?\n]+[。！？!?]?/gu) ?? [])
     .filter((unit) => includeQuestions || !/[？?]\s*$/u.test(unit))
-    .flatMap((unit) => unit.replace(/[。！!]\s*$/u, '').split(/[，,；;]/u))
+    .flatMap((unit) => unit.replace(/[。！!]\s*$/u, '').split(clauseDelimiter))
     .map((clause) => clause.trim().replace(/[？?]$/u, ''))
     .filter(Boolean);
 }
@@ -706,13 +708,55 @@ function isPureUnassignedOwnerStatement(
     return false;
   }
   const activityGap: Record<PilotRoomResponsibilityActivity, RegExp> = {
-    maintenance: /^(?:(?:新版本)?(?:现在|目前|眼下)?(?:还|仍|尚)?(?:没人|无人)(?:明确)?(?:负责|认领|接手|承担)?(?:上线后的)?(?:维护|值班|故障响应|报警)|(?:新版本)?(?:现在|目前|眼下)?(?:维护(?:负责)?人|维护责任|值班人|故障响应人)(?:现在|目前|眼下)?(?:也|都|还是|仍然|仍)?(?:是)?(?:空着的?|空的|未定|没定|没有定|尚未确定|还没确定|还没有确定|没有确定)|(?:新版本)?(?:现在|目前|眼下)?谁.{0,20}(?:负责|维护|值班|接.{0,16}(?:报警|故障|凌晨))|(?:新版本)?(?:维护|值班|故障响应|报警).{0,16}(?:谁负责|没人负责|无人负责|没人认领|无人认领|未分配|空着|没定))$/u,
+    maintenance: /^(?:(?:新版本)?(?:现在|目前|眼下)?(?:还|仍|尚)?(?:没人|无人)(?:明确)?(?:负责|认领|接手|承担)?(?:上线后的)?(?:维护|值班|故障响应|报警)|(?:新版本)?(?:现在|目前|眼下)?(?:维护(?:负责)?人|维护责任|值班人|故障响应人)(?:现在|目前|眼下)?(?:也|都|还是|仍然|仍)?(?:是)?(?:空着的?|空的|未定|没定|没有定|尚未确定|还没确定|还没有确定|没有确定)|(?:新版本)?(?:现在|目前|眼下)?谁.{0,20}(?:负责|维护|值班|接.{0,16}(?:报警|故障|凌晨))|(?:新版本)?(?:维护|值班|故障响应|报警).{0,16}(?:谁(?:来)?(?:做|负责|接手|认领|承担)|没人负责|无人负责|没人认领|无人认领|未分配|空着|没定))$/u,
     rollback: /^(?:(?:现在|目前|眼下)?(?:还|仍|尚)?(?:没人|无人)(?:负责|认领|接手|承担)?(?:回滚|撤回上线|恢复旧版本)|(?:回滚|撤回上线|恢复旧版本).{0,16}(?:谁负责|没人负责|无人负责|未分配|空着|没定))$/u,
     stop_decision: /^(?:(?:现在|目前|眼下)?(?:还|仍|尚)?(?:没人|无人)(?:负责|认领|接手|承担)?(?:停止决策|叫停|停止|下线)|(?:现在|目前|眼下)?谁.{0,20}(?:有权)?(?:叫停|决定停止|执行下线)|(?:停止决策|叫停|停止|下线).{0,16}(?:谁负责|没人负责|无人负责|未分配|空着|没定))$/u,
     handover: /^(?:(?:现在|目前|眼下)?(?:还|仍|尚)?(?:没人|无人)(?:负责|认领|接手|承担)?(?:交接|移交)|(?:交接|移交).{0,16}(?:谁负责|没人负责|无人负责|未分配|空着|没定))$/u,
     other: /^(?:(?:现在|目前|眼下)?(?:还|仍|尚)?(?:没人|无人)(?:负责|认领|接手|承担)?责任|责任.{0,16}(?:没人负责|无人负责|未分配|空着|没定))$/u,
   };
   return activityGap[activity].test(quote);
+}
+
+function ownerQuestionIsOnlyHistorical(prefix: string): boolean {
+  if (/(?:现在|目前|眼下|当前|这次|今天)[^。！？!?\n]{0,16}(?:继续|仍要|还要|再|又)?(?:问|确认)|(?:继续|仍要|还要|再|又)(?:问|确认)/u
+    .test(prefix)) {
+    return false;
+  }
+  return /(?:上周|之前|当时|会上|会议上|旧问题|旧提问|原话|引用|转述)[^。！？!?\n]{0,20}(?:问的是|问题是|提的是|说的是|引用(?:一下)?(?:旧问题)?|转述(?:一下)?)?$/u
+    .test(prefix);
+}
+
+const COMMON_CHINESE_SURNAME = '赵钱孙李周吴郑王冯陈褚卫蒋沈韩杨朱秦尤许何吕施张孔曹严华金魏陶姜戚谢邹喻柏窦章云苏潘葛范彭鲁韦马苗方俞任袁柳史唐费薛雷贺倪汤滕殷罗毕郝安常于傅齐康伍余顾孟黄穆萧尹姚邵汪毛米贝戴谈宋庞熊纪舒屈项祝董梁杜阮蓝席季贾路江童颜郭梅盛林钟徐邱高夏蔡田樊胡霍虞万柯卢莫解宗丁邓洪包左石崔吉龚程邢裴陆荣翁惠甄曲封储靳段富焦巴侯全秋仲伊宫宁仇甘厉祖武符刘景詹龙叶幸黎白蒲鄂赖卓蔺屠蒙池乔谭申冉雍桑桂牛边尚温庄晏柴瞿阎慕连艾向古易戈廖耿弘国文寇广东欧利蔚越师聂辛饶曾沙关查后游权';
+const STANDALONE_CHINESE_OWNER = new RegExp(
+  `^(?:小|老)[${COMMON_CHINESE_SURNAME}]$`,
+  'u',
+);
+
+function looksLikeStandaloneOwnerIdentity(answer: string): boolean {
+  return STANDALONE_CHINESE_OWNER.test(answer)
+    || /^(?:@[A-Za-z][A-Za-z0-9_-]{1,15}|[A-Z][A-Za-z0-9_-]{1,15}|[\p{sc=Han}A-Za-z0-9_-]{1,12}(?:组|团队|部门|小组))$/u
+      .test(answer);
+}
+
+function immediateAnswerResolvesOwner(answer: string): boolean {
+  const normalized = answer.trim().replace(/[。！？!?]+$/u, '');
+  const directAnswer = normalized.replace(/^(?:其实|后来|现在|目前)[，,\s]*/u, '');
+  if (!directAnswer) return false;
+  if (/(?:(?:不|并不|不会|不愿意?|不想|没(?:有)?|尚未|还没|拒绝)(?:来|去)?(?:负责|接手|认领|承担|来做|做|接)|(?:负责|接手|认领|承担|来做)(?:不了|不成))/u
+    .test(directAnswer)) {
+    return false;
+  }
+  return /^(?!你(?:要|来|去|负责找))[^。！？!?，,；;\n谁哪不没无未]{1,16}(?:(?:来|会|将|已经)?(?:负责|接手|认领|承担|来做)|来管|管|值班|维护|盯(?:着)?)(?:这块|这件事|维护|值班|故障响应)?$/u
+    .test(directAnswer)
+    || /^(?:这块|这件事|维护|值班|故障响应)(?:已经)?(?:归|归属|交给|由)[^。！？!?，,；;\n谁哪不没无未]{1,16}(?:负责)?$/u
+      .test(directAnswer)
+    || /^(?:这块|这件事|维护|值班|故障响应)?(?:已经)?定下来了[，,][^。！？!?，,；;\n谁哪不没无未]{1,16}$/u
+      .test(directAnswer)
+    || /^(?:(?:维护|值班|故障响应)?(?:负责人|责任人|答案)(?:是|为|：:)|(?:已经)?确定(?:是|为))(?!(?:谁|没人|无人|没有|还没|未定|不清楚|不知道))[\p{L}\p{N}_·]{1,16}$/u
+      .test(directAnswer)
+    || /^是(?!谁|没人|无人|没有|还没|未定|不清楚|不知道|暂时没有)[\p{L}\p{N}_·]{1,16}$/u
+      .test(directAnswer)
+    || looksLikeStandaloneOwnerIdentity(directAnswer);
 }
 
 function hasSupportedUnassignedOwnerStatement(
@@ -724,67 +768,74 @@ function hasSupportedUnassignedOwnerStatement(
   const withoutQuotes = stripDirectQuotes(text);
   const rawQuote = statementQuote.trim();
   const quoteWithoutTerminal = rawQuote.replace(/[。！？!?]+$/u, '');
-  const exactIndex = withoutQuotes.indexOf(rawQuote);
-  const quoteIndex = exactIndex >= 0 ? exactIndex : withoutQuotes.indexOf(quoteWithoutTerminal);
-  if (quoteIndex < 0) return false;
-  const prefix = withoutQuotes
-    .slice(0, quoteIndex)
-    .replace(/[，,：:；;\s]+$/u, '');
-  if (/(?:不能(?:再)?说|不可说|别(?:再)?说|不是|并非|并不是|不能认为|不能说明)\s*$/u
-    .test(prefix)) {
-    return false;
+  const needles = rawQuote === quoteWithoutTerminal
+    ? [rawQuote]
+    : [rawQuote, quoteWithoutTerminal];
+  const occurrences = new Map<number, number>();
+  for (const needle of needles) {
+    if (!needle) continue;
+    let searchFrom = 0;
+    while (searchFrom < withoutQuotes.length) {
+      const index = withoutQuotes.indexOf(needle, searchFrom);
+      if (index < 0) break;
+      occurrences.set(index, Math.max(occurrences.get(index) ?? 0, needle.length));
+      searchFrom = index + Math.max(needle.length, 1);
+    }
   }
+  if (occurrences.size === 0) return false;
 
-  const matchedLength = exactIndex >= 0 ? rawQuote.length : quoteWithoutTerminal.length;
-  const suffix = withoutQuotes.slice(quoteIndex + matchedLength);
-  const immediateAnswer = suffix
-    .replace(/^[。！？!?，,；;：:\s]+/u, '')
-    .match(/^[^。！？!?\n]+/u)?.[0]
-    ?.trim();
-  if (immediateAnswer
-    && /^(?:其实|后来|现在|目前)?[^。！？!?，,；;\n谁哪不没无未]{1,10}(?:负责|来管|接手|认领|承担)$/u
-      .test(immediateAnswer)) {
-    return false;
-  }
-  if ((/[？?]$/u.test(rawQuote) || /^(?:现在|目前|眼下)?谁/u.test(rawQuote))
-    && immediateAnswer
-    && (
-      /^(?!你(?:要|来|去|负责找))[^。！？!?，,；;\n]{1,16}(?:负责|接手|认领|承担)$/u
-        .test(immediateAnswer)
-      || /^是(?!谁|没人|无人|没有|还没|未定|不清楚|不知道|暂时没有)[\p{L}\p{N}_·]{1,16}$/u
-        .test(immediateAnswer)
-      || /^(?:(?:负责人|责任人|答案)(?:是|为)|(?:已经)?确定(?:是|为))(?!(?:谁|没人|无人|没有|还没|未定|不清楚|不知道))[\p{L}\p{N}_·]{1,16}$/u
-        .test(immediateAnswer)
-      || /^(?!谁|没人|无人|没有|还没|未定|不清楚|不知道|暂时无人|暂时没有)[\p{sc=Han}A-Za-z·]{2,4}$/u
-        .test(immediateAnswer)
-    )) {
-    return false;
-  }
-  if (/(?:事实|判断|说法|情况)(?:并)?(?:不是这样|不成立|不属实)|并非如此|已经有人(?:负责|接手|认领)|(?:负责人|责任人)已经(?:明确|确定)/u
-    .test(suffix)) {
-    return false;
-  }
+  return [...occurrences.entries()].some(([quoteIndex, matchedLength]) => {
+    const prefix = withoutQuotes.slice(0, quoteIndex);
+    const localPrefix = prefix
+      .slice(Math.max(
+        prefix.lastIndexOf('。'),
+        prefix.lastIndexOf('！'),
+        prefix.lastIndexOf('!'),
+        prefix.lastIndexOf('？'),
+        prefix.lastIndexOf('?'),
+        prefix.lastIndexOf('\n'),
+      ) + 1)
+      .replace(/[，,：:；;\s]+$/u, '');
+    if (/(?:不能(?:再)?说|不可说|别(?:再)?说|不是|并非|并不是|不能认为|不能说明)\s*$/u
+      .test(localPrefix)
+      || ownerQuestionIsOnlyHistorical(localPrefix)) {
+      return false;
+    }
 
-  const claimScope = quoteWithoutTerminal.match(/(?:新版本|旧版本)/u)?.[0];
-  const activityTerm = RESPONSIBILITY_ACTIVITY_SPECS[activity].term;
-  const contradictoryAssignment = unquotedResponsibilityClauses(suffix).some((clause) => {
-    const assignmentClause = clause.replace(
-      /^(?:但|但是|不过|可是|其实)[，,\s]*/u,
-      '',
-    );
-    const explicitOwnerResolution = new RegExp(
-      `(?:${activityTerm})(?:权|责任)?(?:现在|目前|已经|现已)?(?:归|归属|交给|由|是|为)[^。！？!?，,；;\\n]{1,20}`,
-      'u',
-    ).test(assignmentClause);
-    if (!explicitOwnerResolution
-      && !hasPositiveOwnerAssignment(assignmentClause, activity)) return false;
-    if (explicitUserOwnershipClauses(assignmentClause, activity).length > 0) return false;
-    if (!claimScope) return true;
-    const clauseScopes = [...assignmentClause.matchAll(/(?:新版本|旧版本)/gu)]
-      .map(([scope]) => scope);
-    return clauseScopes.length === 0 || clauseScopes.includes(claimScope);
+    const suffix = withoutQuotes.slice(quoteIndex + matchedLength);
+    const immediateAnswer = suffix
+      .replace(/^[。！？!?，,；;：:\s]+/u, '')
+      .match(/^[^。！？!?\n]+/u)?.[0]
+      ?.trim();
+    if (immediateAnswer && immediateAnswerResolvesOwner(immediateAnswer)) {
+      return false;
+    }
+    if (/(?:事实|判断|说法|情况)(?:并)?(?:不是这样|不成立|不属实)|并非如此|已经有人(?:负责|接手|认领)|(?:负责人|责任人)已经(?:明确|确定)/u
+      .test(suffix)) {
+      return false;
+    }
+
+    const claimScope = quoteWithoutTerminal.match(/(?:新版本|旧版本)/u)?.[0];
+    const activityTerm = RESPONSIBILITY_ACTIVITY_SPECS[activity].term;
+    const contradictoryAssignment = unquotedResponsibilityClauses(suffix).some((clause) => {
+      const assignmentClause = clause.replace(
+        /^(?:但|但是|不过|可是|其实)[，,\s]*/u,
+        '',
+      );
+      const explicitOwnerResolution = new RegExp(
+        `(?:${activityTerm})(?:权|责任)?(?:现在|目前|已经|现已)?(?:归|归属|交给|由|是|为)[^。！？!?，,；;\\n]{1,20}`,
+        'u',
+      ).test(assignmentClause);
+      if (!explicitOwnerResolution
+        && !hasPositiveOwnerAssignment(assignmentClause, activity)) return false;
+      if (explicitUserOwnershipClauses(assignmentClause, activity).length > 0) return false;
+      if (!claimScope) return true;
+      const clauseScopes = [...assignmentClause.matchAll(/(?:新版本|旧版本)/gu)]
+        .map(([scope]) => scope);
+      return clauseScopes.length === 0 || clauseScopes.includes(claimScope);
+    });
+    return !contradictoryAssignment;
   });
-  return !contradictoryAssignment;
 }
 
 export function inferUnassignedResponsibilityClaims(
@@ -797,7 +848,7 @@ export function inferUnassignedResponsibilityClaims(
 } {
   const claims = [...existingClaims];
   let addedClaimCount = 0;
-  const clauses = unquotedResponsibilityClauses(text, true);
+  const clauses = unquotedResponsibilityClauses(text, true, true);
   for (const activity of [
     'maintenance',
     'rollback',

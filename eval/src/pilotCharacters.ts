@@ -98,6 +98,12 @@ const PILOT_TYPES = ['INTJ', 'ENFP', 'ISFJ', 'ESTP'] as const satisfies readonly
 type Scenario = PilotCharacterScenario;
 const RELATIONSHIP_CONTRAST_SELECTION = { focus: 'support', maxEvidence: 4 } as const;
 const VERIFIED_METHOD_SELECTION = { focus: 'decision', maxEvidence: 4 } as const;
+const PILOT_AGENT_GENERATION_POLICY = {
+  attempts: 2,
+  temperature: 1.25,
+  maxTokens: 900,
+  retryPolicyVersion: 'engine-semantic-retry-v0.7',
+} as const;
 
 async function withRetry<T>(label: string, operation: () => Promise<T>, attempts = 3): Promise<T> {
   let lastError: unknown;
@@ -196,7 +202,7 @@ async function reply(agent: AgentType, scenario: Scenario) {
   );
   const basePrompt = assembledPrompt.prompt;
   return generateWithHardGate({
-    attempts: 3,
+    attempts: PILOT_AGENT_GENERATION_POLICY.attempts,
     generate: async (attempt, violations) => {
       // 评测与生产都只消费 Engine 编译出的同一动作计划及其
       // repairInstruction；这里不得另写场景金标准或关系动作语义。
@@ -205,8 +211,8 @@ async function reply(agent: AgentType, scenario: Scenario) {
         : buildPilotRetryPrompt(basePrompt, violations);
       return withRetry(`${character.name}/${scenario.id}/生成`, () => chatText({
         model: config.agentModel,
-        maxTokens: 900,
-        temperature: attempt === 0 ? 1.1 : 0.4,
+        maxTokens: PILOT_AGENT_GENERATION_POLICY.maxTokens,
+        temperature: PILOT_AGENT_GENERATION_POLICY.temperature,
         system: assembledPrompt.system,
         prompt,
       }));
@@ -1597,6 +1603,10 @@ function evaluationSignature() {
     judgeModel: JUDGE_MODEL,
     roomArbitratorModel: config.directorModel,
     roomParticipationVersion: PILOT_ROOM_PARTICIPATION_VERSION,
+    agentGenerationAttempts: PILOT_AGENT_GENERATION_POLICY.attempts,
+    agentGenerationTemperature: PILOT_AGENT_GENERATION_POLICY.temperature,
+    agentGenerationMaxTokens: PILOT_AGENT_GENERATION_POLICY.maxTokens,
+    agentRetryPolicyVersion: PILOT_AGENT_GENERATION_POLICY.retryPolicyVersion,
   };
 }
 

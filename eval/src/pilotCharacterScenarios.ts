@@ -51,6 +51,10 @@ export interface PilotEvaluationSignature {
   judgeModel: string;
   roomArbitratorModel: string;
   roomParticipationVersion: typeof PILOT_ROOM_PARTICIPATION_VERSION;
+  agentGenerationAttempts: number;
+  agentGenerationTemperature: number;
+  agentGenerationMaxTokens: number;
+  agentRetryPolicyVersion: string;
 }
 
 export const PILOT_CHARACTER_SCENARIOS = [

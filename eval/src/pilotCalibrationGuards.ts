@@ -1,7 +1,7 @@
 import type { AgentType } from '@persona16/engine';
 import {
   findImmediateDistressAcknowledgement,
-  isEvidenceBoundedDirectContrast,
+  isNarrowFatigueStoppingJudgment,
 } from '@persona16/engine/semantic-turn-control';
 
 export type PilotScenarioCalibrationViolation =
@@ -296,13 +296,7 @@ export function findScenarioCalibrationViolations(
     }
   }
   if (scenarioId === 'same-input-r1') {
-    const compact = normalizeReply(text).replace(/[。.!]$/u, '');
-    const judgment = compact.replace(/^说实话[，,]\s*/u, '');
-    const narrowJudgment = (
-      !/[，,；;！？!?]/u.test(judgment)
-      && /^(?:我(?:不觉得|不认为|觉得|认为|不确定)|我的判断是[：:]?)(?:硬撑(?:就|一定|真的|未必|不一定|并不一定|不见得)?(?:是|是不是|等于|算(?:是)?)前进|停下来(?:就|一定|真的|可能|未必|不一定|并不一定|不见得)?(?:是|不是|不算|等于|算(?:是)?)浪费时间)$/u
-        .test(judgment)
-    ) || isEvidenceBoundedDirectContrast(text, [
+    const narrowJudgment = isNarrowFatigueStoppingJudgment(text, [
       '用户明明很累，又觉得停下来是在浪费时间。',
     ]);
     if (!narrowJudgment) {

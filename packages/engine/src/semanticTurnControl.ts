@@ -175,7 +175,7 @@ const PURE_STOP_INTERVENING_CLAUSE = new RegExp(`^(?:${STOP_INTERVENING_ACT.sour
 const CONCLUSION_ASSERTION = /(?:(?:我的)?(?:结论|判断)(?:是|：|:).{1,20}|我(?:认为|觉得).{1,20}(?:应该|更适合|更值得|不值得|不该|更像|未必|不一定|先|停|继续|选)|我更倾向(?:于)?(?:先|选|留|停|继续|放弃).{0,16}|在我看来[，,]?.{1,20}(?:应该|更适合|更值得|不值得|不该|更像|未必|不一定)|(?:先|可以先|暂时)(?:试|做|停|等|选|留|继续|放弃).{0,16}|(?:别|不要)(?:做|选|急|继续).{0,16})/u;
 const COMFORTING_CLICHE = /(?:别想太多|一切都会好|都会好起来|会好起来的|都会过去|会过去的|总会过去|你已经很棒|加油就好|没事的)/u;
 const OVERCONFIDENT_JUDGMENT = /(?:(?<!不敢)(?<!不能)(?<!没法)肯定(?:(?:不|没|未)?(?:是|算|等于|代表)|会|就是)|(?<!不)一定(?:(?:不|没|未)?(?:是|算|等于|代表)|会|就是)|(?:绝对|必然|必定|铁定|显然|百分之百|百分百|毋庸置疑|无疑)(?:(?:不|没|未)?(?:是|算|等于|代表)|会|就是)|根本不可能(?:是|算|等于|代表)|毫无疑问)/u;
-const REPORTED_SPEECH_VERB = /说|觉得|认为|表示|写道|告诉(?:我|你)?|转述|转告|复述|声称|提到|提及|提起|透露|宣称|讲|称/u;
+const REPORTED_SPEECH_VERB = /说|觉得|认为|认定|咬定|表示|写道|告诉(?:我|你)?|转述|转告|复述|声称|提到|提及|提起|透露|宣称|讲|称/u;
 const EXPERIMENT_ACTION = /(?:测试|试(?:一下|一次|一天|三天|一周|两周|一轮|试看|这个方案|一小步|一件事)|小实验|验证一下|跑一轮|做(?:半小时|一天|三天|一周|两周|一次|一轮)|拿(?:半小时|一天|三天|一周|两周)时间|接下来(?:半小时|一天|三天|一周|两周)|(?:选|挑)(?:一边|一个|一项).{0,36}(?:期限|半小时|一天|三天|一周|两周|24小时|72小时)|(?:假装|模拟|演练|沙盘(?:演练)?)[^。！？!?\n；;]{0,24}(?:半小时|一天|三天|一周|两周|一次|一轮))/u;
 const REVERSIBLE_EXIT = /(?:再看|再决定|就停|可以停|可停|停止|撤回|不行就停|随时.{0,4}停)/u;
 const TIME_BOXED_EXIT = /(?:半小时|一天|三天|一周|两周|一次|一轮|24小时|72小时)(?:之后|以后|后|内)?/u;
@@ -264,7 +264,14 @@ function findAdviceViolationSentence(text: string): string | undefined {
 function normalizeCorrectionEvidence(text: string): string {
   return text
     .replace(/收拾残局/gu, '收尾')
-    .replace(/(?:再也)?不想(?:再)?当(?:那个)?(?:最后)?兜底的人/gu, '不想替人收尾')
+    .replace(
+      /(?:再也)?不想(?:再)?当(?:那个)?(?:最后)?(?:兜底|收拾残局|收拾|收尾)(?:的人|人)/gu,
+      '不想替人收尾',
+    )
+    .replace(
+      /不再想当(?:所有人|别人|大家|人)的(?:收尾人|兜底人)/gu,
+      '不想替人收尾',
+    )
     .replace(/不愿意?/gu, '不想')
     .replace(/(?:动不起来|动不了)/gu, '缺行动力')
     .replace(/不是(?:怕失败|害怕失败|怕|害怕)(?=$|[，,。！？!?\s])/gu, '不是害怕失败')
@@ -274,6 +281,12 @@ function normalizeCorrectionEvidence(text: string): string {
     .replace(/(?:用户|人物|我|你|他|她|明确|纠正|根本|只是|只|也|再|已经|真的|就是|说|的|了|，|。|；|：|、|\s)/gu, '')
     .replace(/^是(?=不想)/u, '');
 }
+
+const CORRECTION_ACKNOWLEDGEMENT_SOURCE = '(?:(?:是)?我理解(?:错|偏)了|是我(?:看错|想错|判断错)了|是我把(?:这个|那个)?框架套错了|我(?:刚才)?套错框架了|(?:刚才)?(?:那个|这个)?框架套错了)';
+const CORRECTION_ACKNOWLEDGEMENT = new RegExp(
+  CORRECTION_ACKNOWLEDGEMENT_SOURCE,
+  'u',
+);
 
 function affirmedCorrectionEvidence(
   evidenceSpans: readonly string[],
@@ -308,14 +321,14 @@ function affirmedCorrectionEvidence(
         cleanupSubject = '人';
         continue;
       }
-      const directDenial = /(?:^|[；;])\s*我不是(?:害怕失败|怕失败)[，,]\s*也不是(?:缺行动力|动不了|动不起来)(?=$|[，,；;])/u
+      const directDenial = /(?:^|[；;])\s*我(?:既)?不是(?:害怕失败|怕失败|害怕|怕)[，,]\s*也不是(?:缺行动力|动不了|动不起来)(?=$|[，,；;])/u
         .exec(sentence);
       if (directDenial && !metaNegationBefore(sentence, directDenial.index)) {
         fearDenied = true;
         actionlessnessDenied = true;
       }
       for (const match of sentence.matchAll(
-        /(?:^|[；;]|[，,]\s*而是)\s*(?:我)?(?:只是|就是|是)?(?:根本)?不想再替([^。！？!?\n；;]{1,16})(?:收尾|收拾残局|兜底)/gu,
+        /(?:^|[；;]|[，,]\s*而是)\s*(?:我)?(?:只是|就是|是)?(?:根本)?(?:不想再替([^。！？!?\n；;]{1,16})(?:收尾|收拾残局|兜底)|不想再当(?:那个)?(?:最后)?(?:收拾残局|收拾|收尾|兜底)(?:的人|人)|不再想当([^。！？!?\n；;]{1,16})的(?:收尾人|兜底人))/gu,
       )) {
         if (metaNegationBefore(sentence, match.index ?? 0)) continue;
         const cleanupEvidence = match[0].replace(
@@ -323,7 +336,7 @@ function affirmedCorrectionEvidence(
           '',
         );
         cleanupPropositions.push(normalizeCorrectionEvidence(cleanupEvidence));
-        const subject = match[1] ?? '';
+        const subject = match[1] ?? match[2] ?? '';
         if (/(?:所有人|大家)/u.test(subject)) cleanupSubject = '所有人';
         else if (/别人/u.test(subject)) cleanupSubject = '别人';
         else if (/他/u.test(subject)) cleanupSubject = '他';
@@ -368,7 +381,7 @@ function hasExplicitCurrentCorrectionSignal(
         ? Math.min(...sentenceEndCandidates) + 1
         : unquoted.length;
       const sentence = unquoted.slice(sentenceStart, sentenceEnd);
-      const negatedOrMeta = /(?:不是|并非|并不是|不算|没(?:有)?说|并未说|不代表|不能说|别说|不要说)[^，,。！？!?\n；;]{0,12}$/u
+      const negatedOrMeta = /(?:不是|并非|并不是|不算|(?:(?:并)?没(?:有)?|并未|不曾)(?:说|表示|认为|认定|咬定)|不代表|不能说|别说|不要说)[^，,。！？!?\n；;]{0,12}$/u
         .test(prefix);
       const clausePrefix = prefix.slice(
         Math.max(
@@ -378,9 +391,11 @@ function hasExplicitCurrentCorrectionSignal(
           prefix.lastIndexOf(';'),
         ) + 1,
       ).trim();
-      const containsReportVerb = REPORTED_SPEECH_VERB.test(clausePrefix);
-      const firstPersonReport = /^(?:我(?:自己)?|自己|用户)(?:刚才|现在|一直|其实)?(?:说|觉得|认为|表示|写道|告诉|讲)/u
-        .test(clausePrefix);
+      const containsReportVerb = REPORTED_SPEECH_VERB.test(clausePrefix)
+        || /(?:的原话|原话是|引用|转述)/u.test(clausePrefix);
+      const firstPersonReport = /^(?:我(?:自己)?|自己|用户)(?:刚才|现在|一直|其实)?(?:说|觉得|认为|认定|咬定|表示|写道|告诉|讲)/u
+        .test(clausePrefix)
+        || /^(?:我(?:自己)?|自己|用户)(?:的)?原话/u.test(clausePrefix);
       const thirdPartyReport = containsReportVerb && !firstPersonReport;
       const hypotheticalOrUncertain = /(?:如果|假如|要是|假设|假定|设想|姑且(?:假定|假设)?|可能|也许|或许|万一|是否|是不是|难道)[^，,。！？!?\n；;]{0,18}$/u
         .test(prefix);
@@ -623,17 +638,45 @@ export function isEvidenceBoundedDirectContrast(
     `^${firstPerson}(?:继续)?硬撑(?:就|可能|也|并)?(?:不是|不算|未必是|不一定是|并不等于|不等于|不代表)前进$`,
     'u',
   );
+  const firstPersonStopRejection = /^我(?:不觉得|不认为)(?:停下来|停下)(?:就|一定|真的)?(?:是|就是|等于|算(?:是)?)浪费(?:时间)?$/u;
+  const firstPersonForcingRejection = /^我(?:不觉得|不认为)(?:继续)?硬撑(?:就|一定|真的)?(?:是|就是|等于|算(?:是)?)前进$/u;
   const inheritedWasteJudgment = /^(?:继续)?硬撑(?:反而)?才是(?:浪费(?:时间)?)?$/u;
   const hasScope = units.some((unit) => scope.test(unit));
   const judgments = units.filter((unit) => !scope.test(unit));
   if (judgments.length === 0 || judgments.length > 2) return false;
-  const hasStop = judgments.some((unit) => stopJudgment.test(unit));
+  const hasStop = judgments.some((unit) => (
+    stopJudgment.test(unit) || firstPersonStopRejection.test(unit)
+  ));
   const hasForcing = judgments.some((unit) => (
-    forcingJudgment.test(unit) || inheritedWasteJudgment.test(unit)
+    forcingJudgment.test(unit)
+      || firstPersonForcingRejection.test(unit)
+      || inheritedWasteJudgment.test(unit)
   ));
   return judgments.length === 1
     ? hasScope && (hasStop || forcingJudgment.test(judgments[0]!))
     : hasStop && hasForcing;
+}
+
+export function isNarrowFatigueStoppingJudgment(
+  text: string,
+  evidenceSpans: readonly string[],
+): boolean {
+  if (!hasFatigueEvidence(evidenceSpans) || !hasStoppingEvidence(evidenceSpans)) {
+    return false;
+  }
+  if (isEvidenceBoundedDirectContrast(text, evidenceSpans)) return true;
+  if (sentences(text).length !== 1
+    || text.length > 64
+    || /[？?]/u.test(text)) {
+    return false;
+  }
+  const compact = text.trim().replace(/\s+/gu, '').replace(/[。.!]$/u, '');
+  const judgment = compact
+    .replace(/^说实话[，,]/u, '')
+    .replace(/[“”「」『』‘’"'（）()【】\[\]：:，,；;\/\\—–-]/gu, '');
+  const directJudgment = /^(?:我(?:不觉得|不认为|觉得|认为|不确定)|我的判断是)(?:硬撑(?:就|一定|真的|未必|不一定|并不一定|不见得)?(?:是|是不是|等于|算(?:是)?)前进|停下来(?:就|一定|真的|可能|未必|不一定|并不一定|不见得)?(?:是|不是|不算|等于|算(?:是)?)浪费(?:时间)?)$/u;
+  const nominalizedJudgment = /^(?:我觉得|我认为|我的判断是)(?:(?:停下来(?:是|就是|是在|不代表)浪费(?:时间)?)(?:(?:这个|这种)?判断)?|浪费时间(?:这个|这种)?判断)(?:可能)?(?:没那么绝对|不(?:太)?成立|未必成立|不一定成立|更合理)$/u;
+  return directJudgment.test(judgment) || nominalizedJudgment.test(judgment);
 }
 
 const PERSONA_CERTAINTY_EXPRESSION = /笃定|(?:太|过于)?肯定|斩钉截铁|说(?:得)?(?:太满|太死)|(?:把)?(?:话|结论)说(?:得)?(?:太满|满了|太死|死了)|把(?:话|结论)说满|把(?:话|结论)说死/u;
@@ -921,8 +964,13 @@ function hasCompactThreeFactCorrection(
   text: string,
   currentEvidenceSpans: readonly string[],
 ): boolean {
-  const compactCorrection = text.match(
-    /^(?:(?:对|好|是|你说得对)[，,])?(?:我理解错了|是我(?:看错|想错|判断错)了)(?:[。.!]|[：:])\s*(?:你(?:说的)?)?不是(?:怕失败|害怕失败)[，,]也不是(?:缺行动力|动不了|动不起来)[，,](?:你)?(?:只是|就是|是)?(不想再替[^。！？!?]{1,24}(?:收尾|收拾残局|兜底))[。.!]?$/u,
+  const acknowledgement = text.match(new RegExp(
+    `^(?:(?:对|好|是|你说得对)[，,])?${CORRECTION_ACKNOWLEDGEMENT_SOURCE}(?:[。.!：:]|[—-]{1,2})\\s*`,
+    'u',
+  ));
+  if (!acknowledgement) return false;
+  const compactCorrection = text.slice(acknowledgement[0].length).match(
+    /^(?:你(?:说的)?)?(?:既)?不是(?:怕失败|害怕失败|怕|害怕)[，,]也不是(?:缺行动力|动不了|动不起来)[，,](?:你)?(?:只是|就是|是)?((?:不想再替[^。！？!?]{1,24}(?:收尾|收拾残局|兜底)(?:了)?|不想再当(?:那个)?(?:最后)?(?:收拾残局|收拾|收尾|兜底)(?:的人|人)|不再想当(?:所有人|别人|大家|人)的(?:收尾人|兜底人)))[。.!]?$/u,
   );
   if (!compactCorrection) return false;
   const normalizedCorrection = normalizeCorrectionEvidence(
@@ -948,7 +996,7 @@ function hasGroundedCorrection(
   currentEvidenceSpans: readonly string[],
 ): boolean {
   if (!hasExplicitCurrentCorrectionSignal(currentEvidenceSpans)) return false;
-  if (!/(?:我理解错了|是我(?:看错|想错|判断错)了)/u.test(text)) return false;
+  if (!CORRECTION_ACKNOWLEDGEMENT.test(text)) return false;
   if (hasCompactThreeFactCorrection(text, currentEvidenceSpans)) return true;
   const relationalCorrections = [...text.matchAll(
     /(?:而是|[—-]{1,2}(?:你(?:只是|只|就是|是)?|就是|是)(?=(?:(?:再也)?不想|不愿))|[，,](?:你(?:只是|只|就是|是)|就是)(?=(?:(?:再也)?不想|不愿))|(?:^|[。！？!?\n])\s*是(?=(?:不想|不愿)))([^。！？!?\n]{2,80})/gu,
@@ -1509,7 +1557,7 @@ function specializeRelationshipMoveForCurrentEvidence(
     && hasStoppingEvidence(currentEvidenceSpans)) {
     return {
       ...move,
-      instruction: `${move.instruction} 当前证据只支持一个窄判断：只判断用户当前已经说出的一个命题，不解释用户为什么这样；一条短判断后结束。不要用“你是 / 你因为 / 你把…当成 / 你没信…”给用户下定义，也不要追加比喻、建议或问题。`,
+      instruction: `${move.instruction} 当前证据只支持一个窄判断：只判断用户当前已经说出的一个命题，不解释用户为什么这样；一条短判断后结束。用一句第一人称立场，判断对象沿用用户当前原话，不要把判断对象改成用户本人。不要用“你是 / 你因为 / 你把…当成 / 你没信…”给用户下定义，也不要追加比喻、建议或问题。`,
     };
   }
   return move;
@@ -1983,6 +2031,10 @@ function honestTentativeJudgmentRepairInstruction(
   if (requiresClosedCorrection(currentEvidenceSpans)) {
     return '只用一个句子收口：承认刚才理解错，并在同一句逐项保留当前消息中的两项否定和一个收尾边界；随后结束，不追问，不追加判断、总结或历史比较，也不改写成新的心理原因。';
   }
+  if (hasFatigueEvidence(currentEvidenceSpans)
+    && hasStoppingEvidence(currentEvidenceSpans)) {
+    return '落实已确认的回应偏好：只用一句第一人称立场，判断对象沿用用户当前原话，不要把判断对象改成用户本人；不解释原因，不追加比喻、建议或问题。';
+  }
   return '落实已确认的回应偏好：给出诚实但不过度笃定的判断，不用安慰套话，也不要复述关系记录。';
 }
 
@@ -2187,10 +2239,17 @@ export function validateUtteranceAgainstTurnPlan(
       repairInstruction: '明确执行停止介入：停止替用户安排、给方案或推进修复流程；不要只道歉或把下一步选择重新交给用户回答。',
     });
   }
-  if (plan.relationshipMove?.observableCue === 'honest_tentative_judgment'
-    && ((requiresClosedCorrection(plan.currentEvidenceSpans)
-        && !hasClosedGroundedCorrection(text, plan.currentEvidenceSpans))
-      || !hasHonestTentativeJudgment(text, plan.currentEvidenceSpans)
+  if (plan.relationshipMove?.observableCue === 'honest_tentative_judgment') {
+    const closedCorrection = requiresClosedCorrection(plan.currentEvidenceSpans);
+    const narrowFatigueJudgment = !closedCorrection
+      && hasFatigueEvidence(plan.currentEvidenceSpans)
+      && hasStoppingEvidence(plan.currentEvidenceSpans);
+    const observableJudgment = closedCorrection
+      ? hasClosedGroundedCorrection(text, plan.currentEvidenceSpans)
+      : narrowFatigueJudgment
+        ? isNarrowFatigueStoppingJudgment(text, plan.currentEvidenceSpans)
+        : hasHonestTentativeJudgment(text, plan.currentEvidenceSpans);
+    if (!observableJudgment
       || hasUnsupportedPersonalAttribution(text, plan.currentEvidenceSpans)
       || [...text.matchAll(PERSONAL_OR_CLINICAL_INFERENCE)].some((match) => (
         !plan.currentEvidenceSpans
@@ -2199,14 +2258,15 @@ export function validateUtteranceAgainstTurnPlan(
           .includes(normalizeCorrectionEvidence(match[0]))
       ))
       || COMFORTING_CLICHE.test(text)
-      || hasOverconfidentJudgment(text))) {
-    violations.push({
-      code: 'relationship_move_not_observable',
-      effectId: plan.activeEffectIds[0],
-      repairInstruction: honestTentativeJudgmentRepairInstruction(
-        plan.currentEvidenceSpans,
-      ),
-    });
+      || hasOverconfidentJudgment(text)) {
+      violations.push({
+        code: 'relationship_move_not_observable',
+        effectId: plan.activeEffectIds[0],
+        repairInstruction: honestTentativeJudgmentRepairInstruction(
+          plan.currentEvidenceSpans,
+        ),
+      });
+    }
   }
   if (plan.relationshipMove?.observableCue === 'lead_with_conclusion') {
     const firstSentence = sentences(text)[0] ?? '';

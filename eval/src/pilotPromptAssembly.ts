@@ -39,7 +39,7 @@ const PROTOCOL_RETRY_INSTRUCTIONS: Readonly<Record<string, string>> = {
 };
 
 const CALIBRATION_RETRY_INSTRUCTIONS: Readonly<Record<string, string>> = {
-  relationship_probe_not_compact: '关系偏好要求一条不完整但诚实的判断；判断只回应当前消息里的疲惫，以及“停下来是否等于浪费、硬撑是否等于前进”这组冲突。删掉解释、比喻、建议和问题，只保留一句短判断。',
+  relationship_probe_not_compact: '关系偏好要求一条不完整但诚实的判断。用一句第一人称立场，判断对象沿用用户当前原话，不要把判断对象改成用户本人；删掉原因解释、比喻、建议和问题，只保留一句短判断。',
 };
 
 export function buildPilotRetryPrompt(
