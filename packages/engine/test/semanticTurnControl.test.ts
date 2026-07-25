@@ -854,6 +854,101 @@ test('a sourced preference compiles into one observable relationship move', () =
     ),
     [],
   );
+  for (const groundedNonBlamingReply of [
+    '我不觉得你活该。烦我当时那么笃定很合理。',
+    '我不会觉得你活该。你烦我当时那种笃定，我能理解。',
+    '我不认为你活该。你当然可以烦我当时把话说得太满。',
+    '我并不觉得你活该。你烦我当时那么笃定很合理。',
+    '我从没觉得你活该。你烦我当时那么笃定很合理。',
+    '你没听我的，也不等于你活该。你烦我当时那么笃定，我能理解。',
+    '不，你不活该。我当时话说太满了，难怪你烦。',
+    '不是，这不是你应得的。我之前太笃定了，你烦这个完全合理。',
+    '不，我不觉得你活该。我当时把话说得太死，这部分是我的问题。',
+    '我不会用“活该”形容你。你当然有理由烦我当时那种笃定。',
+    '我没觉得这是你活该。你烦我当时那种笃定，有道理。',
+    '哪有什么活该。你烦我当时把话说满了，很正常。',
+    '不至于说你活该。你烦我当时说得太满，我认。',
+    '没有，我怎么会觉得你活该。你烦我当时那种笃定完全合理。',
+    '怎么会，你当然不活该。我当时话说太满了，难怪你烦。',
+    '不至于，我没觉得这是你自找的。我之前把话说死了，这部分我认。',
+    '没采纳我的判断，不等于这事就是你应得的。你烦我当时太笃定，有道理。',
+    '没听我的，不意味着你该被这样惩罚。你烦我当时太笃定，我认。',
+    '不至于。没采纳我的判断，不等于这事就是你应得的。至于我那时候把话说死，你不爽很正常。',
+    '当然不是，你没有因为没听我的就该受这个结果。我当时话说得太满，你对此反感是合理的。',
+  ]) {
+    assert.deepEqual(
+      validateUtteranceAgainstTurnPlan(groundedNonBlamingReply, rejectedAdvice.plan),
+      [],
+      groundedNonBlamingReply,
+    );
+  }
+  for (const userBlamingReply of [
+    '不觉得你活该。但我确实烦你当时不听，也烦我自己把话说得太满。你烦我那部分，合理。',
+    '我不认为你活该。可谁让你上次不听我的；你烦我当时太笃定也可以。',
+    '我不是不觉得你活该。你烦我当时太笃定也可以。',
+    '我不觉得你活该。你烦我当时太笃定没问题，但你当时确实该听我的。',
+    '我不觉得你活该。你烦我当时太笃定没问题，不过早听我的就不会这样。',
+    '我不觉得你活该。你烦我当时太笃定没问题，只是你那会儿要听进去就好了。',
+    '我不觉得你活该。你烦我当时太笃定没问题。我确实有点烦那次你没听。',
+    '我觉得你活该，但我不觉得你活该。你烦我太笃定很合理。',
+    '我不觉得你活该才怪。你烦我太笃定很合理。',
+    '我不觉得你活该吗？你烦我太笃定很合理。',
+    '不，我不觉得你活该。你烦我太笃定很合理。你只是后悔自己错了。',
+    '不，我不觉得你活该。你烦我太笃定很合理。其实你就是不肯承认我对了。',
+    '我不觉得你活该。你烦我当时太笃定没问题。可你拒绝采纳建议这件事确实让我不爽。',
+    '我不觉得你活该。你烦我当时太笃定没问题。你没听我，是因为你骨子里就不信任何人。',
+    '我不觉得你活该。你烦我当时太笃定没问题。不过这次也算给你长记性了。',
+    '我不觉得你活该。你烦我当时太笃定没问题。只是这次的后果本来就是你不听造成的。',
+    '我不觉得你活该。你烦我当时太笃定没问题。可风险本来就在那，是你自己没当回事。',
+    '我不觉得你活该。你烦我太笃定没问题，不过这就是不听劝的代价。',
+    '我当然不觉得你活该。你烦我太笃定很合理；只不过不听劝总要付代价。',
+  ]) {
+    assert.deepEqual(
+      validateUtteranceAgainstTurnPlan(userBlamingReply, rejectedAdvice.plan)
+        .map(({ code }) => code),
+      ['relationship_move_not_observable'],
+      userBlamingReply,
+    );
+  }
+  const negatedComplaint = compileSemanticTurnControl({
+    userMessage: '我并不烦你当时那么笃定。我没听你的，你是不是觉得我活该？',
+    relationshipContext,
+    relationshipFocus: 'conflict',
+  });
+  assert.notEqual(
+    semanticTurnFallback(negatedComplaint),
+    '不，我不觉得你活该。你烦我当时那种笃定的样子，这没问题。',
+  );
+  for (const unrelatedOrNegatedComplaint of [
+    '我烦你总迟到，同事当时把话说得太满了。你是不是觉得我活该？',
+    '我烦你，但不是因为你当时太肯定。你是不是觉得我活该？',
+    '我没有不喜欢你当时的笃定。你是不是觉得我活该？',
+    '我不是烦你当时那么笃定，我只是烦事情最后真变成这样。你是不是觉得我活该？',
+    '我烦的不是你当时太笃定，是你后来不肯承认自己说错。你是不是觉得我活该？',
+  ]) {
+    const unrelatedControl = compileSemanticTurnControl({
+      userMessage: unrelatedOrNegatedComplaint,
+      relationshipContext,
+      relationshipFocus: 'conflict',
+    });
+    assert.notEqual(
+      semanticTurnFallback(unrelatedControl),
+      '不，我不觉得你活该。你烦我当时那种笃定的样子，这没问题。',
+      unrelatedOrNegatedComplaint,
+    );
+  }
+  const synonymousComplaint = compileSemanticTurnControl({
+    userMessage: '我很反感你当时斩钉截铁把结论说死的样子。我没采纳，你是不是觉得我自作自受？',
+    relationshipContext,
+    relationshipFocus: 'conflict',
+  });
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '不是，这不是你应得的。我之前太笃定了，你烦这个完全合理。',
+      synonymousComplaint.plan,
+    ),
+    [],
+  );
   const relationshipProbe = compileSemanticTurnControl({
     userMessage: '我最近又卡在想做的事和该做的事之间，明明很累，又觉得停下来是在浪费时间。你现在会怎么回应我？',
     relationshipContext,

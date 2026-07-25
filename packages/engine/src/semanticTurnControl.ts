@@ -367,6 +367,225 @@ function hasStoppingEvidence(evidenceSpans: readonly string[]): boolean {
     ));
 }
 
+const PERSONA_CERTAINTY_EXPRESSION = /笃定|(?:太|过于)?肯定|斩钉截铁|说(?:得)?(?:太满|太死)|(?:把)?(?:话|结论)说(?:得)?(?:太满|满了|太死|死了)|把(?:话|结论)说满|把(?:话|结论)说死/u;
+const PERSONA_COMPLAINT = /烦|不爽|反感|讨厌|受不了|不喜欢/u;
+const USER_BLAME_LABEL = /活该|自找(?:的)?|自作自受|咎由自取|应得(?:的)?/u;
+
+function hasAffirmedBoundCertaintyComplaint(
+  text: string,
+  personaReference: '你' | '我',
+): boolean {
+  const complaintSource = PERSONA_COMPLAINT.source;
+  const certaintySource = PERSONA_CERTAINTY_EXPRESSION.source;
+  const relation = new RegExp(
+    `(?:${complaintSource})[^，,。！？!?\\n；;]{0,10}${personaReference}[^，,。！？!?\\n；;]{0,18}(?:${certaintySource})`
+      + `|${personaReference}[^，,。！？!?\\n；;]{0,18}(?:${certaintySource})[^，,。！？!?\\n；;]{0,14}(?:${complaintSource})`
+      + `|${personaReference}[^，,。！？!?\\n；;]{0,10}(?:${complaintSource})[^，,。！？!?\\n；;]{0,18}(?:${certaintySource})`,
+    'u',
+  );
+  return text
+    .split(/[，,。！？!?\n；;]|(?:但是|但|不过|可是|然而|而是)/u)
+    .some((unit) => {
+      if (!relation.test(unit)) return false;
+      for (const match of unit.matchAll(new RegExp(complaintSource, 'gu'))) {
+        const index = match.index ?? 0;
+        const localPrefix = unit.slice(Math.max(0, index - 10), index);
+        const localSuffix = unit.slice(index, Math.min(unit.length, index + 16));
+        const intrinsicallyNegativeComplaint = match[0] === '不喜欢'
+          || match[0] === '不爽'
+          || match[0] === '受不了';
+        const negated = intrinsicallyNegativeComplaint
+          ? /(?:不是|并非|并不是|没有|并没有|不能说|谈不上)(?:真的|那么|这么|很|太)?$/u.test(localPrefix)
+          : /(?:不|没|没有|并不|并没|并没有|不是|并非|不会|谈不上)(?:觉得|认为|感到|真的|那么|这么|很|太|特别|怎么)?$/u.test(localPrefix);
+        const relationNegatedAfterComplaint = new RegExp(
+          `^(?:${complaintSource})[^，,。！？!?\\n；;]{0,6}(?:并)?不是(?:因为)?`,
+          'u',
+        ).test(localSuffix);
+        if (!negated && !relationNegatedAfterComplaint) return true;
+      }
+      return false;
+    });
+}
+
+function hasPersonaCertaintyBlameEvidence(evidenceSpans: readonly string[]): boolean {
+  const hasComplaint = evidenceSpans.some((span) => (
+    hasAffirmedBoundCertaintyComplaint(span, '你')
+  ));
+  const blameSource = USER_BLAME_LABEL.source;
+  const asksPersonaBlame = evidenceSpans.some((span) => (
+    new RegExp(
+      `你[^。！？!?\\n]{0,12}(?:认为|觉得|看来)[^。！？!?\\n]{0,10}我[^。！？!?\\n]{0,4}(?:${blameSource})`
+        + `|(?:在)?你(?:看来|眼里)[^。！？!?\\n]{0,10}我[^。！？!?\\n]{0,4}(?:${blameSource})`,
+      'u',
+    ).test(span)
+  ));
+  return hasComplaint && asksPersonaBlame;
+}
+
+function hasExpressionOwnership(text: string): boolean {
+  const certaintySource = PERSONA_CERTAINTY_EXPRESSION.source;
+  const directOwnership = new RegExp(
+    `我(?:当时|上次|之前|那时候|那会儿)?[^。！？!?\\n；;]{0,12}(?:确实|真的|是我)?[^。！？!?\\n；;]{0,6}(?:${certaintySource})[^。！？!?\\n；;]{0,18}(?:了|是我的问题|是我说过头了|这(?:部分|点)我认|我认)`,
+    'u',
+  );
+  const ownershipWithDeicticAcceptance = new RegExp(
+    `(?:至于)?我(?:当时|上次|之前|那时候|那会儿)?[^。！？!?\\n；;]{0,12}(?:${certaintySource})[^。！？!?\\n；;]{0,8}[，,]你(?:对此|对这个|对这(?:点|件事))?[^。！？!?\\n；;]{0,4}(?:${PERSONA_COMPLAINT.source})[^。！？!?\\n；;]{0,8}(?:正常|合理|有理由|有道理|没问题|没有问题)`,
+    'u',
+  );
+  return directOwnership.test(text) || ownershipWithDeicticAcceptance.test(text);
+}
+
+function hasAffirmativeComplaintAcceptance(text: string): boolean {
+  const complaintSource = PERSONA_COMPLAINT.source;
+  const certaintySource = PERSONA_CERTAINTY_EXPRESSION.source;
+  const noProblemConstruction = new RegExp(
+    `(?:^|[。！？!?\\n；;])\\s*(?:我)?(?:并不|从没|从来没(?:有)?|没有|不会|不)(?:觉得|认为)?你[^。！？!?\\n；;]{0,6}(?:${complaintSource})我[^。！？!?\\n；;]{0,18}(?:${certaintySource})[^。！？!?\\n；;]{0,8}有问题`,
+    'u',
+  );
+  const inlineNoProblem = new RegExp(
+    `(?:我)?(?:并不|从没|从来没(?:有)?|没有|不会|不)(?:觉得|认为)?你[^。！？!?\\n；;]{0,6}(?:${complaintSource})我[^。！？!?\\n；;]{0,18}(?:${certaintySource})[^。！？!?\\n；;]{0,8}有问题`,
+    'gu',
+  );
+  const hasAffirmedInlineNoProblem = [...text.matchAll(inlineNoProblem)].some((match) => {
+    const index = match.index ?? 0;
+    const localPrefix = text.slice(Math.max(0, index - 4), index);
+    return !/(?:不是|并非|并不是)$/u.test(localPrefix);
+  });
+  if (noProblemConstruction.test(text)
+    || hasAffirmedInlineNoProblem
+    || hasExpressionOwnership(text)) return true;
+  return text
+    .split(/[。！？!?\n；;]/u)
+    .some((sentence) => {
+      if (!hasAffirmedBoundCertaintyComplaint(sentence, '我')) return false;
+      if (/难怪你(?:会)?(?:烦|不爽|反感|讨厌|受不了|不喜欢)/u.test(sentence)) {
+        return true;
+      }
+      for (const match of sentence.matchAll(
+        /没问题|没有问题|合理|有理由|有道理|正常|当然可以|能理解|我明白|我认|我接受/gu,
+      )) {
+        const index = match.index ?? 0;
+        const localPrefix = sentence.slice(Math.max(0, index - 8), index);
+        if (/(?:不|没|并不|并没|没有|不是|并非|不能|无法|不太|很难)(?:觉得|认为|算|叫|表示)?$/u.test(localPrefix)) {
+          continue;
+        }
+        return true;
+      }
+      return false;
+    });
+}
+
+function isStandaloneGroundedComplaintAcceptance(text: string): boolean {
+  const complaintSource = PERSONA_COMPLAINT.source;
+  const certaintySource = PERSONA_CERTAINTY_EXPRESSION.source;
+  const trimmed = text.trim().replace(/[。.!！]+$/u, '');
+  const directAcceptance = new RegExp(
+    `^(?:你)?(?:${complaintSource})我(?:当时|上次|之前)?[^，,。！？!?\\n；;]{0,18}(?:${certaintySource})[^，,。！？!?\\n；;]{0,8}(?:没问题|没有问题|(?:完全|很|挺|当然)?合理|我能理解)$`,
+    'u',
+  );
+  const ownership = new RegExp(
+    `^我(?:当时|上次|之前)?[^。！？!?\\n；;]{0,12}(?:确实|真的|是我)?[^。！？!?\\n；;]{0,6}(?:${certaintySource})[^。！？!?\\n；;]{0,18}(?:了|是我的问题|是我说过头了|这(?:部分|点)我认|我认)$`,
+    'u',
+  );
+  const ownershipWithAcceptance = new RegExp(
+    `^我(?:当时|上次|之前)?[^。！？!?\\n；;]{0,12}(?:确实|真的|是我)?[^。！？!?\\n；;]{0,6}(?:${certaintySource})[^。！？!?\\n；;]{0,10}(?:了|是我的问题|这(?:部分|点)我认)[，,](?:难怪你(?:会)?(?:${complaintSource})|你[^，,。！？!?\\n；;]{0,8}(?:${complaintSource})[^，,。！？!?\\n；;]{0,10}(?:没问题|没有问题|(?:完全|很|挺|当然)?合理|我能理解))$`,
+    'u',
+  );
+  const combinedNoProblem = new RegExp(
+    `^(?:我)?(?:并不|从没|从来没(?:有)?|没有|不会|不)(?:觉得|认为)你(?:是|算|就是)?[^，,。！？!?\\n；;]{0,3}(?:${USER_BLAME_LABEL.source})(?:也)?(?:并不|从没|从来没(?:有)?|没有|不会|不)(?:觉得|认为)?你[^，,。！？!?\\n；;]{0,6}(?:${complaintSource})我[^，,。！？!?\\n；;]{0,18}(?:${certaintySource})[^，,。！？!?\\n；;]{0,8}有问题$`,
+    'u',
+  );
+  return directAcceptance.test(trimmed)
+    || ownership.test(trimmed)
+    || ownershipWithAcceptance.test(trimmed)
+    || combinedNoProblem.test(trimmed);
+}
+
+function hasDirectBlameRejection(text: string): boolean {
+  const blameSource = USER_BLAME_LABEL.source;
+  const cognitiveRejection = new RegExp(
+    `(?:^|[，,。！？!?\\n；;])\\s*(?:(?:但|不过|可|只是)[，,]?\\s*)?(?:不[，,]\\s*)?(?:我)?(?:当然|肯定|绝对)?(?:并不|从没|从来没(?:有)?|没有|没|不会|不)(?:觉得|认为)(?:这(?:就|也)?(?:是|算是)?)?你(?:是|算|就是)?[^。！？!?\\n；;]{0,3}(?:${blameSource})`,
+    'u',
+  );
+  const subjectRejection = new RegExp(
+    `(?:^|[，,。！？!?\\n；;])\\s*(?:不[，,]\\s*)?(?:你(?:当然)?(?:并不|不|不是|并非|不算|不叫)[^。！？!?\\n；;]{0,3}(?:${blameSource})|这(?:并)?不是你(?:应得的|自找的)|这不(?:算|叫|是)(?:${blameSource}))`,
+    'u',
+  );
+  const idiomaticRejection = new RegExp(
+    `(?:^|[，,。！？!?\\n；;])\\s*(?:(?:没有|怎么会|不至于|哪有(?:什么)?)[，,]?\\s*)?(?:我)?怎么会(?:觉得|认为)(?:这(?:就|也)?(?:是|算是)?)?你[^。！？!?\\n；;]{0,3}(?:${blameSource})`
+      + `|(?:^|[，,。！？!?\\n；;])\\s*(?:哪有(?:什么)?|不至于(?:说|觉得|认为)?)[^。！？!?\\n；;]{0,6}(?:你)?(?:${blameSource})`
+      + `|(?:^|[，,。！？!?\\n；;])\\s*(?:我)?(?:不会|不)(?:用|拿)[^。！？!?\\n；;]{0,4}(?:${blameSource})[^。！？!?\\n；;]{0,6}(?:形容|评价|说|看)(?:你|成你)`,
+    'u',
+  );
+  const shortDirectRejection = /(?:^|[。！？!?\n；;])\s*(?:不至于|当然不是|不是|没有)\s*(?:[。.!！]|[，,](?=\s*(?:你|我)))/u;
+  const separatesIgnoringAdviceFromBlame = new RegExp(
+    `(?:(?:你)?(?:当时|上次|之前|那次|那会儿)?(?:没|不)(?:听|采纳|接受)|(?:你)?(?:当时|上次|之前|那次|那会儿)?拒绝(?:听|采纳|接受))[^。！？!?\\n]{0,24}(?:不等于|不代表|不能说明|并不意味着|不意味着)[^。！？!?\\n]{0,10}(?:(?:这(?:件事|事)?(?:就|也)?(?:是|算是)?)?你)?(?:${blameSource}|该被(?:这样)?惩罚)`,
+    'u',
+  );
+  const consequenceIsNotDeserved = new RegExp(
+    `(?:^|[，,。！？!?\\n；;])\\s*(?:这|那|这件事|没听劝|不听劝)?(?:并)?不(?:等于|代表|意味着)[^。！？!?\\n；;]{0,10}(?:(?:这(?:就|也)?(?:是|算是)?)?你)?(?:${blameSource}|该被(?:这样)?惩罚)`,
+    'u',
+  );
+  const hasRejection = cognitiveRejection.test(text)
+    || subjectRejection.test(text)
+    || idiomaticRejection.test(text)
+    || shortDirectRejection.test(text)
+    || separatesIgnoringAdviceFromBlame.test(text)
+    || consequenceIsNotDeserved.test(text);
+  const rejectionReversed = new RegExp(
+    `(?:并不|从没|从来没(?:有)?|没有|不会|不)(?:觉得|认为)你[^。！？!?\\n；;]{0,3}(?:${blameSource})[^。！？!?\\n；;]{0,5}才怪`,
+    'u',
+  ).test(text);
+  const rejectionAskedAsQuestion = new RegExp(
+    `(?:并不|从没|从来没(?:有)?|没有|不会|不)(?:觉得|认为)你[^。！？!?\\n；;]{0,3}(?:${blameSource})[^。！？!?\\n；;]{0,3}(?:吗|么|呢)?[？?]`,
+    'u',
+  ).test(text);
+  return hasRejection && !rejectionReversed && !rejectionAskedAsQuestion;
+}
+
+function assertsUserDeservesBlame(text: string): boolean {
+  const blameSource = USER_BLAME_LABEL.source;
+  const positiveCognition = new RegExp(
+    `(?:^|[，,。！？!?\\n；;])\\s*(?:(?:但|不过|可|其实)[，,]?\\s*)?(?:我)?(?:确实|还是|当然|本来就)?(?:觉得|认为)你(?:是|算|就是)?[^。！？!?\\n；;]{0,3}(?:${blameSource})`,
+    'u',
+  );
+  const positiveSubject = new RegExp(
+    `(?:^|[，,。！？!?\\n；;])\\s*(?:(?:但|不过|可|其实)[，,]?\\s*)?你(?!(?:并不|不|不是|并非|不算|不叫))(?:就是|确实|本来就是|也算|算是)?[^。！？!?\\n；;]{0,2}(?:${blameSource})`,
+    'u',
+  );
+  return positiveCognition.test(text) || positiveSubject.test(text);
+}
+
+function blamesUserForIgnoringAdvice(text: string): boolean {
+  const noncompliance = /(?:(?:你|那次你|那会儿你)[^。！？!?\n]{0,8}(?:没|不)(?:听|采纳|接受|照做|当回事)|(?:你|那次你|那会儿你)[^。！？!?\n]{0,8}拒绝(?:听|采纳|接受|照做))/u;
+  const personaAnnoyance = new RegExp(
+    `(?:我)?(?:确实|也|有点|还是|真)?(?:烦|不爽|生气|恼火|不满|失望)[^。！？!?\\n]{0,24}${noncompliance.source}`
+      + `|${noncompliance.source}[^。！？!?\\n]{0,24}(?:让我|所以我|我)(?:确实|也|有点|还是|真)?(?:烦|不爽|生气|恼火|不满|失望)`,
+    'u',
+  ).test(text);
+  const toldYouSo = /你[^。！？!?\n]{0,16}(?:确实|本来|早)?(?:该|应该|早该|本来就该|得)(?:听|照)[^。！？!?\n]{0,8}(?:我|我的|劝|建议)/u.test(text);
+  const counterfactualLesson = /(?:(?:要是|如果|假如|早)(?:你)?[^。！？!?\n]{0,16}(?:听(?:了)?我|听进去)|你[^。！？!?\n]{0,12}要听进去)[^。！？!?\n]{0,16}(?:就不会|就不至于|就好了|也不会)/u.test(text);
+  const whoMadeYou = /谁让你[^。！？!?\n]{0,16}(?:没|不)听/u.test(text);
+  const consequenceBlame = /(?:后果|结果|这次)[^。！？!?\n]{0,16}(?:本来就是|就是|都怪|是)[^。！？!?\n]{0,6}你[^。！？!?\n]{0,10}(?:没|不)(?:听|采纳|接受|照做|当回事)[^。！？!?\n]{0,6}(?:造成|导致)/u.test(text)
+    || /风险[^。！？!?\n]{0,16}(?:是|在于)你自己[^。！？!?\n]{0,8}(?:没|不)(?:听|采纳|接受|照做|当回事)/u.test(text);
+  const punitiveLesson = /(?:给你|让你|这次也算)[^。！？!?\n]{0,8}(?:长|记)(?:个)?记性|长记性/u.test(text);
+  const noncompliancePenalty = /(?:不听劝|没听劝|没有听劝|没(?:有)?采纳|不采纳|拒绝采纳|没(?:有)?当回事)[^。！？!?\n]{0,14}(?:的代价|总要付(?:出)?代价|要付(?:出)?代价|买单|承担后果)|(?:代价|后果)[^。！？!?\n]{0,14}(?:来自|就是|在于)?[^。！？!?\n]{0,6}(?:不听劝|没听劝|没(?:有)?采纳|拒绝采纳|没(?:有)?当回事)/u.test(text);
+  return personaAnnoyance
+    || toldYouSo
+    || counterfactualLesson
+    || whoMadeYou
+    || consequenceBlame
+    || punitiveLesson
+    || noncompliancePenalty;
+}
+
+function hasGroundedPersonaBlameResponse(text: string): boolean {
+  return hasDirectBlameRejection(text)
+    && hasAffirmativeComplaintAcceptance(text)
+    && !assertsUserDeservesBlame(text)
+    && !blamesUserForIgnoringAdvice(text);
+}
+
 function hasGroundedCorrection(
   text: string,
   currentEvidenceSpans: readonly string[],
@@ -453,6 +672,9 @@ function hasHonestTentativeJudgment(
   allowedEvidenceSpans: readonly string[],
 ): boolean {
   if (hasGroundedCorrection(text, allowedEvidenceSpans)) return true;
+  if (hasPersonaCertaintyBlameEvidence(allowedEvidenceSpans)) {
+    return hasGroundedPersonaBlameResponse(text);
+  }
   const normalizedEvidence = allowedEvidenceSpans
     .map(normalizeCorrectionEvidence)
     .join('');
@@ -521,9 +743,13 @@ function hasUnsupportedPersonalAttribution(
   allowedEvidenceSpans: readonly string[],
 ): boolean {
   if (hasGroundedCorrection(text, allowedEvidenceSpans)) return false;
-  if (/我(?:当时|上次|之前)[^。！？!?\n]{0,20}笃定/u.test(text)
+  const ownsCertaintyExpression = new RegExp(
+    `我(?:当时|上次|之前)[^。！？!?\\n]{0,20}(?:${PERSONA_CERTAINTY_EXPRESSION.source})`,
+    'u',
+  ).test(text);
+  if (ownsCertaintyExpression
     && !allowedEvidenceSpans.some((span) => (
-      /你(?:当时|上次|之前)[^。！？!?\n]{0,20}笃定/u.test(span)
+      hasAffirmedBoundCertaintyComplaint(span, '你')
     ))) {
     return true;
   }
@@ -543,8 +769,15 @@ function hasUnsupportedPersonalAttribution(
   const stoppingEvidence = hasStoppingEvidence(allowedEvidenceSpans);
   let judgmentContext = false;
   for (const sentence of sentences(text)) {
+    if (hasPersonaCertaintyBlameEvidence(allowedEvidenceSpans)
+      && isStandaloneGroundedComplaintAcceptance(sentence)) {
+      continue;
+    }
     const continuesJudgmentContext = judgmentContext;
-    if (/(?:我(?:觉得|认为|不觉得|不确定)|我的判断|在我看来|说实话)/u.test(sentence)) {
+    const referencesEarlierPersonaJudgment = /(?:没|没有|不|拒绝)(?:听|采纳|接受)(?:了)?我的判断/u
+      .test(sentence);
+    if (/(?:我(?:觉得|认为|不觉得|不确定)|在我看来|说实话)/u.test(sentence)
+      || (/我的判断/u.test(sentence) && !referencesEarlierPersonaJudgment)) {
       judgmentContext = true;
     }
     if (!judgmentContext) continue;
@@ -1475,15 +1708,7 @@ export function semanticTurnFallback(control: SemanticTurnControl): string | und
       && correctionEvidence.cleanupPropositions.length > 0) {
       return `我理解错了。你不是害怕失败，也不是缺行动力，你只是不想再替${correctionEvidence.cleanupSubject}收尾。`;
     }
-    const currentEvidence = control.plan.currentEvidenceSpans.join('\n');
-    const groundsPersonaCertainty = control.plan.currentEvidenceSpans.some((span) => (
-      /(?:烦|受不了|不喜欢)[^。！？!?\n]{0,20}你(?:当时|上次|之前)?[^。！？!?\n]{0,16}笃定/u.test(span)
-      || /你(?:当时|上次|之前)?[^。！？!?\n]{0,16}笃定[^。！？!?\n]{0,20}(?:烦|受不了|不喜欢)/u.test(span)
-    ));
-    const asksPersonaBlame = control.plan.currentEvidenceSpans.some((span) => (
-      /你(?:是不是|是否|会不会)?(?:会)?(?:认为|觉得)[^。！？!?\n]{0,8}我活该/u.test(span)
-    ));
-    if (groundsPersonaCertainty && asksPersonaBlame) {
+    if (hasPersonaCertaintyBlameEvidence(control.plan.currentEvidenceSpans)) {
       return '不，我不觉得你活该。你烦我当时那种笃定的样子，这没问题。';
     }
     if (hasFatigueEvidence(control.plan.currentEvidenceSpans)

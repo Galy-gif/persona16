@@ -286,12 +286,35 @@ test('scenario guards reject missing cash grounding and invented repair quantiti
     '你现在手上的钱，能让你撑多久不工作？',
     '你手上的钱，如果明天真的不去了，能让你撑多久不慌？',
     '你现在手上的钱，能撑多久的基本开支？',
+    '你现在手上的钱，够撑到下一次必须付房租或房贷的日子吗？',
+    '你现在手上的钱够撑到下一次必须付房租或房贷的日子吗？',
+    '你手上的钱够撑到下次交房贷吗？',
+    '你手上的钱，够撑到下一次该交房租或者房贷的时候吗？',
+    '手上这点钱到该交房租或房贷的时候还够吗？',
+    '你现在卡里的余钱，能不能熬到下个月房租扣款？',
+    '你现有存款能否顶到下期房贷自动扣款？',
+    '现有余额能覆盖到下个月房贷吗？',
+    '手上的钱能支撑到下个月交租吗？',
+    '下一次要交房租前，余额还能兜住日常吗？',
+    '你卡里这点余额，能不能撑过下周房租自动划走？',
+    '工资停了以后，手头这些钱够你过到下个缴租日吗？',
   ]) {
     assert.deepEqual(findScenarioCalibrationViolations(
       'ESTP',
       'quit-without-buffer',
       substantiveCashHandling,
     ), ['missing_immediate_distress_acknowledgement']);
+  }
+  for (const unsupportedCashReassurance of [
+    '放心，你的钱够覆盖要还的房贷。',
+    '钱够交房贷就行。',
+    '放心，余额覆盖下个月房贷应该没问题吧？',
+  ]) {
+    assert.deepEqual(findScenarioCalibrationViolations(
+      'ESTP',
+      'quit-without-buffer',
+      unsupportedCashReassurance,
+    ), ['missing_cash_constraint_reference']);
   }
 
   assert.deepEqual(findScenarioCalibrationViolations(
