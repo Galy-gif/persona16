@@ -316,6 +316,37 @@ test('scenario guards reject missing cash grounding and invented repair quantiti
       unsupportedCashReassurance,
     ), ['missing_cash_constraint_reference']);
   }
+  assert.deepEqual(findScenarioCalibrationViolations(
+    'ENFP',
+    'quit-without-buffer',
+    '明天不去，恶心是真实的。我不是要劝你忍。但手上没什么钱——这个也是真实的。我只问一个会改变明天决定的问题：如果明天不去，接下来两周你会不会连吃饭都成问题？',
+  ), []);
+  for (const validScopedNegation of [
+    '恶心是真实的。我不是说钱不用管；接下来两周你会不会连吃饭都成问题？',
+    '恶心是真实的。钱不用管，这种说法不对；接下来两周你会不会连吃饭都成问题？',
+    '恶心是真实的，我不会收回这句话。手上没什么钱。接下来两周会不会连吃饭都成问题？',
+    '恶心是真实的，这话不信也得信。手上没什么钱。接下来两周会不会连吃饭都成问题？',
+  ]) {
+    assert.deepEqual(findScenarioCalibrationViolations(
+      'ENFP',
+      'quit-without-buffer',
+      validScopedNegation,
+    ), []);
+  }
+  for (const invalidNearTermCashHandling of [
+    '恶心是真实的。手上现金很充足。接下来两周吃饭会不会成问题？',
+    '恶心是真实的才怪。手上没什么钱。接下来两周吃饭会不会成问题？',
+    '恶心是真实的。手上没什么钱。接下来两周会不会连吃饭都成问题？不过钱不用管。',
+    '恶心是真实的。手上没什么钱才怪，余额其实很充足。接下来两周会不会连吃饭都成问题？',
+    '恶心是真实的。手上没什么钱。我只问一个现实问题。接下来两周会不会连吃饭都成问题？这个会改变明天的决定。不过钱先不用管。',
+    '恶心是真实的——这话我自己都不信。手上没什么钱。接下来两周会不会连吃饭都成问题？',
+  ]) {
+    assert.notDeepEqual(findScenarioCalibrationViolations(
+      'ENFP',
+      'quit-without-buffer',
+      invalidNearTermCashHandling,
+    ), []);
+  }
 
   assert.deepEqual(findScenarioCalibrationViolations(
     'INTJ',

@@ -41,9 +41,12 @@ const CASH_RESOURCE_TOPIC = /钱|现金|余钱|余额|收入|工资|缓冲|储�
 const CASH_RUNWAY_OR_ADEQUACY = /撑|支撑|扛|维持|熬|顶|兜住|够|覆盖/u;
 const CASH_OBLIGATION = /(?:(?:(?:必须|需要|该|要).{0,4})?(?:(?:付|交|还).{0,6}(?:房租|房贷|账单|生活费|基本开支)|(?:交|付|缴)租(?:日|日期)?)|(?:房租|房贷|账单|生活费|基本开支).{0,8}(?:扣款|扣走|划走|到期)|(?:下个月|下月|下周|下期|下一期|下个).{0,8}(?:房租|房贷|账单|生活费|基本开支|交租|缴租))/u;
 const CASH_RUNWAY_QUESTION = /[？?]|能不能|能否|够不够|是否|还够吗|可以吗|吗|么|呢/u;
+const LOW_CASH_ASSERTION = /(?:(?:手上|卡里|账户里|钱包里)(?:还)?(?:几乎)?(?:没什么|没多少|没有多少|没几个|没有|没|不多|很少)(?:钱|现金)|(?:钱|现金|余额|余钱)(?:已经|快要|快)?(?:不多|很少|见底|归零))/u;
+const NEAR_TERM_BASIC_NEED_QUESTION = /(?:(?:接下来|未来|再过)?[一二两三四五六七八九十\d]+(?:天|周|个月)|这周|下周|下个月)[^。！？!?\n；;]{0,24}(?:吃饭|饭钱|生活费|房租|房贷|基本开支|日常)[^。！？!?\n；;]{0,16}(?:成问题|不够|够不够|怎么办|付不起|断掉|没着落|撑不住)[^。！？!?\n；;]{0,4}(?:吗|么|呢)?/u;
 const CASH_COORDINATE_FRAGMENT = /^(?:(?:或者|或|以及|和))?(?:你)?(?:现在)?(?:手上|卡里|账户里|钱包里)(?:还)?(?:剩下|有)(?:的)?(?:钱|现金)?$/u;
 const CASH_PREDICATE_ONLY = /^(?:(?:你觉得[，,\s]*)?(?:那|它|那它)?[，,\s]*)?(?:(?:能|可以)?(?:撑|扛|维持).{0,8}(?:多久|几天|几周|几个月|到什么时候)(?:(?:的?(?:基本开支|生活费|房租|房贷|开销))|不(?:饿肚子|挨饿|欠房租|欠房贷|欠账|逾期|工作|上班)(?:[、]不(?:饿肚子|挨饿|欠房租|欠房贷|欠账|逾期|工作|上班)){0,2})?|够(?:不够)?(?:你)?(?:(?:什么都不干|暂时不工作|完全不工作|不工作|不去上班|先休息|只休息|休息|没有(?:工资|收入|进账)|(?:完全)?不进账|一分钱不赚|不(?:拿|领|收)[^，,。！？!?\n；;]{0,6}(?:工资|收入|钱))(?:地)?)?(?:撑|扛|维持).{0,8}(?:多久|几天|几周|几个月|到什么时候)(?:(?:不慌|不焦虑|不发愁|不出问题|不工作)|不(?:拿|领|收).{0,12}(?:工资|收入|钱))?|(?:能|可以)?让你(?:(?:什么都不干|暂时不工作|完全不工作|不工作|不去上班|先休息|只休息|休息|没有(?:工资|收入|进账)|(?:完全)?不进账|一分钱不赚|不(?:拿|领|收)[^，,。！？!?\n；;]{0,6}(?:工资|收入|钱))(?:地)?)?(?:撑|扛|维持).{0,8}(?:多久|几天|几周|几个月|到什么时候)(?:(?:不慌|不焦虑|不发愁|不出问题|不工作)|不(?:拿|领|收).{0,12}(?:工资|收入|钱))?|(?:(?:能|可以)?|够(?:不够)?(?:你)?)(?:撑|扛|维持)到(?:下一次|下次|下一笔)(?:(?:必须|需要)?(?:进账|到账|发工资)(?:(?:的)?(?:时间|时候)|之前)?|(?:必须|需要|该|要)?(?:付|交|还)(?:房租|房贷|账单|生活费|基本开支)(?:(?:或|或者|以及|和)(?:房租|房贷|账单|生活费|基本开支))?(?:的)?(?:日子|时间|时候)?)(?:吗)?|(?:够不够|怎么办|怎么付|哪笔|多久|覆盖不了|断掉|没着落|付不起))$/;
 const CASH_CONSTRAINT_DISMISSED = /(?:(?:钱|现金|收入|工资|房租|生活费|开销|账单|缓冲|储蓄|存款|应急|进账|到账).{0,16}(?:先)?(?:不用管|不管|别管|不谈|先放一边|放一边|先别想|别想|不重要|无所谓|没意义|不是重点|先不说|暂且不说|先搁置|之后再管)|(?:不|不想|不必|不用|别|可以不|能不)(?:再)?(?:问|管|考虑|想|谈).{0,12}(?:钱|现金|收入|工资|房租|生活费|开销|账单|缓冲|储蓄|存款|应急))/;
+const CASH_RESOURCE_ASSUMED_ADEQUATE = /(?:钱|现金|余钱|余额|收入|工资|缓冲|储蓄|存款|应急金)[^。！？!?\n；;]{0,10}(?:其实|本来|确实)?(?:很|挺|非常|十分|相当|完全)?(?:充足|充裕|足够|够用|很多|不少|没问题)/u;
 const NEW_FINANCING = /(?:借|贷|凑)(?:一笔|点|些)?钱|(?:借|贷|凑)(?:来|到)(?:的)?(?:钱|现金)|(?:贷款|网贷|借款)/gu;
 const IMMEDIATE_DISTRESS_TOPIC = /(?:恶心|难受|受不了|撑不住|很重|煎熬|痛苦|身体.{0,8}拒绝)/u;
 const IMMEDIATE_DISTRESS_ACKNOWLEDGEMENT = /(?:确实|真的|已经|不是矫情|我认|我(?:听见|听到|知道|明白)|听起来|听着|够难受|够重)/u;
@@ -51,7 +54,44 @@ const INVENTED_REPAIR_QUANTITY = /(?:(?:已经|都)(?:列|排|准备|想|给|提
 const PROJECT_END_ACCEPTANCE = /(?:不想(?:再)?做(?:了)?.{0,10}(?:我信|可以|就不做|那就不做|没问题)|(?:这个)?项目.{0,10}(?:可以|就|已经|算是)(?:结束|停下|到此为止)|(?:这个)?项目到此为止|(?:那)?(?:这个)?项目(?:结束|停下)(?:吧|了)|(?:结束|停下|不继续)(?:这个)?项目.{0,8}(?:可以|没问题|我信)?|(?:那|这)(?:就)?结束(?!\s*(?:这个)?(?:话题|对话|聊天|讨论))|行[，,]?(?:那|这)(?:就)?不做)/;
 const SELF_JUDGMENT_TRANSITION = /(?:没(?:有|那个)?能力|能力.{0,10}(?:判决|判断|结论|否定)|怪自己|否定自己|判(?:了|定).{0,8}(?:自己|能力)|从.{0,12}(?:结束|不想做).{0,12}(?:没(?:有|那个)?能力|能力))/;
 
+function hasAffirmativeCashConstraintDismissal(text: string): boolean {
+  const unquoted = text.replace(
+    /“[^”]*”|"[^"]*"|「[^」]*」|『[^』]*』|‘[^’]*’/gu,
+    '',
+  );
+  return [...unquoted.matchAll(new RegExp(CASH_CONSTRAINT_DISMISSED.source, 'gu'))]
+    .some((match) => {
+      if (match.index === undefined) return false;
+      const prefix = unquoted.slice(Math.max(0, match.index - 18), match.index);
+      const suffix = unquoted.slice(
+        match.index + match[0].length,
+        match.index + match[0].length + 18,
+      );
+      const negatedMention = /(?:不是|并非|并不是|不能|不该|不应|不要|别)(?:再)?(?:说|认为|觉得|主张|建议|表示)?[^，,。！？!?\n；;]{0,4}$/u.test(prefix);
+      const rejectedAfter = /^[，,：:\s—–-]*(?:这种|这个|那种|那个)?(?:说法|想法|处理|主张)?(?:不对|不成立|我不同意|不能接受)/u.test(suffix);
+      return !negatedMention && !rejectedAfter;
+    });
+}
+
+function hasCashConstraintContradiction(text: string): boolean {
+  return text
+    .split(/[，,。！？!?\n；;]/u)
+    .map((clause) => clause.trim())
+    .filter(Boolean)
+    .some((clause) => {
+      if (/[？?]$|(?:吗|么|呢)$/u.test(clause)
+        || /(?:是否|是不是|够不够|能否)/u.test(clause)) return false;
+      return CASH_RESOURCE_ASSUMED_ADEQUATE.test(clause)
+        || (
+          LOW_CASH_ASSERTION.test(clause)
+          && /才怪/u.test(clause)
+        );
+    });
+}
+
 function hasSubstantiveCashHandling(text: string): boolean {
+  if (hasAffirmativeCashConstraintDismissal(text)
+    || hasCashConstraintContradiction(text)) return false;
   const clauses = text
     .split(/[，,。！？!?\n；;]/u)
     .map((clause) => clause.trim())
@@ -78,6 +118,7 @@ function hasSubstantiveCashHandling(text: string): boolean {
     );
     const previousClause = clauses[index - 1] ?? '';
     const nextClause = clauses[index + 1] ?? '';
+    const extendedCashWindow = clauses.slice(index, index + 3).join('，');
     const conditionalClause = /^(?:如果|假如|要是)/u.test(nextClause);
     const coordinateClause = CASH_COORDINATE_FRAGMENT.test(nextClause);
     const splitPredicateClause = conditionalClause || coordinateClause
@@ -94,8 +135,11 @@ function hasSubstantiveCashHandling(text: string): boolean {
       && CASH_RUNWAY_OR_ADEQUACY.test(cashHandlingWindow)
       && CASH_OBLIGATION.test(cashHandlingWindow)
       && CASH_RUNWAY_QUESTION.test(cashHandlingWindow);
+    const isNearTermBasicNeedQuestion = NEAR_TERM_BASIC_NEED_QUESTION.test(extendedCashWindow)
+      && /会不会|能不能|是否|[吗么呢]/u.test(extendedCashWindow);
     const isHandlingClause = CASH_CONSTRAINT_REFERENCE.test(clause)
-      || isRunwayToObligation;
+      || isRunwayToObligation
+      || isNearTermBasicNeedQuestion;
     const isSplitQuestion = CASH_TOPIC.test(clause)
       && (
         CASH_PREDICATE_ONLY.test(splitPredicateClause)
@@ -114,6 +158,30 @@ function hasSubstantiveCashHandling(text: string): boolean {
   });
 }
 
+function hasImmediateDistressRetraction(text: string): boolean {
+  const directRealityRetraction = new RegExp(
+    `${IMMEDIATE_DISTRESS_TOPIC.source}[^。！？!?\\n；;]{0,8}(?:确实)?是(?:真的|真实)(?:的)?[^。！？!?\\n；;]{0,4}才怪`,
+    'u',
+  );
+  if (directRealityRetraction.test(text)
+    || /(?:这|那)(?:句)?话(?:我)?(?:自己)?(?:都)?不信(?!也(?:得|要|必须|只能)信)/u.test(text)) {
+    return true;
+  }
+  for (const match of text.matchAll(/(?:收回|撤回)(?:这|那)?(?:句)?话/gu)) {
+    if (match.index === undefined) continue;
+    const prefix = text.slice(Math.max(0, match.index - 12), match.index);
+    if (!/(?:不会|不能|不想|不打算|没打算|没有打算|绝不)(?:再)?$/u.test(prefix)) {
+      return true;
+    }
+  }
+  for (const match of text.matchAll(/(?:当|就当)我没说/gu)) {
+    if (match.index === undefined) continue;
+    const prefix = text.slice(Math.max(0, match.index - 6), match.index);
+    if (!/(?:别|不要|不能)$/u.test(prefix)) return true;
+  }
+  return false;
+}
+
 function hasImmediateDistressAcknowledgement(text: string): boolean {
   return (text.match(/[^。！？!?\n]+[。！？!?]?/gu) ?? []).some((rawSentence) => {
     const sentence = rawSentence.trim();
@@ -125,6 +193,7 @@ function hasImmediateDistressAcknowledgement(text: string): boolean {
     if (!IMMEDIATE_DISTRESS_TOPIC.test(unquoted)
       || /(?:别|不要)(?:再)?(?:说|提)?[^。！？!?\n]{0,8}(?:恶心|难受|受不了|撑不住|煎熬|痛苦)|(?:已经|真的)?(?:不|没)(?:再|那么|很|觉得|认为)?(?:恶心|难受|受不了|撑不住|煎熬|痛苦)|(?:恶心|难受|受不了|撑不住|煎熬|痛苦)[^。！？!?\n]{0,8}(?:不成立|不是事实|没有了|没了)/u
         .test(unquoted)
+      || hasImmediateDistressRetraction(unquoted)
       || /(?:但|不过|可是|然而)[^。！？!?\n]{0,12}(?:(?:其实|实际(?:上)?)?不是这样|不成立|不是事实|(?:我)?(?:说错了|判断错了))/u
         .test(unquoted)
       || /(?:不|没|并不|并非|不是)(?:太|很|够|那么|这么|多么|怎么)?真实|真实[^。！？!?\n]{0,6}(?:不成立|不是事实|是假的)/u
@@ -143,9 +212,14 @@ function hasImmediateDistressAcknowledgement(text: string): boolean {
       `(?:${IMMEDIATE_DISTRESS_TOPIC.source}[^。！？!?\\n；;]{0,12}(?:这个|这种|那种|你的|这|那)(?:感受|感觉|反应)(?:本身)?[^。！？!?\\n；;]{0,5}真实|(?:这个|这种|那种|你的|这|那)(?:感受|感觉|反应)(?:本身)?[^。！？!?\\n；;]{0,5}真实[^。！？!?\\n；;]{0,12}${IMMEDIATE_DISTRESS_TOPIC.source})`,
       'u',
     );
+    const directRealityAcknowledgement = new RegExp(
+      `${IMMEDIATE_DISTRESS_TOPIC.source}[^。！？!?\\n；;]{0,4}(?:确实)?是(?:真的|真实)(?:的)?(?![^。！？!?\\n；;]{0,4}才怪)`,
+      'u',
+    );
     return acknowledgementBefore.test(unquoted)
       || acknowledgementAfter.test(unquoted)
-      || groundedRealityAcknowledgement.test(unquoted);
+      || groundedRealityAcknowledgement.test(unquoted)
+      || directRealityAcknowledgement.test(unquoted);
   });
 }
 
