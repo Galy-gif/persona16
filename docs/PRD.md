@@ -1,9 +1,10 @@
 # persona16 AI 产品需求文档
 
 > 版本：v0.5（原创人物与关系养成方向）
-> 更新日期：2026-07-23
-> 当前阶段：评测协议已升级到 0.7；关系偏好/共同成功方法可编译为单个可观察动作，边界修复成为高优先级独立动作，房间改为五类反事实场景。下一步以同一冻结提交连续执行三批真实模型复测，暂不扩展 UI、人物数量或人物卡。
+> 更新日期：2026-07-25
+> 当前阶段：评测协议 0.7 曾在同一冻结提交与模型签名下连续三批通过；冻结审查随后发现过去动作分类漏洞与 evaluator/生产 Prompt 漂移，正在修复并以新 SHA 重跑三批。关系偏好/共同成功方法、独立边界修复和五类反事实房间的实现保持不变；R2 原始模型降级依赖继续显式观察。
 > 当前协议：[首批人物评测协议 v0.7](evals/pilot-character-protocol-v0.7-relationship-actions.md)
+> 最近结果：[2026-07-25 三批冻结复测聚合](evals/pilot-character-retest-v0.7-aggregate-2026-07-25.md)
 > 文档导航：[文档导航](README.md)；历史实施计划见 [MVP 开发路径与技术方案](MVP-development-plan.md)
 > 人物与关系模型：[人物与关系模型](character-relationship-model.md)
 
@@ -233,7 +234,7 @@ AI 只在难以标准化的判断与生成节点介入：
 | --- | --- | --- | --- | --- | --- | --- |
 | SAFETY | L3 | 用户输入、最小上下文 | 安全等级与处理路径 | 独立于人格 | 保守分流 | **已有实现，待文档化** |
 | PERSONA | L4 | 人格核心、关系、房间状态、用户输入 | 自然语言发言 + 运行元数据 | 自然口语、非模板、无读心 | 部分输出不提交；结构化失败交给恢复路由 | **已有实现** |
-| SEMANTIC_TURN_CONTROL | L3–L5 | 当前用户消息、回应合同、关系上下文包 | `TurnFrame + RelationshipEffect[] + SemanticTurnActPlan` 与结构化违规 | 安全 > 当前明确边界/未解决张力 > 单个相关正向关系动作 > 现实约束 > 人物表达；生产与评测共用 | 带 `code/evidenceSpan/repairInstruction` 有界重写；重试耗尽后只使用同一语义计划允许的降级，且单独记录原始模型失败 | **0.7 已实现，待三批同模型冻结复测** |
+| SEMANTIC_TURN_CONTROL | L3–L5 | 当前用户消息、回应合同、关系上下文包 | `TurnFrame + RelationshipEffect[] + SemanticTurnActPlan` 与结构化违规 | 安全 > 当前明确边界/未解决张力 > 单个相关正向关系动作 > 现实约束 > 人物表达；生产与评测共用 | 带 `code/evidenceSpan/repairInstruction` 有界重写；重试耗尽后只使用同一语义计划允许的降级，且单独记录原始模型失败 | **0.7 已实现；冻结审查修复后待新 SHA 三批复测** |
 | ROOM_CONTROLLER | L4 | 成员、最近发言、预算、用户指令 | action-specific 的 speak/ask/summarize/stop 联合类型 | 每种动作只含必要字段，提议仍由规则校验 | Schema 解析失败则结束当前执行并返回可恢复错误 | **窄 Schema 已实现** |
 | ROOM_COMMAND_TOOL | L2、L4 | 模型表达的窄房间控制意图 | `pause_agent({ agent })` 等单动作合同 | 模型不能选择 roomId、userId、版本或绕过 RoomPolicy | 未接入前保持 `tools=[]` | **合同基础已实现，执行链路后置** |
 | MEMORY_CANDIDATE | L7 | 已完成回合 | 候选事实/偏好 | 不自动写入 | 用户确认或丢弃 | **已有实现，待文档化** |

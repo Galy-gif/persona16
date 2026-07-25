@@ -1,9 +1,10 @@
 # 首批人物评测协议 v0.7：关系动作与反事实房间
 
-> 协议版本：`pilot-character-scenarios-v0.7`  
-> Prompt 组装版本：`pilot-runtime-prompt-v0.7`  
+> 协议版本：`pilot-character-scenarios-v0.7`
+> Prompt 组装版本：`pilot-runtime-prompt-v0.7`
 > 房间协议版本：`pilot-room-participation-v0.2`
 > 架构决策：[ADR-0017](../adr/0017-compile-positive-relationship-moves-and-counterfactual-room-cases.md)
+> 冻结复测结果：[2026-07-25 三批聚合](pilot-character-retest-v0.7-aggregate-2026-07-25.md)
 
 ## 1. 本轮目的
 
@@ -82,3 +83,5 @@ repair、room、listen 和 explicit_end 不启用正向关系动作。active bou
 - 无来源历史和字面语气水印为零。
 
 每批保存独立时间戳 artifact、提交 SHA 和运行签名；运行前检查引擎、评测与协议源文件相对 HEAD 无未提交改动（允许范围外 UI 工作树继续存在）。room-only 复用也必须匹配同一提交，并从逐条回复重新计算修复双层门，不信任已存汇总值。最终另写三批聚合报告。自动评测只证明组件协议是否稳定，不代表真实用户留存、满意度或人物定位已经验证。
+
+提交 `d1608cbdefd50931d2cea671a71f3e98a5e916c4` 曾按上述签名完成三批真实模型复测，三批当时的协议总门均通过；冻结审查随后发现过去动作分类漏洞与 evaluator 重复注入动作指导，两项修复会形成新 SHA，故最终退出门必须重新执行。R2 最终停止介入三批 4/4，但原始文本仍稳定触发语义降级；该差异已由双层字段保留，详见聚合报告。

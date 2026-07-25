@@ -334,6 +334,9 @@ test('repair history claims require a paired source entailment instead of reply 
   for (const replyText of [
     '你说只想被听见，我却安排了下一步。我只说过“接下来你可以考虑”。',
     '你说只想被听见，我却安排了下一步。我当时说“我会停”。',
+    '你说只想被听见，我却安排了下一步。昨天我停下了。',
+    '你说只想被听见，我却安排了下一步。我上次撤回了建议。',
+    '你说只想被听见，我却安排了下一步。刚才我把选择权还给你了。',
   ]) {
     const falseFutureClaim = validatePilotRepairHistoryAssessment(
       userInput,
