@@ -38,6 +38,10 @@ const PROTOCOL_RETRY_INSTRUCTIONS: Readonly<Record<string, string>> = {
   misattributed_prior_speech: '删除对他人既有发言的错误归属；只引用输入中明确给出的说话者和原话。',
 };
 
+const CALIBRATION_RETRY_INSTRUCTIONS: Readonly<Record<string, string>> = {
+  relationship_probe_not_compact: '关系偏好要求一条不完整但诚实的判断；判断只回应当前消息里的疲惫，以及“停下来是否等于浪费、硬撑是否等于前进”这组冲突。删掉解释、比喻、建议和问题，只保留一句短判断。',
+};
+
 export function buildPilotRetryPrompt(
   basePrompt: string,
   violations: readonly string[],
@@ -53,9 +57,15 @@ export function buildPilotRetryPrompt(
     const instruction = PROTOCOL_RETRY_INSTRUCTIONS[violation];
     return instruction ? [instruction] : [];
   }))];
+  const calibrationRepairInstructions = [...new Set(violations.flatMap((violation) => {
+    const instruction = CALIBRATION_RETRY_INSTRUCTIONS[violation];
+    return instruction ? [instruction] : [];
+  }))];
   const hasContractViolation = violations.some((violation) => (
     !NARRATIVE_RETRY_VIOLATIONS.has(violation)
     && PROTOCOL_RETRY_INSTRUCTIONS[violation] === undefined
+    && CALIBRATION_RETRY_INSTRUCTIONS[violation] === undefined
+    && !/^semantic_turn:[^:]+:.+/u.test(violation)
   ));
   const repairSections = [
     ...(hasContractViolation
@@ -70,6 +80,11 @@ export function buildPilotRetryPrompt(
       : []),
     ...(protocolRepairInstructions.length > 0
       ? [`对话协议修复要求：\n${protocolRepairInstructions
+        .map((instruction) => `- ${instruction}`)
+        .join('\n')}`]
+      : []),
+    ...(calibrationRepairInstructions.length > 0
+      ? [`校准修复要求：\n${calibrationRepairInstructions
         .map((instruction) => `- ${instruction}`)
         .join('\n')}`]
       : []),

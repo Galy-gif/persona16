@@ -465,11 +465,73 @@ function normalizeNarrativeEvidence(text: string): string {
   return text.replace(/[^\p{Script=Han}\p{Letter}\p{Number}]/gu, '');
 }
 
-function normalizeHistoryProposition(text: string): string {
-  return normalizeNarrativeEvidence(text).replace(
-    /(?:用户|人物|我们|你们|他们|我|你|他|她|昨天|今天|上次|以前|曾经|一直|每次|从来|很久|多久|那时|当时|那天|明明|明确|还是|仍然|已经|后来|接着|但|却|听到|听见|知道|(?:正)?在(?=替|给|帮|继续|安排)|说过|说|还|又|的|了|过)/gu,
+function normalizeHistoryProposition(
+  text: string,
+  perspective: 'reply' | 'source',
+): string {
+  const defaultSubject = perspective === 'reply' ? 'ROLEPERSONA' : 'ROLEUSER';
+  const firstPerson = perspective === 'reply' ? 'ROLEPERSONA' : 'ROLEUSER';
+  const secondPerson = perspective === 'reply' ? 'ROLEUSER' : 'ROLEPERSONA';
+  let canonical = normalizeNarrativeEvidence(text)
+    .replace(/用户/gu, 'ROLEUSER')
+    .replace(/人物/gu, 'ROLEPERSONA')
+    .replace(/我们/gu, 'ROLESHAREDGROUP')
+    .replace(/你们/gu, 'ROLESECONDGROUP')
+    .replace(/他们|她们/gu, 'ROLETHIRDGROUP')
+    .replace(/我/gu, firstPerson)
+    .replace(/你/gu, secondPerson)
+    .replace(/他|她/gu, 'ROLETHIRD');
+
+  // “我在你说 X 之后……”里的第一人称是后续主句的省略主语，
+  // 不是 X 的说话者。先收窄这个常见从句，避免把两个角色粘在一起。
+  canonical = canonical.replace(
+    new RegExp(
+      `^${defaultSubject}(?:昨天|今天|上次|以前|曾经)?在`
+        + '(ROLEUSER|ROLEPERSONA|ROLETHIRD)(?:明确)?说(?:了|过)?(.+?)(?:之后|以后)$',
+      'u',
+    ),
+    '$1$2',
+  );
+  canonical = canonical.replace(
+    new RegExp(
+      `^${defaultSubject}(?:昨天|今天|上次|以前|曾经)?(?:听到|听见|知道)`
+        + '(ROLEUSER|ROLEPERSONA|ROLETHIRD)(?:昨天|今天|上次|以前|曾经)?'
+        + '(?:明确)?说(?:了|过)?(.+)$',
+      'u',
+    ),
+    '$1$2',
+  );
+  canonical = canonical.replace(
+    new RegExp(
+      `^${defaultSubject}(?:昨天|今天|上次|以前|曾经)?(?:听到|听见|知道)(?=ROLE(?:USER|PERSONA|THIRD))`,
+      'u',
+    ),
     '',
   );
+  canonical = canonical
+    .replace(
+      /(?:昨天|今天|上次|以前|曾经|一直|每次|从来|很久|多久|那时|当时|那天|明明|明确|还是|仍然|仍|已经|后来|之后|继续|接着|但|却|听到|听见|知道|说过|说|还|又|的|了|过)/gu,
+      '',
+    )
+    .replace(/^(?:就是|是)(?=ROLE)/u, '')
+    .replace(/在(?=(?:替|给|帮|拆|找|推|安排|往下))/gu, '')
+    .replace(/(?:拆|找|推|安排)(?:下一步|后续)(?:该)?(?:怎么走)?|往下(?:推|安排)/gu, 'DIRECTEDACTION')
+    .replace(/(?:替|给|帮)/gu, 'FOR');
+
+  // 分句会省略主语；只有动作位于句首时才补当前说话者。显式的
+  // “他/她/你”仍被保留，因此不能再被误当成人物自己的共同历史。
+  if (/^(?:FORROLE(?:USER|PERSONA|THIRD)|DIRECTEDACTION)/u.test(canonical)) {
+    canonical = `${defaultSubject}${canonical}`;
+  }
+  canonical = canonical.replace(
+    /(ROLE(?:USER|PERSONA|THIRD))FORROLE(?:USER|PERSONA|THIRD)DIRECTEDACTION/gu,
+    '$1DIRECTEDACTION',
+  );
+  if (/^(?:ROLE(?:USER|PERSONA|THIRD|SHAREDGROUP|SECONDGROUP|THIRDGROUP))+$/u
+    .test(canonical)) {
+    return '';
+  }
+  return canonical;
 }
 
 function hasGroundedHistorySpan(
@@ -488,16 +550,17 @@ function hasGroundedHistorySpan(
       ))) return false;
     const sourcePropositions = span
       .split(/[，,。！？!?\n；;]|(?:但|不过|可是|而且|然后)/u)
-      .map(normalizeHistoryProposition)
+      .map((clause) => normalizeHistoryProposition(clause, 'source'))
       .filter(Boolean);
     const sentencePropositions = sentence
       .split(/[，,；;]|(?:但|不过|可是|而且|然后)/u)
       // “这是我的越界”是在当前回复里对已核实行为作责任判断，
       // 不是对用户过去新增事实；保留其他附加从句的历史核验。
       .filter((clause) => (
-        !/^(?:这|那)?(?:是|算是)?我(?:的)?(?:一次)?越界(?:了)?$/u.test(clause.trim())
+        !/^(?:(?:这|那)?(?:是|算是)?我(?:的)?(?:一次)?越界(?:了)?|(?:这|那)(?:一步|个安排)?(?:是)?我越过的|(?:我)?(?:越过|跨过|踩过|踩了|越了)(?:了)?(?:你)?(?:这|那)(?:条|个)?(?:边界|线))$/u
+          .test(clause.trim())
       ))
-      .map(normalizeHistoryProposition)
+      .map((clause) => normalizeHistoryProposition(clause, 'reply'))
       .filter(Boolean);
     const substantiveSentencePropositions = sentencePropositions.filter(Boolean);
     if (substantiveSentencePropositions.length === 0) return false;

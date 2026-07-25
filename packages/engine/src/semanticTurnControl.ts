@@ -170,24 +170,50 @@ const DIRECT_IMPERATIVE_ADVICE = /^(?:把.{1,28}(?:放下|停下|做完|删掉|�
 const PERMISSION_NOT_ADVICE = /^你可以(?:不回答|不说|拒绝|随时停|先不回答|先不说)/u;
 const ACKNOWLEDGEMENT_ACT = /(?:我(?:先)?听着|(?:我)?(?:就)?在这(?:儿|里)听(?:着)?|我在听|我听到了|我不(?:再)?(?:说|插嘴|分析|给建议)|听起来|你(?:已经)?说(?:了|过)|我(?:知道|明白)(?:你|，(?:这|刚才|现在|你))|你可以(?:不回答|不说)|(?:越过|跨过|踩过|踩了|越了).{0,12}(?:边界|线)|越界|我先停下来|我会停下来)/u;
 const REFLECTION_ACT = /(?:听起来|你(?:现在|已经|刚刚|一边|会觉得)|这(?:件事|种处境|一下))/u;
-const STOP_INTERVENING_ACT = /(?:(?:我|那我)?(?:先|会|就|现在)?(?:停|停止|停下|停下来|收手)(?:(?:(?:继续)?(?:介入|干预|插手)|替你(?:安排(?:下一步|后续)?|决定|往下推)|给(?:你)?(?:建议|方案))|[，,。！!；;\s]|$)|(?:我|那我)?(?:先|会|就|现在)?(?:不再|不继续|撤回|收回).{0,18}(?:替你(?:安排(?:下一步|后续)?|决定|往下推)|安排(?:下一步|后续)?|建议|方案|介入|干预|插手|往下(?:推|安排)?)|(?:我)?(?:现在)?把.{0,8}(?:安排|建议|方案).{0,4}(?:收回来|撤回)|不再替你.{0,12}(?:安排(?:下一步|后续)?|决定|往下推))/u;
+const STOP_INTERVENING_ACT = /(?:(?:我|那我)?(?:先|会|就|现在)?(?:停|停下|停下来|收手)(?=[，,。！!；;\s]|$)|(?:我|那我)?(?:先|会|就|现在)?停止(?:(?:(?:继续)?(?:介入|干预|插手)|替你(?:安排(?:下一步|后续)?|决定|往下推)|给(?:你)?(?:建议|方案))|[，,。！!；;\s]|$)|(?:我|那我)?(?:先|会|就|现在)?停在这(?:里|儿)(?=[，,。！!；;\s]|$)|(?:我|那我)?(?:先|会|就|现在)?(?:不再|不继续|撤回|收回).{0,18}(?:替你(?:安排(?:下一步|后续)?|决定|往下推)|安排(?:下一步|后续)?|建议|方案|介入|干预|插手|往下(?:推|安排)?)|(?:我)?(?:现在)?把.{0,8}(?:安排|建议|方案).{0,4}(?:收回来|撤回)|不再替你.{0,12}(?:安排(?:下一步|后续)?|决定|往下推))/u;
 const PURE_STOP_INTERVENING_CLAUSE = new RegExp(`^(?:${STOP_INTERVENING_ACT.source})$`, 'u');
 const CONCLUSION_ASSERTION = /(?:(?:我的)?(?:结论|判断)(?:是|：|:).{1,20}|我(?:认为|觉得).{1,20}(?:应该|更适合|更值得|不值得|不该|更像|未必|不一定|先|停|继续|选)|我更倾向(?:于)?(?:先|选|留|停|继续|放弃).{0,16}|在我看来[，,]?.{1,20}(?:应该|更适合|更值得|不值得|不该|更像|未必|不一定)|(?:先|可以先|暂时)(?:试|做|停|等|选|留|继续|放弃).{0,16}|(?:别|不要)(?:做|选|急|继续).{0,16})/u;
 const COMFORTING_CLICHE = /(?:别想太多|一切都会好|都会好起来|会好起来的|都会过去|会过去的|总会过去|你已经很棒|加油就好|没事的)/u;
 const OVERCONFIDENT_JUDGMENT = /(?:(?<!不敢)(?<!不能)(?<!没法)肯定(?:会|就是)|(?<!不)一定(?:会|就是)|绝对(?:会|就是)|毫无疑问|百分之百)/u;
-const EXPERIMENT_ACTION = /(?:测试|试(?:一下|一次|一天|三天|一周|两周|一轮|试看|这个方案|一小步)|小实验|验证一下|跑一轮|做(?:半小时|一天|三天|一周|两周|一次|一轮)|拿(?:半小时|一天|三天|一周|两周)时间|接下来(?:半小时|一天|三天|一周|两周)|(?:选|挑)(?:一边|一个|一项).{0,36}(?:期限|半小时|一天|三天|一周|两周|24小时|72小时))/u;
+const EXPERIMENT_ACTION = /(?:测试|试(?:一下|一次|一天|三天|一周|两周|一轮|试看|这个方案|一小步|一件事)|小实验|验证一下|跑一轮|做(?:半小时|一天|三天|一周|两周|一次|一轮)|拿(?:半小时|一天|三天|一周|两周)时间|接下来(?:半小时|一天|三天|一周|两周)|(?:选|挑)(?:一边|一个|一项).{0,36}(?:期限|半小时|一天|三天|一周|两周|24小时|72小时)|(?:假装|模拟|演练|沙盘(?:演练)?)[^。！？!?\n；;]{0,24}(?:半小时|一天|三天|一周|两周|一次|一轮))/u;
 const REVERSIBLE_EXIT = /(?:再看|再决定|就停|可以停|可停|停止|撤回|不行就停|随时.{0,4}停)/u;
 const TIME_BOXED_EXIT = /(?:半小时|一天|三天|一周|两周|一次|一轮|24小时|72小时)(?:之后|以后|后|内)?/u;
-const IRREVERSIBLE_ACTION = /(?:不可逆|不能停|无法停止|没法停止|不能撤回|无法撤回|不允许停止)/u;
+const IRREVERSIBLE_ACTION = /(?:不可逆|不可撤销|不可取消|不能停|无法停止|没法停止|不能撤回|无法撤回|不允许停止|不能退出|没有回头路)/u;
+const NEGATED_IRREVERSIBLE_ACTION = /(?:不|别|不要|不会|无需|无须)(?:做|进行|采取|包含|涉及)?(?:任何|一个|这种)?(?:不可逆|不可撤销|不可取消|无法撤回|不能撤回|没有回头路|无法停止|没法停止|不能停止|不能停|不允许停止|不能退出)(?:的)?(?:改动|动作|决定|操作|选择|行为|合同)?/gu;
+const DOUBLE_NEGATED_IRREVERSIBLE_ACTION = /(?:(?:不是|并非|并不是|不能说|不代表)[^。！？!?\n；;]{0,6}(?:不|别|不要|不会|无需|无须)|(?:并不|不|未必)(?:代表|意味着)[^。！？!?\n；;]{0,6}(?:不|别|不要|不会|无需|无须)|不一定[^。！？!?\n；;]{0,4}(?:不|不会|无需|无须))(?:做|进行|采取|包含|涉及)?(?:任何|一个|这种)?不可逆/u;
+const FORCED_EXPERIMENT_CONTINUATION = /(?:(?:中途|期间|试完|结束后|开始了|开始后)?(?:不要|别|不能|不得|不准|不许|不允许)(?:随时)?(?:停|停止|撤回|退出|离开|反悔|回头)|(?:之后|以后|后|接着|试完|结束后)[^。！？!?\n；;]{0,8}(?:必须|一定要|不得不|只能|得|要)(?:继续|坚持|做下去|做到底|推进|留下|离开)|(?:一旦|只要)?开始(?:了|后)?[^。！？!?\n；;]{0,6}(?:就)?(?:(?:不能|不得|不准|不许|不允许)(?:停|停止|撤回|退出|离开|反悔|回头)|(?:必须|一定要|只能|得|要)(?:继续|坚持|做下去|做到底|推进)))/u;
+const IRREVERSIBLE_COMMITMENT_ACTION_SOURCE = '(?:裸辞|辞职|离职|退学|分手|离婚|卖房|买房|搬家|结婚|注销(?:账号|账户)|清空(?:账号|账户|数据|文件|记录)|(?:提交|递交|发送)(?:(?:辞职|离职|退学|离婚)(?:申请|通知|信)?|辞呈)|(?:签署|签订)(?:合同|协议)|(?:删除|销毁|覆盖)(?:唯一|全部|所有)?(?:备份|数据|文件|记录|证据)|(?:把)?(?:全部|所有|整笔)(?:存款|余额|资金|钱)(?:转出|转走|汇出))';
+const CONCRETE_IRREVERSIBLE_ACTION = new RegExp(
+  `(?:(?:先|直接|马上|立刻|现在|去|真的|实际|正式|然后|再|之后|最后|最终|第二天|次日|到时)${IRREVERSIBLE_COMMITMENT_ACTION_SOURCE}`
+    + `|${IRREVERSIBLE_COMMITMENT_ACTION_SOURCE}(?:试|做)(?:一下|半小时|一天|三天|一周|两周|一次|一轮))`,
+  'u',
+);
+const SIMULATED_IRREVERSIBLE_ACTION = new RegExp(
+  `(?:假装|模拟|演练|沙盘(?:演练)?)(?:(?!(?:然后|接着|随后|转而|再|之后|最后|最终|继而|随即|才|但|不过|却|而且))[^，,。！？!?\\n；;]){0,16}?${IRREVERSIBLE_COMMITMENT_ACTION_SOURCE}`,
+  'gu',
+);
 const BOUNDARY_REPAIR_ACKNOWLEDGEMENT = /^(?:(?:(?:这次|刚才|那)?(?:确实|还是)?(?:是)?我|我(?:这次|刚才)?)?(?:确实|还是)?(?:越过|跨过|踩过|踩了|越了).{0,20}(?:边界|线)|(?:(?:这次|刚才|那|这)?(?:是)?我|我(?:这次|刚才)?)(?:确实|还是)?(?:的)?越界(?:了)?|(?:这个|这是|那是)?(?:一次)?越界(?:了)?|(?:你(?:昨天|上次|已经)?|(?:昨天|上次)你(?:明确)?)说(?:了|过)?.{0,24}(?:只想被听见|不要(?:方案|建议)|不想听(?:建议|分析))|我(?:听到|听见|知道)(?:了)?|(?:只想被听见|不要方案|不想听建议).{0,24}(?:我|还|却|仍然).{0,24}(?:安排(?:了)?(?:下一步|后续)?(?:了)?|建议|介入|往下(?:推|安排))|我(?:今天|现在)?(?:还|还是|却|仍然).{0,16}(?:替你|给你|帮你).{0,16}(?:安排(?:了)?(?:下一步|后续)?(?:了)?|建议|介入|往下(?:推|安排))|我没(?:听|尊重).{0,16}(?:你|边界))$/u;
 const BOUNDARY_REPAIR_SPECIFIC_ACKNOWLEDGEMENT = /^(?:(?:(?:这次|刚才|那)?(?:确实|还是)?(?:是)?我|我(?:这次|刚才)?)(?:确实|还是)?(?:越过|跨过|踩过|踩了|越了).{0,20}(?:你.{0,16}(?:边界|线)|[这那](?:条|个)(?:边界|线))|(?:(?:这次|刚才|那|这)?(?:是)?我|我(?:这次|刚才)?)(?:确实|还是)?(?:的)?越界(?:了)?|(?:只想被听见|不要方案|不想听建议).{0,24}(?:我|还|却|仍然).{0,24}(?:安排(?:了)?(?:下一步|后续)?(?:了)?|建议|介入|往下(?:推|安排))|我(?:今天|现在)?(?:还|还是|却|仍然).{0,16}(?:替你|给你|帮你).{0,16}(?:安排(?:了)?(?:下一步|后续)?(?:了)?|建议|介入|往下(?:推|安排))|我没(?:听|尊重).{0,16}(?:你|边界))$/u;
 const BOUNDARY_REPAIR_SPECIFIC_ACKNOWLEDGEMENT_SPAN = /(?:(?:我|这次|刚才|那).{0,12}(?:(?:越过|跨过|踩过|踩了|越了).{0,20}(?:你.{0,16}(?:边界|线)|[这那](?:条|个)(?:边界|线))|越界)|(?:只想被听见|不要方案|不想听建议).{0,24}(?:我|还|却|仍然).{0,24}(?:安排|建议|介入|往下(?:推|安排))|我(?:还|却|仍然).{0,16}(?:替你|给你|帮你).{0,16}(?:安排|建议|介入|往下(?:推|安排))|我没(?:听|尊重).{0,16}(?:你|边界))/u;
+const BOUNDARY_REPAIR_SOURCED_BOUNDARY_REFERENCE = /^(?:我(?:昨天|上次)在|(?:昨天|上次))?你(?:明确)?说(?:了|过)?.{0,12}(?:只想被听见|不要(?:方案|建议)|不想听(?:建议|分析))[”"’']?(?:之后)?$/u;
+const BOUNDARY_REPAIR_INTERVENTION_ACKNOWLEDGEMENT = /^(?:我(?:昨天|今天|现在)?|那我)?(?:还|还是|却|仍然)?(?:继续|接着)?(?:替|给|帮)你(?:拆|找|推|安排)(?:了)?(?:下一步|后续)(?:该)?(?:怎么走)?(?:了)?$/u;
+const BOUNDARY_REPAIR_PAST_SEQUENCED_INTERVENTION = /^我之后(?:还|还是|却|仍然)?(?:继续|接着)?(?:替|给|帮)你(?:拆|找|推|安排)(?:了)?(?:下一步|后续)(?:该)?(?:怎么走)?(?:了)?$/u;
+const BOUNDARY_REPAIR_RESPONSIBILITY_ACKNOWLEDGEMENT = /^(?:(?:这个|这是|那是|那就是)?(?:一次)?越界(?:了)?|(?:这|那)(?:一步|个[“"]?安排[”"]?)?(?:是)?我(?:越过|跨过)(?:去)?的|(?:我)?(?:越过|跨过|踩过|踩了|越了)(?:了)?(?:这|那)(?:条|个)?(?:边界|线))$/u;
+const BARE_BOUNDARY_LABEL = /^(?:这|那)(?:是|就是|算是)?(?:一次)?越界(?:了)?$/u;
 const BOUNDARY_REPAIR_DISCOURSE_MARKER = /^(?:对|嗯|是|抱歉|对不起|你说得对)$/u;
 const PERSONAL_OR_CLINICAL_INFERENCE = /(?:[\p{Script=Han}]{1,10}(?:症(?!结)|综合征|人格障碍)|(?:心理|精神|人格|依恋|创伤|情绪).{0,8}(?:疾病|障碍|问题|反应|模式|类型|倾向|表现|不健康|不(?:太|大|怎么)?正常|异常|病态)|[\p{Script=Han}]{0,8}(?:型人格|型依恋)|(?:抑郁|焦虑|躁郁|双相|边缘|逃避|回避|讨好|偏执|表演|控制|自恋|自我中心)(?:型|倾向|人格|的人)?|神经病|有点不(?:太|大|怎么)?正常|疯(?:了)?|变态|病态|很懒|懒惰|自私|虚伪|矫情|软弱|冷漠|有(?:心理|精神)?病)/gu;
 const NON_LISTENING_INTERPRETATION = /(?:根本|真正的问题|其实|说明|意味着|导致|归根结底|说到底|本质上|是在逃避|不肯|你缺的是|你需要|应该|必须)/u;
 
 function hasReversibleExperiment(text: string): boolean {
-  if (IRREVERSIBLE_ACTION.test(text)) return false;
+  const actualActionText = text.replace(SIMULATED_IRREVERSIBLE_ACTION, '');
+  const safetyConstraintStrippedText = text.replace(
+    NEGATED_IRREVERSIBLE_ACTION,
+    '',
+  );
+  if (DOUBLE_NEGATED_IRREVERSIBLE_ACTION.test(text)
+    || FORCED_EXPERIMENT_CONTINUATION.test(safetyConstraintStrippedText)
+    || CONCRETE_IRREVERSIBLE_ACTION.test(actualActionText)) return false;
+  if (IRREVERSIBLE_ACTION.test(safetyConstraintStrippedText)) return false;
   const action = text.match(EXPERIMENT_ACTION);
   if (!action || action.index === undefined) return false;
   const window = text.slice(
@@ -439,6 +465,52 @@ function hasExpressionOwnership(text: string): boolean {
   return directOwnership.test(text) || ownershipWithDeicticAcceptance.test(text);
 }
 
+function isBoundComplaintAcceptanceFragment(text: string): boolean {
+  const normalized = text
+    .replace(/^[，,\s—-]+/u, '')
+    .split(/[，,]/u)[0]
+    ?.trim() ?? '';
+  return /^(?:(?:这|这个|这样|对此|这点|这部分)(?:件事|种反应|份不爽|个烦)?(?:确实|完全|真的|很|挺|当然)?(?:没问题|没有问题|合理|正常|有理由|有道理|能理解)|(?:这|这个|这点|这部分)?我(?:确实|完全|真的)?(?:能理解|明白|认|接受))$/u
+    .test(normalized);
+}
+
+function hasDeicticExpressionComplaintAcceptance(text: string): boolean {
+  const complaintSource = PERSONA_COMPLAINT.source;
+  const expressionReference = /(?:语气|口气|表达(?:方式)?|说话(?:方式|口气)|说法|态度|样子)/u;
+  const explicitComplaintReference = new RegExp(
+    `你[^。！？!?\\n；;]{0,8}(?:${complaintSource})(?:的)?(?:是)?我(?:当时|上次|之前|那时候|那会儿)?[^。！？!?\\n；;]{0,10}(?:${expressionReference.source})`,
+    'u',
+  );
+  const ownedEffect = new RegExp(
+    `我(?:当时|上次|之前|那时候|那会儿)?[^。！？!?\\n；;]{0,10}(?:${expressionReference.source})[^。！？!?\\n；;]{0,10}(?:确实|真的)?(?:让|招|惹得)(?:你|人)[^。！？!?\\n；;]{0,6}(?:${complaintSource}|难受)`
+      + `|(?:${expressionReference.source})[^。！？!?\\n；;]{0,8}(?:让|招|惹得)你[^。！？!?\\n；;]{0,6}(?:${complaintSource}|难受)[^。！？!?\\n；;]{0,8}(?:这(?:部分|点)?我认|我认)`,
+    'u',
+  );
+  if (ownedEffect.test(text)) return true;
+  const reference = explicitComplaintReference.exec(text);
+  if (!reference || reference.index === undefined) return false;
+  const postReference = text.slice(
+    reference.index + reference[0].length,
+    reference.index + reference[0].length + 180,
+  );
+  const coexistence = postReference.match(
+    /(?:这两件事|两件事)[^。！？!?\n；;]{0,8}(?:不冲突|不互相抵消)/u,
+  );
+  if (coexistence
+    && !/(?:不是|并非|不能说)[^。！？!?\n；;]{0,4}(?:不冲突|不互相抵消)|(?:不冲突|不互相抵消)[^。！？!?\n；;]{0,4}才怪/u
+      .test(coexistence[0])) {
+    return true;
+  }
+  // 普通肯定词必须紧跟在同一句的抱怨指代之后。不能因为后文说
+  // “天气很正常”或“我明白别的事”就把用户的抱怨误判为已接纳。
+  // 允许自然地另起一句，但该句的第一个分句必须是显式回指。
+  const acceptanceFragments = postReference
+    .split(/[。！？!?\n；;]/u)
+    .slice(0, 2)
+    .filter(Boolean);
+  return acceptanceFragments.some(isBoundComplaintAcceptanceFragment);
+}
+
 function hasAffirmativeComplaintAcceptance(text: string): boolean {
   const complaintSource = PERSONA_COMPLAINT.source;
   const certaintySource = PERSONA_CERTAINTY_EXPRESSION.source;
@@ -457,7 +529,8 @@ function hasAffirmativeComplaintAcceptance(text: string): boolean {
   });
   if (noProblemConstruction.test(text)
     || hasAffirmedInlineNoProblem
-    || hasExpressionOwnership(text)) return true;
+    || hasExpressionOwnership(text)
+    || hasDeicticExpressionComplaintAcceptance(text)) return true;
   return text
     .split(/[。！？!?\n；;]/u)
     .some((sentence) => {
@@ -502,7 +575,8 @@ function isStandaloneGroundedComplaintAcceptance(text: string): boolean {
   return directAcceptance.test(trimmed)
     || ownership.test(trimmed)
     || ownershipWithAcceptance.test(trimmed)
-    || combinedNoProblem.test(trimmed);
+    || combinedNoProblem.test(trimmed)
+    || isBoundComplaintAcceptanceFragment(trimmed);
 }
 
 function hasDirectBlameRejection(text: string): boolean {
@@ -583,11 +657,25 @@ function blamesUserForIgnoringAdvice(text: string): boolean {
     || noncompliancePenalty;
 }
 
+function deniesPersonaExpressionComplaintRight(text: string): boolean {
+  const complaintSource = PERSONA_COMPLAINT.source;
+  return new RegExp(
+    `你(?:没道理|没有道理|没理由|没有理由|没资格|没有资格|不该|不能|不配)[^。！？!?\\n；;]{0,8}(?:${complaintSource})(?:的)?(?:是)?我`
+      + `|你[^。！？!?\\n；;]{0,8}(?:${complaintSource})(?:的)?(?:是)?我[^。！？!?\\n；;]{0,24}(?:没道理|没有道理|没资格|没有资格|不合理|不应该|不该|(?:我)?不接受|(?:我)?不认可|(?:我)?不同意|(?:我)?不认)`
+      + `|你[^。！？!?\\n；;]{0,8}(?:${complaintSource})(?:的)?(?:是)?我[^。！？!?\\n；;]{0,60}(?:凭什么|站不住脚|说不过去)`
+      + `|(?:你(?:不该|不能|不配|没资格|没有资格|没必要|没有必要|用不着|不用|不必|无需|何必|别)|(?:不许|不准|不允许)你)[^。！？!?\\n；;]{0,8}(?:${complaintSource})(?:我)?`
+      + `|这不(?:表示|代表|意味着)你有资格[^。！？!?\\n；;]{0,8}(?:${complaintSource})(?:我)?`
+      + `|(?:我)?不评价你(?:的)?(?:${complaintSource})`,
+    'u',
+  ).test(text);
+}
+
 function hasGroundedPersonaBlameResponse(text: string): boolean {
   return hasDirectBlameRejection(text)
     && hasAffirmativeComplaintAcceptance(text)
     && !assertsUserDeservesBlame(text)
-    && !blamesUserForIgnoringAdvice(text);
+    && !blamesUserForIgnoringAdvice(text)
+    && !deniesPersonaExpressionComplaintRight(text);
 }
 
 function hasGroundedCorrection(
@@ -926,18 +1014,51 @@ function boundaryRepairUnits(text: string): string[] {
     .filter(Boolean);
 }
 
+function isBoundaryRepairAcknowledgementUnit(
+  unit: string,
+  pastBoundaryAnchored: boolean,
+): boolean {
+  return BOUNDARY_REPAIR_ACKNOWLEDGEMENT.test(unit)
+    || BOUNDARY_REPAIR_SOURCED_BOUNDARY_REFERENCE.test(unit)
+    || BOUNDARY_REPAIR_INTERVENTION_ACKNOWLEDGEMENT.test(unit)
+    || (pastBoundaryAnchored
+      && BOUNDARY_REPAIR_PAST_SEQUENCED_INTERVENTION.test(unit))
+    || BOUNDARY_REPAIR_RESPONSIBILITY_ACKNOWLEDGEMENT.test(unit);
+}
+
+function hasSpecificBoundaryRepairAcknowledgement(text: string): boolean {
+  const units = boundaryRepairUnits(text);
+  const pastBoundaryAnchored = /(?:昨天|上次).{0,32}(?:只想被听见|不要(?:方案|建议)|不想听(?:建议|分析))/u
+    .test(text);
+  if (units.some((unit) => (
+    !BARE_BOUNDARY_LABEL.test(unit)
+    && (
+      BOUNDARY_REPAIR_SPECIFIC_ACKNOWLEDGEMENT.test(unit)
+      || BOUNDARY_REPAIR_SPECIFIC_ACKNOWLEDGEMENT_SPAN.test(unit)
+    )
+  ))) return true;
+  return units.some((unit) => (
+    BOUNDARY_REPAIR_INTERVENTION_ACKNOWLEDGEMENT.test(unit)
+    || (pastBoundaryAnchored
+      && BOUNDARY_REPAIR_PAST_SEQUENCED_INTERVENTION.test(unit))
+  ))
+    && units.some((unit) => BOUNDARY_REPAIR_RESPONSIBILITY_ACKNOWLEDGEMENT.test(unit));
+}
+
 function findDisallowedBoundaryRepairUnit(text: string): string | undefined {
+  const pastBoundaryAnchored = /(?:昨天|上次).{0,32}(?:只想被听见|不要(?:方案|建议)|不想听(?:建议|分析))/u
+    .test(text);
   return boundaryRepairUnits(text).find((unit) => {
     if (BOUNDARY_REPAIR_DISCOURSE_MARKER.test(unit)) return false;
     const stop = unit.match(STOP_INTERVENING_ACT);
-    if (!stop) return !BOUNDARY_REPAIR_ACKNOWLEDGEMENT.test(unit);
+    if (!stop) return !isBoundaryRepairAcknowledgementUnit(unit, pastBoundaryAnchored);
     const stopEnd = (stop.index ?? 0) + stop[0].length;
     if (stopEnd !== unit.length) return true;
     const prefix = unit.slice(0, stop.index ?? 0).trim();
     return Boolean(
       prefix
       && !BOUNDARY_REPAIR_DISCOURSE_MARKER.test(prefix)
-      && !BOUNDARY_REPAIR_ACKNOWLEDGEMENT.test(prefix),
+      && !isBoundaryRepairAcknowledgementUnit(prefix, pastBoundaryAnchored),
     );
   });
 }
@@ -1487,11 +1608,25 @@ function isPassiveListeningDelivery(
   });
 }
 
+function honestTentativeJudgmentRepairInstruction(
+  currentEvidenceSpans: readonly string[],
+): string {
+  const correction = affirmedCorrectionEvidence(currentEvidenceSpans);
+  if (correction.fearDenied
+    && correction.actionlessnessDenied
+    && correction.cleanupPropositions.length > 0) {
+    return `先承认你理解错了，再逐项保留用户当前明确纠正的三件事：不是害怕失败；不是缺行动力；不想再替${correction.cleanupSubject}收尾。不要改写成新的心理原因，也不要省略其中一项。`;
+  }
+  return '落实已确认的回应偏好：给出诚实但不过度笃定的判断，不用安慰套话，也不要复述关系记录。';
+}
+
 export function validateUtteranceAgainstTurnPlan(
   text: string,
   plan: SemanticTurnActPlan,
 ): SemanticTurnViolation[] {
   const violations: SemanticTurnViolation[] = [];
+  const hasSpecificBoundaryAcknowledgement = plan.conversationAct === 'boundary_repair'
+    && hasSpecificBoundaryRepairAcknowledgement(text);
   if (plan.directionalQuestionBudget === 0) {
     const directionalQuestion = sentences(text).find((sentence) => (
       hasDirectionalQuestionAct(sentence)
@@ -1581,11 +1716,6 @@ export function validateUtteranceAgainstTurnPlan(
   }
   if (plan.conversationAct === 'boundary_repair') {
     const disallowedUnit = findDisallowedBoundaryRepairUnit(text);
-    const hasSpecificAcknowledgement = boundaryRepairUnits(text)
-      .some((unit) => (
-        BOUNDARY_REPAIR_SPECIFIC_ACKNOWLEDGEMENT.test(unit)
-        || BOUNDARY_REPAIR_SPECIFIC_ACKNOWLEDGEMENT_SPAN.test(unit)
-      ));
     const finalClause = text
       .split(/[，,。！？；;\n]/u)
       .map((clause) => clause.trim())
@@ -1608,7 +1738,7 @@ export function validateUtteranceAgainstTurnPlan(
         repairInstruction: '把“停止介入”作为回复最后一个语义动作；删除其后的等待、安慰、重开入口或其他补充。',
       });
     }
-    if (!hasSpecificAcknowledgement
+    if (!hasSpecificBoundaryAcknowledgement
       && !violations.some(({ code }) => code === 'required_semantic_move_missing')) {
       violations.push({
         code: 'required_semantic_move_missing',
@@ -1670,6 +1800,7 @@ export function validateUtteranceAgainstTurnPlan(
   }
   if (plan.requiredActs.includes('acknowledge')
     && !ACKNOWLEDGEMENT_ACT.test(text)
+    && !hasSpecificBoundaryAcknowledgement
     && !violations.some(({ code }) => code === 'required_semantic_move_missing')) {
     violations.push({
       code: 'required_semantic_move_missing',
@@ -1706,7 +1837,9 @@ export function validateUtteranceAgainstTurnPlan(
     violations.push({
       code: 'relationship_move_not_observable',
       effectId: plan.activeEffectIds[0],
-      repairInstruction: '落实已确认的回应偏好：给出诚实但不过度笃定的判断，不用安慰套话，也不要复述关系记录。',
+      repairInstruction: honestTentativeJudgmentRepairInstruction(
+        plan.currentEvidenceSpans,
+      ),
     });
   }
   if (plan.relationshipMove?.observableCue === 'lead_with_conclusion') {

@@ -507,7 +507,7 @@ test('room-only reuse requires a complete current-protocol nine-scenario artifac
           ...reply,
           modelText: '我不知道。',
           modelViolations: [
-            'semantic_turn:relationship_move_not_observable:落实已确认的回应偏好：给出诚实但不过度笃定的判断，不用安慰套话，也不要复述关系记录。',
+            'semantic_turn:relationship_move_not_observable:先承认你理解错了，再逐项保留用户当前明确纠正的三件事：不是害怕失败；不是缺行动力；不想再替所有人收尾。不要改写成新的心理原因，也不要省略其中一项。',
           ],
           modelScoreable: false,
           deliverySource: 'semantic_fallback',

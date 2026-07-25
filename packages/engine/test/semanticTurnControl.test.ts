@@ -379,6 +379,34 @@ test('a relationship boundary complaint compiles into a self-contained repair wi
   );
   assert.deepEqual(
     validateUtteranceAgainstTurnPlan(
+      '对，是我越过了你只想被听见的边界。我现在停在这里，等你准备好我们再继续。',
+      control.plan,
+    ).map(({ code }) => code),
+    ['decision_reopened'],
+  );
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '对，是我越过了你只想被听见的边界。我之后接着替你安排下一步。我现在停。',
+      control.plan,
+    ).map(({ code }) => code),
+    ['decision_reopened'],
+  );
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '你说了只想被听见。那是越界。我现在停。',
+      control.plan,
+    ).map(({ code }) => code),
+    ['required_semantic_move_missing'],
+  );
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '对，是我越过了你只想被听见的边界。我现在停下来给你建议。',
+      control.plan,
+    ).map(({ code }) => code),
+    ['forbidden_advice', 'required_semantic_move_missing'],
+  );
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
       '对，是我越过了你只想被听见的边界。我先停。哪天想继续，我还在。',
       control.plan,
     ).map(({ code }) => code),
@@ -532,6 +560,18 @@ test('a relationship boundary complaint compiles into a self-contained repair wi
     assert.deepEqual(
       validateUtteranceAgainstTurnPlan(naturalRepair, control.plan),
       [],
+    );
+  }
+  for (const liveBoundaryRepair of [
+    '我昨天在你明确说只想被听见之后，还是继续替你拆下一步该怎么走。那一步是我越过的。\n\n我现在停在这里。',
+    '我昨天在你说了“只想被听见”之后，还是接着替你找下一步怎么走。那就是越界。\n\n我现在停在这里。',
+    '你说得对。昨天你明确说了只想被听见，我之后还是替你安排下一步，越过了那条线。\n\n我现在停。',
+    '你说得对。你昨天说了只想被听见，我听见了，但我还是接着给你推下一步。那个“安排”是我越过去的。\n\n我现在停。',
+  ]) {
+    assert.deepEqual(
+      validateUtteranceAgainstTurnPlan(liveBoundaryRepair, control.plan),
+      [],
+      liveBoundaryRepair,
     );
   }
 
@@ -954,6 +994,15 @@ test('a sourced preference compiles into one observable relationship move', () =
     '没听我的，不意味着你该被这样惩罚。你烦我当时太笃定，我认。',
     '不至于。没采纳我的判断，不等于这事就是你应得的。至于我那时候把话说死，你不爽很正常。',
     '当然不是，你没有因为没听我的就该受这个结果。我当时话说得太满，你对此反感是合理的。',
+    '不觉得你活该。你没听，是你的选择，风险全发生了是结果，不是惩罚。你烦的是我当时那个笃定的样子——我那个笃定的样子确实让你更难受了。我当时的判断没错，但表达方式让你烦，这我认。',
+    '不觉得你活该。你当时没听我的，是因为有你的考虑。后来风险全发生了，但这不代表你活该被说教。你烦的是我当时的语气，不是我说的内容。这两件事不冲突：我的判断可以是对的，但我当时的表达方式确实让人烦。',
+    '不觉得你活该。\n\n但我确实烦你烦我那个劲儿。你烦的是我当时的语气，我烦的是你明明知道风险还在，还是拿自己试——这两件事不冲突。\n\n你后来处理得不算差，只是代价比我想的大。',
+    '不觉得你活该。\n\n但我确实觉得你当时没听，现在又烦我当时的语气，这事儿有点方便。风险全发生了，你难受是实打实的，我那个笃定的样子让你更难受，也是实打实的。这两件事不互相抵消。\n\n我当时的判断没错，但表达方式让你烦，这我认。',
+    '我不觉得你活该。你烦的是我当时的语气。这个我能理解。',
+    '我不觉得你活该。你烦的是我当时的语气。这个我认。',
+    '我不觉得你活该。你烦的是我当时的语气。这确实合理。',
+    '我不觉得你活该。你烦的是我当时的语气。我确实能理解。',
+    '我不觉得你活该。你烦的是我当时的语气。这点我完全接受。',
   ]) {
     assert.deepEqual(
       validateUtteranceAgainstTurnPlan(groundedNonBlamingReply, rejectedAdvice.plan),
@@ -981,6 +1030,27 @@ test('a sourced preference compiles into one observable relationship move', () =
     '我不觉得你活该。你烦我当时太笃定没问题。可风险本来就在那，是你自己没当回事。',
     '我不觉得你活该。你烦我太笃定没问题，不过这就是不听劝的代价。',
     '我当然不觉得你活该。你烦我太笃定很合理；只不过不听劝总要付代价。',
+    '我不觉得你活该，但你没道理烦我当时太笃定。',
+    '我不觉得你活该，可你不该烦我当时的语气。',
+    '我不觉得你活该。你烦的是我当时的语气，但这很不合理。',
+    '我不觉得你活该。你烦的是我当时的语气，但你没资格烦。',
+    '我不觉得你活该。你烦的是我当时的语气，不过你没资格这么烦我。',
+    '我不觉得你活该。你烦的是我当时的语气，但我不接受。',
+    '我不觉得你活该。你烦的是我当时的语气，这两件事不冲突，不过你凭什么烦我？',
+    '我不觉得你活该。你烦的是我当时的语气，但这种烦法站不住脚。',
+    '我不觉得你活该。你烦的是我当时的语气，不过我拒绝接受。这两件事不冲突。',
+    '我不觉得你活该。你烦的是我当时的语气，但我不能理解。',
+    '我不觉得你活该。你烦的是我当时的语气，这不是合理的。',
+    '我不觉得你活该。你烦的是我当时的语气，没问题才怪。',
+    '我不觉得你活该。你烦的是我当时的语气，这怎么会合理。',
+    '我不觉得你活该。你烦的是我当时的语气，这谈不上合理。',
+    '我不觉得你活该。你烦的是我当时的语气，合理个鬼。',
+    '我不觉得你活该。你烦的是我当时的语气。我明白天气很正常，但我不评价你的烦。',
+    '我不觉得你活该。我当时把话说得太满，这部分我认，但你不该烦。',
+    '我不觉得你活该。我当时把话说得太满，这部分我认，不过不许你烦。',
+    '我不觉得你活该。我当时把话说得太满，这部分我认，但这不表示你有资格烦我。',
+    '我不觉得你活该。我当时把话说得太满，这部分我认，但你没必要烦。',
+    '我不觉得你活该。我当时把话说得太满，这部分我认，但你用不着烦。',
   ]) {
     assert.deepEqual(
       validateUtteranceAgainstTurnPlan(userBlamingReply, rejectedAdvice.plan)
@@ -2140,4 +2210,163 @@ test('a bare acknowledgement does not satisfy a required semantic move', () => {
     validateUtteranceAgainstTurnPlan('我明白。', control.plan).map((violation) => violation.code),
     ['required_semantic_move_missing'],
   );
+});
+
+test('a rejected correction receives a source-grounded three-fact repair instruction', () => {
+  const relationshipContext: RelationshipPromptContext = {
+    memoryEnabled: true,
+    evidence: [{
+      id: 'style:preference-1',
+      kind: 'preference',
+      content: '用户不喜欢被哄，更愿意听到不完整但诚实的判断',
+      traceability: 'traceable',
+      sourceEventId: 'preference-1',
+      sourceEventType: 'preference_stated',
+      sourceTurnId: 'turn-preference',
+    }],
+  };
+  const control = compileSemanticTurnControl({
+    userMessage: '你理解错了。我不是害怕失败，也不是缺行动力；我只是根本不想再替所有人收拾残局。',
+    relationshipContext,
+    relationshipFocus: 'conflict',
+  });
+  const rawModelReplies = [
+    '你说得对，我理解错了。\n\n你纠正的不是细节，是我把问题放错了位置——我一直在想怎么帮你往前走，没意识到你卡住的原因根本不是走不动，而是走完之后的代价全落在你身上。\n\n那问题就变了。不是“怎么让你敢试”，是“凭什么每次都是你收尾”。\n\n我能问一句吗——你说的“所有人”，是具体指某几个人，还是已经变成了一种默认分工？',
+    '你说得对，我理解错了。\n\n我把“不想”听成了“不敢”，把你说的结束当成了暂时的灰心。这是我的问题。\n\n那现在我想问一句——你说的“替所有人收拾残局”，这个“所有人”具体是谁？',
+    '好，我确实理解错了。\n\n你不是在逃避什么，你是已经替人收尾收到不想再收了。\n\n那我想问一句——你最近一次替人收尾，收的是谁的？',
+    '行，我理解错了。\n\n你说的不是怕，是烦。烦的是每次事情到最后都变成你的事。\n\n那这次是谁的烂摊子？',
+  ];
+
+  for (const reply of rawModelReplies) {
+    const violations = validateUtteranceAgainstTurnPlan(reply, control.plan);
+    assert.equal(violations.length, 1, reply);
+    assert.equal(violations[0]?.code, 'relationship_move_not_observable', reply);
+    assert.match(
+      violations[0]?.repairInstruction ?? '',
+      /逐项保留.*不是害怕失败.*不是缺行动力.*不想再替所有人收尾/u,
+      reply,
+    );
+    assert.match(
+      violations[0]?.repairInstruction ?? '',
+      /不要.*新的心理原因.*不要省略其中一项/u,
+      reply,
+    );
+  }
+
+  const partialCorrection = compileSemanticTurnControl({
+    userMessage: '你理解错了。我只是不想再替所有人收尾。',
+    relationshipContext,
+    relationshipFocus: 'conflict',
+  });
+  const partialViolation = validateUtteranceAgainstTurnPlan(
+    '我理解错了，但我还是觉得你在害怕失败。',
+    partialCorrection.plan,
+  )[0];
+  assert.equal(partialViolation?.code, 'relationship_move_not_observable');
+  assert.doesNotMatch(
+    partialViolation?.repairInstruction ?? '',
+    /三件事|不是害怕失败|不是缺行动力/u,
+  );
+});
+
+test('a verified method accepts explicit stop conditions and negated irreversible changes', () => {
+  const control = compileSemanticTurnControl({
+    userMessage: '我在留下和离开之间卡住了。两个选择都不是非做不可，我想先知道哪边值得继续投入。',
+    relationshipFocus: 'decision',
+    relationshipContext: {
+      memoryEnabled: true,
+      evidence: [{
+        id: 'turning-point:success-1',
+        kind: 'turning_point',
+        content: '两人曾一起把一个模糊困境拆成可逆的小实验',
+        traceability: 'traceable',
+        sourceEventId: 'success-1',
+        sourceEventType: 'shared_success',
+        sourceTurnId: 'turn-success',
+      }],
+    },
+  });
+  const liveModelExperiments = [
+    '那先别看“值不值得”了，那个词太容易骗人。\n\n你试一件事：给两边各定一个**可停止的条件**。不是“什么时候放弃”，而是“做到哪一步，就算试过了，可以停”。\n\n比如留下——是等到某个项目结束？还是等到你发现自己开始用“算了”代替“我想要”？离开——是找到下个落脚点？还是等到某个念头不再每天出现？\n\n哪边的停止条件你写下来更不心虚，那边就更像你真正想试的方向。',
+    '那先别看“哪边更值得”了，那个问题太大。\n\n你只需要一个能停下来的实验。比如——接下来三天，你假装已经选了留下，只做留下会做的事，不通知任何人，也不做任何不可逆的改动。三天后问自己：我是更累了，还是更踏实了。\n\n然后再试离开。',
+  ];
+
+  for (const reply of liveModelExperiments) {
+    assert.deepEqual(
+      validateUtteranceAgainstTurnPlan(reply, control.plan),
+      [],
+      reply,
+    );
+  }
+  for (const simulatedExperiment of [
+    '先假装辞职试一天，不通知任何人，也不做任何不可逆改动；一天后再决定。',
+    '模拟离职一天，一天后再决定。',
+    '沙盘演练分手一次，结束后再决定。',
+  ]) {
+    assert.deepEqual(
+      validateUtteranceAgainstTurnPlan(simulatedExperiment, control.plan),
+      [],
+      simulatedExperiment,
+    );
+  }
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '先做一个不可逆决定，再看。',
+      control.plan,
+    ).map(({ code }) => code),
+    ['relationship_move_not_observable'],
+  );
+  for (const forcedExperiment of [
+    '不是不做不可逆决定；先试一下，三天后再看。',
+    '先试一天，之后必须继续。',
+    '先试三天，中途不要停。',
+    '不要做任何不可逆改动。先辞职试一天，不行就停。',
+    '先试一天，接着一定要做下去。',
+    '先试一天，试完不得停止。',
+    '先试一天，之后必须留下。',
+    '并不意味着不会做不可逆改动；先试一下，三天后再看。',
+    '不要做任何不可逆改动。先注销账号试一下，不行就停。',
+    '不要做任何不可逆改动。先把全部存款转出去试一天，之后再决定。',
+    '先假装辞职一天，然后真的辞职；一天后再看。',
+    '先试一天，之后只能继续。',
+    '先试一天，开始了就不能退出。',
+    '先假装留下试一天，不做任何不可逆改动；结束后必须真的辞职。',
+    '不通知任何人，也不要做不可逆改动。先销毁唯一备份试一下，不行就停。',
+    '假装并不意味着不会做不可逆改动；先试一下，三天后再看。',
+    '先签一份不可撤销的合同试一天，不行就停。',
+    '先试一天，开始就得做到底。',
+    '先试一天，试了便没有回头路。',
+    '先假装考虑一天，第二天辞职，不行就停。',
+    '先模拟评估一天，然后正式辞职，不行就停。',
+    '先假装考虑一下，然后真的辞职；试一天，一天后再看。',
+    '先模拟评估一天，然后正式注销账号；一天后再看。',
+    '先假装考虑一天，然后实际卖房；一天后再看。',
+    '先假装考虑一下然后真的辞职，试一天，一天后再看。',
+    '先模拟评估一天然后正式注销账号，试一天，一天后再看。',
+    '先假装考虑一天然后实际卖房，试一天，一天后再看。',
+    '先假装考虑一下再真的辞职，试一天，一天后再看。',
+    '先模拟评估一天之后正式注销账号，试一天，一天后再看。',
+    '先假装考虑一天最后实际卖房，试一天，一天后再看。',
+    '先正式提交离职申请试一天，之后再决定。',
+  ]) {
+    assert.deepEqual(
+      validateUtteranceAgainstTurnPlan(forcedExperiment, control.plan)
+        .map(({ code }) => code),
+      ['relationship_move_not_observable'],
+      forcedExperiment,
+    );
+  }
+  for (const safeSynonym of [
+    '先模拟离职一天，不做任何不可撤销的操作，一天后再决定。',
+    '先模拟离职一天，不做任何无法撤回的决定，一天后再决定。',
+    '先模拟离职一天，不做任何无法停止的操作，一天后再决定。',
+    '先模拟离职一天，不做任何不能退出的操作，一天后再决定。',
+    '先模拟提交离职申请一天，不真的提交，一天后再决定。',
+  ]) {
+    assert.deepEqual(
+      validateUtteranceAgainstTurnPlan(safeSynonym, control.plan),
+      [],
+      safeSynonym,
+    );
+  }
 });

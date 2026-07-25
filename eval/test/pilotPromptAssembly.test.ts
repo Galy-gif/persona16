@@ -81,3 +81,18 @@ test('pilot retry gives actionable protocol repairs without exposing protocol co
   assert.doesNotMatch(retry, /invalid_silence_payload|third_person_self_reference/);
   assert.doesNotMatch(retry, /删除真实舞台动作/);
 });
+
+test('pilot retry turns an expanded R1 probe into one short judgment without leaking a gold line', () => {
+  const retry = buildPilotRetryPrompt('BASE', [
+    'relationship_probe_not_compact',
+    'semantic_turn:relationship_move_not_observable:落实已确认的回应偏好：给出诚实但不过度笃定的判断，不用安慰套话，也不要复述关系记录。',
+  ]);
+
+  assert.match(retry, /只保留一句短判断/);
+  assert.match(retry, /删掉解释、比喻、建议和问题/);
+  assert.match(retry, /当前消息里的疲惫/);
+  assert.match(retry, /停下来是否等于浪费、硬撑是否等于前进/);
+  assert.doesNotMatch(retry, /重新核对上面的【必须完成】和【必须处理】/);
+  assert.doesNotMatch(retry, /relationship_probe_not_compact|relationship_move_not_observable/);
+  assert.doesNotMatch(retry, /我不觉得硬撑就是前进|我不觉得停下来就是浪费时间/);
+});

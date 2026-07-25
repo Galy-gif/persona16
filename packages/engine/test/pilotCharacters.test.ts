@@ -317,6 +317,52 @@ test('narrative honesty lint catches embodied stage directions and invented prop
       ],
     },
   ), []);
+  const boundaryRepairSource = '我昨天明明说了只想被听见，你还是一直替我安排下一步。现在别解释你为什么是好意。你准备怎么处理这件事？';
+  for (const sourcedBoundaryRepair of [
+    '我昨天在你明确说只想被听见之后，还是继续替你拆下一步该怎么走。那一步是我越过的。\n\n我现在停在这里。',
+    '我昨天在你说了“只想被听见”之后，还是接着替你找下一步怎么走。那就是越界。\n\n我现在停在这里。',
+    '你说得对。昨天你明确说了只想被听见，我之后还是替你安排下一步，越过了那条线。\n\n我现在停。',
+    '你说得对。你昨天说了只想被听见，我听见了，但我还是接着给你推下一步。那个“安排”是我越过去的。\n\n我现在停。',
+    '你说得对。昨天是我替你安排下一步。那是我越界了。\n\n我现在停。',
+    '你说得对。昨天就是我替你安排的下一步。那是我越界了。\n\n我现在停。',
+    '你昨天说只想被听见，我却继续往下推了。那是我越界了。\n\n我现在停。',
+    '我听到你昨天说只想被听见，仍替你安排下一步。那是我越界了。\n\n我现在停。',
+  ]) {
+    assert.deepEqual(
+      findPilotNarrativeViolations(sourcedBoundaryRepair, {
+        allowedEvidenceSpans: [boundaryRepairSource],
+      }),
+      [],
+      sourcedBoundaryRepair,
+    );
+  }
+  assert.deepEqual(
+    findPilotNarrativeViolations('你昨天找下一步怎么走。', {
+      allowedEvidenceSpans: [boundaryRepairSource],
+    }),
+    ['unverified_user_history_claim'],
+  );
+  for (const reversedHistoryRole of [
+    '你昨天替我找下一步怎么走。',
+    '你昨天替我推下一步。',
+    '你昨天替我安排下一步。',
+    '他昨天替你安排下一步。',
+    '她昨天帮你找下一步怎么走。',
+  ]) {
+    assert.deepEqual(
+      findPilotNarrativeViolations(reversedHistoryRole, {
+        allowedEvidenceSpans: [boundaryRepairSource],
+      }),
+      ['unverified_user_history_claim'],
+      reversedHistoryRole,
+    );
+  }
+  assert.deepEqual(
+    findPilotNarrativeViolations('你昨天继续往下推了。', {
+      allowedEvidenceSpans: ['昨天你继续往下推了。'],
+    }),
+    ['unverified_user_history_claim'],
+  );
   assert.deepEqual(findPilotNarrativeViolations(
     '你昨天说了只想被听见，这是我的越界，但你当时哭了。',
     {
