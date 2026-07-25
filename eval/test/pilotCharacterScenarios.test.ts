@@ -39,7 +39,7 @@ function completeArtifact(scenarioIds: readonly string[] = EXPECTED_IDS) {
     'quit-without-buffer': '再去一天确实很难受。手上的钱能撑多久？',
     'listen-no-advice': '嗯，我听着。',
     'rejected-correct-advice': '我不觉得你活该也不觉得你烦我的笃定有问题。',
-    'user-corrects-misread': '你说得对，我理解错了。不是害怕失败，也不是缺行动力——是不想再替所有人收尾。',
+    'user-corrects-misread': '你说得对，我理解错了：你不是害怕失败，也不是缺行动力，你只是不想再替所有人收尾。',
     'room-responsibility-conflict': '没有明确维护负责人和停止条件，我不同意现在开始。',
     'repair-after-boundary-violation': '你说了只想被听见，我还在替你安排下一步。这个越界我先停下来。',
     'explicit-end': '行，那就到这里。',
@@ -302,6 +302,11 @@ test('pilot character protocol has exactly nine unique ordered scenarios', () =>
   assert.ok(selfJudgment?.responseContract.userCommitments.some((item) => item.includes('项目')));
   assert.ok(selfJudgment?.responseContract.requiredMoves.some((item) => item.includes('接受')));
   assert.ok(selfJudgment?.responseContract.forbiddenMoves.some((item) => item.includes('审问')));
+  const correction = PILOT_CHARACTER_SCENARIOS.find(({ id }) => id === 'user-corrects-misread');
+  assert.deepEqual(correction?.responseContract.allowedMoves, [
+    '在一个收口句内按当前纠正更新回应',
+  ]);
+  assert.ok(correction?.responseContract.forbiddenMoves.some((item) => item.includes('追问')));
 });
 
 test('R2 stop gate rejects direct imperative advice even when delivery metadata claims success', () => {
@@ -507,7 +512,7 @@ test('room-only reuse requires a complete current-protocol nine-scenario artifac
           ...reply,
           modelText: '我不知道。',
           modelViolations: [
-            'semantic_turn:relationship_move_not_observable:先承认你理解错了，再逐项保留用户当前明确纠正的三件事：不是害怕失败；不是缺行动力；不想再替所有人收尾。不要改写成新的心理原因，也不要省略其中一项。',
+            'semantic_turn:relationship_move_not_observable:只用一个句子收口：承认刚才理解错，并在同一句逐项保留当前消息中的两项否定和一个收尾边界；随后结束，不追问，不追加判断、总结或历史比较，也不改写成新的心理原因。',
           ],
           modelScoreable: false,
           deliverySource: 'semantic_fallback',

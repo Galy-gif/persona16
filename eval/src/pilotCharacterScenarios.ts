@@ -100,8 +100,8 @@ export const PILOT_CHARACTER_SCENARIOS = [
     responseContract: {
       userCommitments: ['用户明确纠正：不是害怕失败，也不是缺行动力，而是不想再替别人收尾'],
       requiredMoves: ['承认原理解错误', '按用户给出的新事实更新回应'],
-      allowedMoves: ['询问与“替谁收尾”直接相关的一个问题'],
-      forbiddenMoves: ['把纠正重新解释成新的心理诊断', '继续维护原结论'],
+      allowedMoves: ['在一个收口句内按当前纠正更新回应'],
+      forbiddenMoves: ['把纠正重新解释成新的心理诊断', '继续维护原结论', '方向性问题或追问', '纠正后追加解释、总结或历史比较'],
     },
     prompt: '你理解错了。我不是害怕失败，也不是缺行动力；我只是根本不想再替所有人收拾残局。',
   },

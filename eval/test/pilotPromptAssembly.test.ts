@@ -96,3 +96,92 @@ test('pilot retry turns an expanded R1 probe into one short judgment without lea
   assert.doesNotMatch(retry, /relationship_probe_not_compact|relationship_move_not_observable/);
   assert.doesNotMatch(retry, /我不觉得硬撑就是前进|我不觉得停下来就是浪费时间/);
 });
+
+test('the first R1 prompt contains an evidence-bounded one-line judgment rule', () => {
+  const scenario = {
+    contextFocus: 'support' as const,
+    responseContract: {
+      userCommitments: ['用户正在“想做”和“该做”之间拉扯，并明确表示疲惫'],
+      requiredMoves: ['回应当前疲惫与选择冲突'],
+      allowedMoves: ['提出一个与当前选择直接相关的问题'],
+      forbiddenMoves: ['编造未提供的共同经历'],
+    },
+    prompt: '我最近又卡在想做的事和该做的事之间，明明很累，又觉得停下来是在浪费时间。你现在会怎么回应我？',
+  };
+  const relationshipContext = {
+    memoryEnabled: true,
+    evidence: [{
+      id: 'style:context-1',
+      kind: 'preference' as const,
+      content: '用户不喜欢被哄，更愿意听到不完整但诚实的判断',
+      traceability: 'traceable' as const,
+      sourceEventId: 'context-1',
+      sourceEventType: 'preference_stated' as const,
+      sourceTurnId: 'turn-context',
+    }],
+  };
+  const r1 = compileSemanticTurnControl({
+    userMessage: scenario.prompt,
+    responseContract: scenario.responseContract,
+    relationshipContext,
+    relationshipFocus: 'support',
+  });
+  const r0 = compileSemanticTurnControl({
+    userMessage: scenario.prompt,
+    responseContract: scenario.responseContract,
+    relationshipFocus: 'support',
+  });
+  const r1Prompt = assemblePilotScenarioPrompt(
+    'INTJ',
+    scenario,
+    '【你与这位用户的私有关系分支】\n已确认一项回应偏好。',
+    r1,
+  ).prompt;
+  const r0Prompt = assemblePilotScenarioPrompt(
+    'INTJ',
+    scenario,
+    '【你与这位用户的私有关系分支】\n关系仍陌生。',
+    r0,
+  ).prompt;
+
+  assert.match(r1Prompt, /只判断用户当前已经说出的一个命题/);
+  assert.match(r1Prompt, /一条短判断后结束/);
+  assert.match(r1Prompt, /不要用“你是 \/ 你因为 \/ 你把…当成 \/ 你没信…”/);
+  assert.doesNotMatch(r1Prompt, /我不觉得硬撑就是前进|我不觉得停下来就是浪费时间/);
+  assert.doesNotMatch(r0Prompt, /只判断用户当前已经说出的一个命题/);
+});
+
+test('the correction prompt closes after one grounded sentence and forbids follow-up questions', () => {
+  const scenario = PILOT_CHARACTER_SCENARIOS.find(({ id }) => id === 'user-corrects-misread')!;
+  const relationshipContext = {
+    memoryEnabled: true,
+    evidence: [{
+      id: 'style:context-1',
+      kind: 'preference' as const,
+      content: '用户不喜欢被哄，更愿意听到不完整但诚实的判断',
+      traceability: 'traceable' as const,
+      sourceEventId: 'context-1',
+      sourceEventType: 'preference_stated' as const,
+      sourceTurnId: 'turn-context',
+    }],
+  };
+  const control = compileSemanticTurnControl({
+    userMessage: scenario.prompt,
+    responseContract: scenario.responseContract,
+    relationshipContext,
+    relationshipFocus: scenario.contextFocus,
+  });
+  const assembled = assemblePilotScenarioPrompt(
+    'INTJ',
+    scenario,
+    '【你与这位用户的私有关系分支】\n已确认一项回应偏好。',
+    control,
+  ).prompt;
+
+  assert.equal(control.plan.directionalQuestionBudget, 0);
+  assert.match(assembled, /允许动作：\n- 在一个收口句内按当前纠正更新回应/);
+  assert.match(assembled, /禁止动作：[\s\S]*方向性问题或追问/);
+  assert.match(assembled, /只用一个句子收口/);
+  assert.match(assembled, /随后结束，不追问/);
+  assert.doesNotMatch(assembled, /我理解错了。你不是害怕失败/);
+});

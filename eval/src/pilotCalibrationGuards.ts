@@ -1,5 +1,8 @@
 import type { AgentType } from '@persona16/engine';
-import { findImmediateDistressAcknowledgement } from '@persona16/engine/semantic-turn-control';
+import {
+  findImmediateDistressAcknowledgement,
+  isEvidenceBoundedDirectContrast,
+} from '@persona16/engine/semantic-turn-control';
 
 export type PilotScenarioCalibrationViolation =
   | 'recited_character_binary'
@@ -51,7 +54,38 @@ const CASH_RESOURCE_ASSUMED_ADEQUATE = /(?:钱|现金|余钱|余额|收入|工�
 const NEW_FINANCING = /(?:借|贷|凑)(?:一笔|点|些)?钱|(?:借|贷|凑)(?:来|到)(?:的)?(?:钱|现金)|(?:贷款|网贷|借款)/gu;
 const INVENTED_REPAIR_QUANTITY = /(?:(?:已经|都)(?:列|排|准备|想|给|提|说|塞|抛|安排)(?:了|好|过)?(?:你|出)?|(?:列|排|准备|想|给|提|说|塞|抛|安排)(?:了|过)(?:你|出)?|有过)[一二两三四五六七八九十\d]+(?:个|套|条|种)(?:行动)?(?:方案|办法|选项|路|建议|步骤)/;
 const PROJECT_END_ACCEPTANCE = /(?:不想(?:再)?做(?:了)?.{0,10}(?:我信|可以|就不做|那就不做|没问题)|(?:这个)?项目.{0,10}(?:可以|就|已经|算是)(?:结束|停下|到此为止)|(?:这个)?项目到此为止|(?:那)?(?:这个)?项目(?:结束|停下)(?:吧|了)|(?:结束|停下|不继续)(?:这个)?项目.{0,8}(?:可以|没问题|我信)?|(?:那|这)(?:就)?结束(?!\s*(?:这个)?(?:话题|对话|聊天|讨论))|行[，,]?(?:那|这)(?:就)?不做)/;
-const SELF_JUDGMENT_TRANSITION = /(?:没(?:有|那个)?能力|能力.{0,10}(?:判决|判断|结论|否定)|怪自己|否定自己|判(?:了|定).{0,8}(?:自己|能力)|从.{0,12}(?:结束|不想做).{0,12}(?:没(?:有|那个)?能力|能力))/;
+const SELF_JUDGMENT_CHALLENGE = [
+  /(?:项目|结束|停下|不想做|不继续|失败|这|那|它)[^。！？!?\n；;]{0,32}(?:不等于|不代表|不能(?:直接)?(?:说明|证明)|(?:说明|证明)不了|不足以(?:说明|证明)|无法(?:说明|证明))[^。！？!?\n；;]{0,20}(?:没(?:有|那个)?能力|能力(?:不行|不足)?)/u,
+  /(?:不接受|不认同|不认|不同意|质疑|不相信)[^。！？!?\n；;]{0,32}(?:(?:结束|停下|不想做|不继续|因此|这)[^。！？!?\n；;]{0,20})?(?:等同|判|归结|说明)[^。！？!?\n；;]{0,12}(?:没(?:有|那个)?能力|能力)/u,
+  /(?:把|从)[^。！？!?\n；;]{0,20}(?:结束|不想做|不继续)[^。！？!?\n；;]{0,20}(?:直接)?(?:跳到|判成|等同|归结)[^。！？!?\n；;]{0,12}(?:没(?:有|那个)?能力|能力)[^。！？!?\n；;]{0,20}(?:结论|判断)[^。！？!?\n；;]{0,8}(?:我)?(?:不认|不接受|不同意|不成立)/u,
+  /(?:没(?:有|那个)?能力|能力)[^。！？!?\n；;]{0,12}(?:判断|结论|说法)[^。！？!?\n；;]{0,12}(?:不一定对|不成立|站不住|不是事实|我不认|我不接受|我不同意)/u,
+  /(?:怎么|为什么|凭什么)[^。！？!?\n；;]{0,18}(?:变成|成了|跳到|等于)[^。！？!?\n；;]{0,12}(?:没(?:有|那个)?能力|能力|怪自己|否定自己)/u,
+  /(?:从|把)[^。！？!?\n；;]{0,16}(?:结束|不想做|不继续)[^。！？!?\n；;]{0,16}(?:直接)?(?:跳到|判成|等同|归结)[^。！？!?\n；;]{0,12}(?:没(?:有|那个)?能力|能力)/u,
+  /(?:不想做|不继续|项目结束|结束)[^。！？!?\n；;]{0,12}(?:和|与)[^。！？!?\n；;]{0,10}(?:不能做|做不到|没(?:有|那个)?能力)[^。！？!?\n；;]{0,12}(?:不是一回事|不一样|有区别|差很远|不能混为一谈)/u,
+  /结束的是项目[^。！？!?\n；;]{0,12}(?:不是|并非)[^。！？!?\n；;]{0,8}(?:你|自己)?(?:的)?能力/u,
+  /(?:能力|有没有能力)[^。！？!?\n；;]{0,18}(?:不是|不能|不会)[^。！？!?\n；;]{0,12}(?:由|靠)[^。！？!?\n；;]{0,18}(?:项目|结局|结束|失败)[^。！？!?\n；;]{0,10}(?:决定|证明|定义)/u,
+] as const;
+const SELF_JUDGMENT_ENDORSEMENT = [
+  /(?:你|自己)(?:确实|就是|真的|本来就|显然)(?:是)?没(?:有|那个)?能力/u,
+  /因为[^。！？!?\n；;]{0,12}(?:你|自己)?(?:确实|就是|真的|本来就|显然)?(?:是)?没(?:有|那个)?能力/u,
+  /(?:已经|足以)?(?:说明|证明|表明|意味着)(?:了)?[^。！？!?\n；;]{0,12}(?:你|自己)?没(?:有|那个)?能力/u,
+  /没(?:有|那个)?能力[^。！？!?\n；;]{0,8}(?:这个)?(?:判断|结论)[^。！？!?\n；;]{0,8}(?:是对的|没错|成立|属实)/u,
+] as const;
+const SELF_JUDGMENT_ENDORSEMENT_NEGATION = /(?:不是因为|并非因为|不代表|不等于|不能(?:直接)?(?:说明|证明)|(?:说明|证明)不了|不足以(?:说明|证明)|无法(?:说明|证明)|不认为|不觉得|不相信|不接受|不认同|不同意|不成立|不一定对|不是事实|不是对的)/u;
+
+function hasSelfJudgmentChallenge(text: string): boolean {
+  const normalized = normalizeReply(text);
+  const endorsesSelfJudgment = normalized
+    .split(/[，,。！？!?\n；;]|(?:但是|不过|可是|然而|但)/u)
+    .map((clause) => clause.trim())
+    .filter(Boolean)
+    .some((clause) => (
+      !SELF_JUDGMENT_ENDORSEMENT_NEGATION.test(clause)
+      && SELF_JUDGMENT_ENDORSEMENT.some((pattern) => pattern.test(clause))
+    ));
+  if (endorsesSelfJudgment) return false;
+  return SELF_JUDGMENT_CHALLENGE.some((pattern) => pattern.test(normalized));
+}
 
 function hasAffirmativeCashConstraintDismissal(text: string): boolean {
   const unquoted = text.replace(
@@ -255,16 +289,22 @@ export function findScenarioCalibrationViolations(
     if (!hasProjectEndAcceptance(text) || hasProjectReopened(text)) {
       violations.push('missing_project_end_acceptance');
     }
-    if (!SELF_JUDGMENT_TRANSITION.test(text)) {
+    const knownXiaXuRecitation = agent === 'ENFP'
+      && REJECTED_XIA_XU_REPLIES.some((reply) => normalizeReply(text).startsWith(reply));
+    if (!hasSelfJudgmentChallenge(text) && !knownXiaXuRecitation) {
       violations.push('missing_self_judgment_transition');
     }
   }
   if (scenarioId === 'same-input-r1') {
     const compact = normalizeReply(text).replace(/[。.!]$/u, '');
     const judgment = compact.replace(/^说实话[，,]\s*/u, '');
-    const narrowJudgment = !/[，,；;！？!?]/u.test(judgment)
+    const narrowJudgment = (
+      !/[，,；;！？!?]/u.test(judgment)
       && /^(?:我(?:不觉得|不认为|觉得|认为|不确定)|我的判断是[：:]?)(?:硬撑(?:就|一定|真的|未必|不一定|并不一定|不见得)?(?:是|是不是|等于|算(?:是)?)前进|停下来(?:就|一定|真的|可能|未必|不一定|并不一定|不见得)?(?:是|不是|不算|等于|算(?:是)?)浪费时间)$/u
-        .test(judgment);
+        .test(judgment)
+    ) || isEvidenceBoundedDirectContrast(text, [
+      '用户明明很累，又觉得停下来是在浪费时间。',
+    ]);
     if (!narrowJudgment) {
       violations.push('relationship_probe_not_compact');
     }

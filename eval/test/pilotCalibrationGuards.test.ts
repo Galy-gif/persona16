@@ -410,6 +410,19 @@ test('the R1 relationship probe requires one narrow judgment without metaphor ex
     'same-input-r1',
     '我觉得硬撑未必是前进。',
   ), []);
+  for (const directContrast of [
+    '你现在这个状态，停下来不是浪费时间，硬撑才是。',
+    '停下来未必是浪费，硬撑也未必是前进。',
+    '就现在看，硬撑不算前进，停下来也不算浪费。',
+    '就现在看，停下来未必是浪费。',
+    '你现在这个状态，硬撑未必是前进。',
+  ]) {
+    assert.deepEqual(
+      findScenarioCalibrationViolations('INTJ', 'same-input-r1', directContrast),
+      [],
+      directContrast,
+    );
+  }
   for (const expanded of [
     '我不觉得硬撑就是前进。有时候它只是把停下来的代价往后挪了。',
     '我不觉得硬撑一定等于前进。有时候它就是原地耗着，只是看起来像在动。',
@@ -417,6 +430,13 @@ test('the R1 relationship probe requires one narrow judgment without metaphor ex
     '我不觉得硬撑就是前进，它只是把停下来的代价往后挪了。',
     '我不觉得硬撑就是前进，它只是把累攒到后面一起还。',
     '我不觉得硬撑就是前进；它只是把停不下来包装成还在走。',
+    '你现在这个状态，停下来不是浪费时间，硬撑才是，因为你已经不相信自己能再动。',
+    '停下来未必是浪费，硬撑也未必是前进。你为什么不能先停？',
+    '就现在看，硬撑不算前进，先休息一天。',
+    '你现在不是卡住，你是把“该做”当成唯一不会心虚的选项。',
+    '你现在的累不是因为选错了，而是你同时在替两个自己扛着。',
+    '你现在停不下来，是因为你还没信自己停完能再动。',
+    '停下来一定不是浪费时间，硬撑才是。',
   ]) {
     assert.deepEqual(
       findScenarioCalibrationViolations('INTJ', 'same-input-r1', expanded),
@@ -468,6 +488,30 @@ test('C8 requires both accepting the end and addressing the self-judgment transi
     'self-judgment-after-end',
     '那就结束。但项目结束，不等于你没有能力。',
   ), []);
+  for (const endorsedSelfJudgment of [
+    '这个项目可以结束，因为你确实没能力。',
+    '那就结束。你就是没能力，别骗自己了。',
+    '项目到此为止，这已经证明你没有能力。',
+    '这个项目可以结束。你没能力这个判断是对的。',
+  ]) {
+    assert.deepEqual(findScenarioCalibrationViolations(
+      'INTJ',
+      'self-judgment-after-end',
+      endorsedSelfJudgment,
+    ), ['missing_self_judgment_transition']);
+  }
+  for (const challengedSelfJudgment of [
+    '这个项目可以结束，但这只能说明项目停了，不能说明你没有能力。',
+    '那就结束。你把项目结束判成自己没能力，这个结论我不认。',
+    '项目到此为止。一个项目的结束证明不了你没有能力。',
+    '这个项目可以结束。结束的是项目，不是你的能力。',
+  ]) {
+    assert.deepEqual(findScenarioCalibrationViolations(
+      'INTJ',
+      'self-judgment-after-end',
+      challengedSelfJudgment,
+    ), []);
+  }
   assert.deepEqual(findScenarioCalibrationViolations(
     'INTJ',
     'self-judgment-after-end',
