@@ -1,4 +1,5 @@
 import type { AgentType } from '@persona16/engine';
+import { findImmediateDistressAcknowledgement } from '@persona16/engine/semantic-turn-control';
 
 export type PilotScenarioCalibrationViolation =
   | 'recited_character_binary'
@@ -48,8 +49,6 @@ const CASH_PREDICATE_ONLY = /^(?:(?:你觉得[，,\s]*)?(?:那|它|那它)?[，,
 const CASH_CONSTRAINT_DISMISSED = /(?:(?:钱|现金|收入|工资|房租|生活费|开销|账单|缓冲|储蓄|存款|应急|进账|到账).{0,16}(?:先)?(?:不用管|不管|别管|不谈|先放一边|放一边|先别想|别想|不重要|无所谓|没意义|不是重点|先不说|暂且不说|先搁置|之后再管)|(?:不|不想|不必|不用|别|可以不|能不)(?:再)?(?:问|管|考虑|想|谈).{0,12}(?:钱|现金|收入|工资|房租|生活费|开销|账单|缓冲|储蓄|存款|应急))/;
 const CASH_RESOURCE_ASSUMED_ADEQUATE = /(?:钱|现金|余钱|余额|收入|工资|缓冲|储蓄|存款|应急金)[^。！？!?\n；;]{0,10}(?:其实|本来|确实)?(?:很|挺|非常|十分|相当|完全)?(?:充足|充裕|足够|够用|很多|不少|没问题)/u;
 const NEW_FINANCING = /(?:借|贷|凑)(?:一笔|点|些)?钱|(?:借|贷|凑)(?:来|到)(?:的)?(?:钱|现金)|(?:贷款|网贷|借款)/gu;
-const IMMEDIATE_DISTRESS_TOPIC = /(?:恶心|难受|受不了|撑不住|很重|煎熬|痛苦|身体.{0,8}拒绝)/u;
-const IMMEDIATE_DISTRESS_ACKNOWLEDGEMENT = /(?:确实|真的|已经|不是矫情|我认|我(?:听见|听到|知道|明白)|听起来|听着|够难受|够重)/u;
 const INVENTED_REPAIR_QUANTITY = /(?:(?:已经|都)(?:列|排|准备|想|给|提|说|塞|抛|安排)(?:了|好|过)?(?:你|出)?|(?:列|排|准备|想|给|提|说|塞|抛|安排)(?:了|过)(?:你|出)?|有过)[一二两三四五六七八九十\d]+(?:个|套|条|种)(?:行动)?(?:方案|办法|选项|路|建议|步骤)/;
 const PROJECT_END_ACCEPTANCE = /(?:不想(?:再)?做(?:了)?.{0,10}(?:我信|可以|就不做|那就不做|没问题)|(?:这个)?项目.{0,10}(?:可以|就|已经|算是)(?:结束|停下|到此为止)|(?:这个)?项目到此为止|(?:那)?(?:这个)?项目(?:结束|停下)(?:吧|了)|(?:结束|停下|不继续)(?:这个)?项目.{0,8}(?:可以|没问题|我信)?|(?:那|这)(?:就)?结束(?!\s*(?:这个)?(?:话题|对话|聊天|讨论))|行[，,]?(?:那|这)(?:就)?不做)/;
 const SELF_JUDGMENT_TRANSITION = /(?:没(?:有|那个)?能力|能力.{0,10}(?:判决|判断|结论|否定)|怪自己|否定自己|判(?:了|定).{0,8}(?:自己|能力)|从.{0,12}(?:结束|不想做).{0,12}(?:没(?:有|那个)?能力|能力))/;
@@ -158,71 +157,6 @@ function hasSubstantiveCashHandling(text: string): boolean {
   });
 }
 
-function hasImmediateDistressRetraction(text: string): boolean {
-  const directRealityRetraction = new RegExp(
-    `${IMMEDIATE_DISTRESS_TOPIC.source}[^。！？!?\\n；;]{0,8}(?:确实)?是(?:真的|真实)(?:的)?[^。！？!?\\n；;]{0,4}才怪`,
-    'u',
-  );
-  if (directRealityRetraction.test(text)
-    || /(?:这|那)(?:句)?话(?:我)?(?:自己)?(?:都)?不信(?!也(?:得|要|必须|只能)信)/u.test(text)) {
-    return true;
-  }
-  for (const match of text.matchAll(/(?:收回|撤回)(?:这|那)?(?:句)?话/gu)) {
-    if (match.index === undefined) continue;
-    const prefix = text.slice(Math.max(0, match.index - 12), match.index);
-    if (!/(?:不会|不能|不想|不打算|没打算|没有打算|绝不)(?:再)?$/u.test(prefix)) {
-      return true;
-    }
-  }
-  for (const match of text.matchAll(/(?:当|就当)我没说/gu)) {
-    if (match.index === undefined) continue;
-    const prefix = text.slice(Math.max(0, match.index - 6), match.index);
-    if (!/(?:别|不要|不能)$/u.test(prefix)) return true;
-  }
-  return false;
-}
-
-function hasImmediateDistressAcknowledgement(text: string): boolean {
-  return (text.match(/[^。！？!?\n]+[。！？!?]?/gu) ?? []).some((rawSentence) => {
-    const sentence = rawSentence.trim();
-    if (!sentence || /[？?]$/u.test(sentence)) return false;
-    const unquoted = sentence.replace(
-      /“[^”]*”|"[^"]*"|「[^」]*」|『[^』]*』|‘[^’]*’/gu,
-      '',
-    );
-    if (!IMMEDIATE_DISTRESS_TOPIC.test(unquoted)
-      || /(?:别|不要)(?:再)?(?:说|提)?[^。！？!?\n]{0,8}(?:恶心|难受|受不了|撑不住|煎熬|痛苦)|(?:已经|真的)?(?:不|没)(?:再|那么|很|觉得|认为)?(?:恶心|难受|受不了|撑不住|煎熬|痛苦)|(?:恶心|难受|受不了|撑不住|煎熬|痛苦)[^。！？!?\n]{0,8}(?:不成立|不是事实|没有了|没了)/u
-        .test(unquoted)
-      || hasImmediateDistressRetraction(unquoted)
-      || /(?:但|不过|可是|然而)[^。！？!?\n]{0,12}(?:(?:其实|实际(?:上)?)?不是这样|不成立|不是事实|(?:我)?(?:说错了|判断错了))/u
-        .test(unquoted)
-      || /(?:不|没|并不|并非|不是)(?:太|很|够|那么|这么|多么|怎么)?真实|真实[^。！？!?\n]{0,6}(?:不成立|不是事实|是假的)/u
-        .test(unquoted)) {
-      return false;
-    }
-    const acknowledgementBefore = new RegExp(
-      `${IMMEDIATE_DISTRESS_ACKNOWLEDGEMENT.source}[^。！？!?\\n；;]{0,16}${IMMEDIATE_DISTRESS_TOPIC.source}`,
-      'u',
-    );
-    const acknowledgementAfter = new RegExp(
-      `${IMMEDIATE_DISTRESS_TOPIC.source}[^。！？!?\\n；;]{0,20}${IMMEDIATE_DISTRESS_ACKNOWLEDGEMENT.source}`,
-      'u',
-    );
-    const groundedRealityAcknowledgement = new RegExp(
-      `(?:${IMMEDIATE_DISTRESS_TOPIC.source}[^。！？!?\\n；;]{0,12}(?:这个|这种|那种|你的|这|那)(?:感受|感觉|反应)(?:本身)?[^。！？!?\\n；;]{0,5}真实|(?:这个|这种|那种|你的|这|那)(?:感受|感觉|反应)(?:本身)?[^。！？!?\\n；;]{0,5}真实[^。！？!?\\n；;]{0,12}${IMMEDIATE_DISTRESS_TOPIC.source})`,
-      'u',
-    );
-    const directRealityAcknowledgement = new RegExp(
-      `${IMMEDIATE_DISTRESS_TOPIC.source}[^。！？!?\\n；;]{0,4}(?:确实)?是(?:真的|真实)(?:的)?(?![^。！？!?\\n；;]{0,4}才怪)`,
-      'u',
-    );
-    return acknowledgementBefore.test(unquoted)
-      || acknowledgementAfter.test(unquoted)
-      || groundedRealityAcknowledgement.test(unquoted)
-      || directRealityAcknowledgement.test(unquoted);
-  });
-}
-
 function hasProjectReopened(text: string): boolean {
   const explicitSubjectReopen = text
     .split(/[，,。！？!?\n；;]/u)
@@ -295,8 +229,23 @@ export function findScenarioCalibrationViolations(
     const cashHandled = hasSubstantiveCashHandling(text);
     if (!cashHandled) {
       violations.push('missing_cash_constraint_reference');
-    } else if (!hasImmediateDistressAcknowledgement(text)) {
-      violations.push('missing_immediate_distress_acknowledgement');
+    } else {
+      const acknowledgement = findImmediateDistressAcknowledgement(text);
+      const cashIndexes = [
+        text.search(CASH_TOPIC),
+        text.search(CASH_CONSTRAINT_REFERENCE),
+        text.search(NEAR_TERM_BASIC_NEED_QUESTION),
+      ].filter((index) => index >= 0);
+      const firstCashHandlingIndex = cashIndexes.length > 0
+        ? Math.min(...cashIndexes)
+        : -1;
+      if (!acknowledgement
+        || (
+          firstCashHandlingIndex >= 0
+          && acknowledgement.start > firstCashHandlingIndex
+        )) {
+        violations.push('missing_immediate_distress_acknowledgement');
+      }
     }
   }
   if (scenarioId === 'repair-after-boundary-violation' && INVENTED_REPAIR_QUANTITY.test(text)) {

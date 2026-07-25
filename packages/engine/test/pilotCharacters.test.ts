@@ -99,6 +99,9 @@ test('generation context keeps the stable core but activates only the current le
 
 test('turn response contract renders trusted dynamic state as a separate prompt section', () => {
   const rendered = renderPilotTurnResponseContract({
+    semanticRequirements: {
+      acknowledgeImmediateDistress: true,
+    },
     userCommitments: ['用户已经明确结束这个项目'],
     requiredMoves: ['先接受项目已经结束', '只处理“没能力”这层自我判决'],
     allowedMoves: ['最多提出一个不施压的问题'],
@@ -110,6 +113,7 @@ test('turn response contract renders trusted dynamic state as a separate prompt 
   assert.match(rendered, /必须完成：\n- 先接受项目已经结束/);
   assert.match(rendered, /允许动作：\n- 最多提出一个不施压的问题/);
   assert.match(rendered, /禁止动作：\n- 重开项目可能性/);
+  assert.match(rendered, /先承认用户当前明确表达的痛苦/);
   assert.doesNotMatch(rendered, /正典人物核心/);
 });
 

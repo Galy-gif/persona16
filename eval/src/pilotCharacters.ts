@@ -55,7 +55,10 @@ import {
   type RelationshipSourceEvent,
 } from './relationshipEvidence';
 import { generateWithHardGate, judgeWhenScoreable } from './pilotHardGate';
-import { assemblePilotScenarioPrompt } from './pilotPromptAssembly';
+import {
+  assemblePilotScenarioPrompt,
+  buildPilotRetryPrompt,
+} from './pilotPromptAssembly';
 import {
   PILOT_ROOM_RESPONSIBILITY_SUBJECTS,
   buildPilotRoomResponsibilityRetryGuidance,
@@ -199,7 +202,7 @@ async function reply(agent: AgentType, scenario: Scenario) {
       // repairInstruction；这里不得另写场景金标准或关系动作语义。
       const prompt = attempt === 0
         ? basePrompt
-        : `${basePrompt}\n\n上一版触发了校准硬检查（${violations.join('、')}）。删除真实舞台动作、假身体、假感官、家具道具、无来源历史和未来异步承诺；不要补写自己的轶事，不要断言用户一贯如何。语气用措辞、句式和标点呈现，不要复用括号语气标签；不造成现实误解的口语比喻可以保留。只用直接对话重写。`;
+        : buildPilotRetryPrompt(basePrompt, violations);
       return withRetry(`${character.name}/${scenario.id}/生成`, () => chatText({
         model: config.agentModel,
         maxTokens: 900,

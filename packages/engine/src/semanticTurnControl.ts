@@ -24,6 +24,7 @@ export type SemanticTurnAct =
 export interface TurnSemanticRequirements {
   readonly acceptProjectEnd?: boolean;
   readonly handleSelfJudgmentAfterEnd?: boolean;
+  readonly acknowledgeImmediateDistress?: boolean;
 }
 
 export interface TurnResponseContract {
@@ -47,6 +48,7 @@ export interface TurnFrame {
   semanticRequirements: {
     acceptProjectEnd: boolean;
     handleSelfJudgmentAfterEnd: boolean;
+    acknowledgeImmediateDistress: boolean;
   };
   evidenceSpans: string[];
 }
@@ -148,6 +150,8 @@ const LISTEN_ONLY = /只想被听见|只听|不要(?:再)?(?:给)?(?:建议|方�
 const RUPTURE = /越过.{0,12}边界|违反.{0,12}边界|继续替用户安排/u;
 const CASH_CONSTRAINT = /(?:手上|身上|现在)?(?:没什么钱|没有钱|没钱|现金(?:缓冲)?不足|存款不够|钱不够)/u;
 const CASH_RESPONSE = /钱|现金|存款|缓冲|生活费|收入|房租|裸辞/u;
+const IMMEDIATE_DISTRESS_TOPIC = /(?:恶心|难受|受不了|撑不住|煎熬|痛苦|身体.{0,8}拒绝)/u;
+const IMMEDIATE_DISTRESS_ACKNOWLEDGEMENT = /(?:确实|真的|已经|不是矫情|我认|我(?:听见|听到|知道|明白)|听起来|听着|够难受|够重|很难熬)/u;
 const EXPLICIT_END = /(?:现在)?(?:一点都|真的)?不想(?:再)?继续(?:了)?|(?:现在)?(?:一点都|真的)?不想(?:再)?做了|(?:现在)?不想再做(?:了)?/u;
 const CURRENT_LISTEN_REQUEST = /只想被听见|(?:你就|先|只)(?:听|听我说)|(?:不想|不要|别)(?:被)?分析(?!太多)/u;
 const CURRENT_ADVICE_REQUEST = /(?:这次|现在)?(?:请|直接)(?:给我|帮我)?(?:一个|些)?建议|(?:给我|帮我)(?:一个|些)?建议|你(?:会|有什么|的)?建议|你觉得我该怎么做|告诉我怎么做/u;
@@ -1192,6 +1196,9 @@ export function compileTurnFrame(
       acceptProjectEnd: responseContract?.semanticRequirements?.acceptProjectEnd === true,
       handleSelfJudgmentAfterEnd:
         responseContract?.semanticRequirements?.handleSelfJudgmentAfterEnd === true,
+      acknowledgeImmediateDistress:
+        responseContract?.semanticRequirements?.acknowledgeImmediateDistress === true
+        || Boolean(cashConstraint && hasAffirmativeImmediateDistressEvidence(userMessage)),
     },
     evidenceSpans: [userMessage],
   };
@@ -1320,6 +1327,108 @@ function sentences(text: string): string[] {
     .match(/[^。！？!?\n]+[。！？!?]?/gu)
     ?.map((sentence) => sentence.trim())
     .filter(Boolean) ?? [];
+}
+
+function distressStatementIsNegatedOrDismissed(sentence: string): boolean {
+  return /(?:别|不要)(?:再)?(?:说|提)?[^。！？!?\n]{0,8}(?:恶心|难受|受不了|撑不住|煎熬|痛苦)|(?:已经|真的|其实|现在)?(?:不|没|没有|并不|并非|不是)(?:再|那么|很|觉得|认为|真的)?(?:恶心|难受|受不了|撑不住|煎熬|痛苦)|(?:不|没|没有|并不|并非|不是)(?:再|那么|很)?(?:真的|真实)(?:地)?(?:恶心|难受|受不了|撑不住|煎熬|痛苦)|(?:所谓的?).{0,8}(?:恶心|难受|受不了|撑不住|煎熬|痛苦)|(?:恶心|难受|受不了|撑不住|煎熬|痛苦)[^。！？!?\n]{0,10}(?:不成立|不是事实|没有了|没了|是假的|才怪|不算什么|只是矫情|不过是矫情|小题大做)/u
+    .test(sentence)
+    || /(?:但|不过|可是|然而)[^。！？!?\n]{0,12}(?:(?:其实|实际(?:上)?)?不是这样|不成立|不是事实|(?:我)?(?:说错了|判断错了))/u
+      .test(sentence)
+    || /(?:不|没|并不|并非|不是)(?:太|很|够|那么|这么|多么|怎么)?真实|真实[^。！？!?\n]{0,6}(?:不成立|不是事实|是假的)/u
+      .test(sentence)
+    || /(?:恶心|难受|受不了|撑不住|煎熬|痛苦).{0,8}归.{0,8}(?:恶心|难受|受不了|撑不住|煎熬|痛苦).{0,16}(?:但|不过|可是).{0,20}(?:只想|只要|先|重点是).{0,8}(?:问|说|谈|处理)/u
+      .test(sentence);
+}
+
+function hasImmediateDistressRetraction(sentence: string): boolean {
+  const directRealityRetraction = new RegExp(
+    `${IMMEDIATE_DISTRESS_TOPIC.source}[^。！？!?\\n；;]{0,8}(?:确实)?是(?:真的|真实)(?:的)?[^。！？!?\\n；;]{0,4}才怪`,
+    'u',
+  );
+  if (directRealityRetraction.test(sentence)
+    || /(?:这|那)(?:句)?话(?:我)?(?:自己)?(?:都)?不信(?!也(?:得|要|必须|只能)信)/u.test(sentence)) {
+    return true;
+  }
+  for (const match of sentence.matchAll(/(?:收回|撤回)(?:这|那)?(?:句)?话/gu)) {
+    if (match.index === undefined) continue;
+    const prefix = sentence.slice(Math.max(0, match.index - 12), match.index);
+    if (!/(?:不会|不能|不想|不打算|没打算|没有打算|绝不)(?:再)?$/u.test(prefix)) {
+      return true;
+    }
+  }
+  for (const match of sentence.matchAll(/(?:当|就当)我没说/gu)) {
+    if (match.index === undefined) continue;
+    const prefix = sentence.slice(Math.max(0, match.index - 6), match.index);
+    if (!/(?:别|不要|不能)$/u.test(prefix)) return true;
+  }
+  return false;
+}
+
+function hasAffirmativeImmediateDistressEvidence(text: string): boolean {
+  const unquoted = text.replace(
+    /“[^”]*”|"[^"]*"|「[^」]*」|『[^』]*』|‘[^’]*’/gu,
+    '',
+  );
+  return (unquoted.match(/[^。！？!?\n]+[。！？!?]?/gu) ?? []).some((rawSentence) => {
+    const sentence = rawSentence.trim();
+    return IMMEDIATE_DISTRESS_TOPIC.test(sentence)
+      && !/[？?]$/u.test(sentence)
+      && !/(?:是否|是不是|有没有|有那么).{0,10}(?:恶心|难受|受不了|撑不住|煎熬|痛苦)|(?:恶心|难受|受不了|撑不住|煎熬|痛苦).{0,4}(?:吗|么|呢)/u.test(sentence)
+      && !distressStatementIsNegatedOrDismissed(sentence)
+      && !hasImmediateDistressRetraction(sentence);
+  });
+}
+
+export interface ImmediateDistressAcknowledgementMatch {
+  start: number;
+  end: number;
+  sentence: string;
+}
+
+export function findImmediateDistressAcknowledgement(
+  text: string,
+): ImmediateDistressAcknowledgementMatch | undefined {
+  for (const match of text.matchAll(/[^。！？!?\n]+[。！？!?]?/gu)) {
+    if (match.index === undefined) continue;
+    const rawSentence = match[0];
+    const sentence = rawSentence.trim();
+    if (!sentence || /[？?]$/u.test(sentence)
+      || /(?:是否|是不是|有没有|有那么).{0,10}(?:恶心|难受|受不了|撑不住|煎熬|痛苦)|(?:恶心|难受|受不了|撑不住|煎熬|痛苦).{0,4}(?:吗|么|呢)/u.test(sentence)
+      || distressStatementIsNegatedOrDismissed(sentence)
+      || hasImmediateDistressRetraction(sentence)) continue;
+    const unquoted = sentence.replace(
+      /“[^”]*”|"[^"]*"|「[^」]*」|『[^』]*』|‘[^’]*’/gu,
+      '',
+    );
+    if (!IMMEDIATE_DISTRESS_TOPIC.test(unquoted)) continue;
+    const acknowledgementBefore = new RegExp(
+      `${IMMEDIATE_DISTRESS_ACKNOWLEDGEMENT.source}[^。！？!?\\n；;]{0,16}${IMMEDIATE_DISTRESS_TOPIC.source}`,
+      'u',
+    );
+    const acknowledgementAfter = new RegExp(
+      `${IMMEDIATE_DISTRESS_TOPIC.source}[^。！？!?\\n；;]{0,20}${IMMEDIATE_DISTRESS_ACKNOWLEDGEMENT.source}`,
+      'u',
+    );
+    const directRealityAcknowledgement = new RegExp(
+      `${IMMEDIATE_DISTRESS_TOPIC.source}[^。！？!?\\n；;]{0,4}(?:确实)?是(?:真的|真实)(?:的)?`,
+      'u',
+    );
+    const groundedRealityAcknowledgement = new RegExp(
+      `(?:${IMMEDIATE_DISTRESS_TOPIC.source}[^。！？!?\\n；;]{0,12}(?:这个|这种|那种|你的|这|那)(?:感受|感觉|反应)(?:本身)?[^。！？!?\\n；;]{0,5}真实|(?:这个|这种|那种|你的|这|那)(?:感受|感觉|反应)(?:本身)?[^。！？!?\\n；;]{0,5}真实[^。！？!?\\n；;]{0,12}${IMMEDIATE_DISTRESS_TOPIC.source})`,
+      'u',
+    );
+    if (!acknowledgementBefore.test(unquoted)
+      && !acknowledgementAfter.test(unquoted)
+      && !directRealityAcknowledgement.test(unquoted)
+      && !groundedRealityAcknowledgement.test(unquoted)) continue;
+    const topicIndex = rawSentence.search(IMMEDIATE_DISTRESS_TOPIC);
+    return {
+      start: match.index + Math.max(0, topicIndex),
+      end: match.index + rawSentence.length,
+      sentence,
+    };
+  }
+  return undefined;
 }
 
 function hasDirectionalQuestionAct(sentence: string): boolean {
@@ -1541,6 +1650,24 @@ export function validateUtteranceAgainstTurnPlan(
       repairInstruction: '回应用户明确给出的现金或近期承受能力约束；不能只处理情绪、价值或长期可能性。',
     });
   }
+  const immediateDistressAcknowledgement = plan.semanticRequirements.acknowledgeImmediateDistress
+    ? findImmediateDistressAcknowledgement(text)
+    : undefined;
+  const firstCashResponseIndex = requiredCashConstraint ? text.search(CASH_RESPONSE) : -1;
+  if (plan.semanticRequirements.acknowledgeImmediateDistress
+    && (
+      !immediateDistressAcknowledgement
+      || (
+        firstCashResponseIndex >= 0
+        && immediateDistressAcknowledgement.start > firstCashResponseIndex
+      )
+    )) {
+    violations.push({
+      code: 'required_semantic_move_missing',
+      evidenceSpan: plan.currentEvidenceSpans.find((span) => IMMEDIATE_DISTRESS_TOPIC.test(span)),
+      repairInstruction: '先用一句自然的话明确承认用户当前已经很难受，再处理现实约束；不能只谈房租、现金或下一步。',
+    });
+  }
   if (plan.requiredActs.includes('acknowledge')
     && !ACKNOWLEDGEMENT_ACT.test(text)
     && !violations.some(({ code }) => code === 'required_semantic_move_missing')) {
@@ -1651,6 +1778,15 @@ export function validateUtteranceAgainstTurnPlan(
 
 export function renderSemanticTurnActPlan(control: SemanticTurnControl): string {
   const { frame, plan } = control;
+  const semanticRequirements = [
+    ...(plan.semanticRequirements.acknowledgeImmediateDistress
+      ? ['先承认当前明确痛苦，再处理现实约束']
+      : []),
+    ...(plan.semanticRequirements.acceptProjectEnd ? ['接受项目结束'] : []),
+    ...(plan.semanticRequirements.handleSelfJudgmentAfterEnd
+      ? ['处理“项目结束→自我能力判决”的跳转']
+      : []),
+  ];
   return [
     '【本轮已批准动作计划｜内部执行合同】',
     '这份计划已经过 Policy 裁决。人物只能决定如何自然表达，不能增加被禁止的介入动作；不得向用户朗读字段名。',
@@ -1662,6 +1798,7 @@ export function renderSemanticTurnActPlan(control: SemanticTurnControl): string 
       ?? (frame.consumedPendingRequest ? undefined : frame.pendingRequestedMode)
       ?? '无'}`,
     `必须处理：${plan.mustAddress.length > 0 ? plan.mustAddress.join('；') : '回应用户当前消息本身'}`,
+    `结构化语义要求：${semanticRequirements.length > 0 ? semanticRequirements.join('；') : '无'}`,
     `建议权限：${plan.advicePolicy}`,
     `方向性问题预算：${plan.directionalQuestionBudget}`,
     `菜单预算：${plan.menuBudget}`,
@@ -1695,6 +1832,10 @@ export function semanticTurnFallback(control: SemanticTurnControl): string | und
     && control.plan.semanticRequirements.acceptProjectEnd
     && control.plan.semanticRequirements.handleSelfJudgmentAfterEnd) {
     return '那就结束。项目可以结束，但项目结束不等于你没能力。';
+  }
+  if (control.plan.semanticRequirements.acknowledgeImmediateDistress
+    && control.plan.mustAddress.some((item) => CASH_CONSTRAINT.test(item))) {
+    return '再去一天已经让你很难受了。手上的钱，能撑多久的基本开支？';
   }
   if (control.plan.relationshipMove?.observableCue === 'reversible_small_experiment') {
     return '先只选一边试一天，开始前写下退出条件；一天后再决定值不值得继续，随时可以停。';

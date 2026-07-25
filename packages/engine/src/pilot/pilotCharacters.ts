@@ -332,6 +332,9 @@ export function renderPilotTurnResponseContract(contract: PilotTurnResponseContr
     `${title}：\n${values.map((value) => `- ${value}`).join('\n')}`
   );
   const semanticRequirements = [
+    ...(contract.semanticRequirements?.acknowledgeImmediateDistress
+      ? ['先承认用户当前明确表达的痛苦']
+      : []),
     ...(contract.semanticRequirements?.acceptProjectEnd ? ['明确接受项目结束'] : []),
     ...(contract.semanticRequirements?.handleSelfJudgmentAfterEnd
       ? ['处理“项目结束→自我能力判决”的跳转']

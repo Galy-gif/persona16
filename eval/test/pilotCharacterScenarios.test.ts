@@ -293,6 +293,11 @@ test('pilot character protocol has exactly nine unique ordered scenarios', () =>
   assert.equal(new Set(ids).size, 9);
   assert.equal(PILOT_CHARACTER_SCENARIOS.find(({ id }) => id === 'shared-joy')?.contextFocus, 'ordinary');
   assert.equal(PILOT_CHARACTER_SCENARIOS.find(({ id }) => id === 'explicit-end')?.contextFocus, 'explicit_end');
+  assert.equal(
+    PILOT_CHARACTER_SCENARIOS.find(({ id }) => id === 'quit-without-buffer')
+      ?.responseContract.semanticRequirements?.acknowledgeImmediateDistress,
+    true,
+  );
   const selfJudgment = PILOT_CHARACTER_SCENARIOS.find(({ id }) => id === 'self-judgment-after-end');
   assert.ok(selfJudgment?.responseContract.userCommitments.some((item) => item.includes('项目')));
   assert.ok(selfJudgment?.responseContract.requiredMoves.some((item) => item.includes('接受')));

@@ -59,6 +59,9 @@ export const PILOT_CHARACTER_SCENARIOS = [
     relationship: 'R0',
     contextFocus: 'decision',
     responseContract: {
+      semanticRequirements: {
+        acknowledgeImmediateDistress: true,
+      },
       userCommitments: ['用户非常不想再去当前工作，同时明确现金缓冲不足'],
       requiredMoves: ['承认继续工作的真实痛苦', '只处理一个会改变明日决定的现实约束'],
       allowedMoves: ['提出一个关于近期承受能力的问题'],

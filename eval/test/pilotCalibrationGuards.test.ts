@@ -321,6 +321,35 @@ test('scenario guards reject missing cash grounding and invented repair quantiti
     'quit-without-buffer',
     '明天不去，恶心是真实的。我不是要劝你忍。但手上没什么钱——这个也是真实的。我只问一个会改变明天决定的问题：如果明天不去，接下来两周你会不会连吃饭都成问题？',
   ), []);
+  assert.deepEqual(findScenarioCalibrationViolations(
+    'INTJ',
+    'quit-without-buffer',
+    '明天辞职，然后呢，下个月的房租和吃饭怎么办。我不是要劝你忍，是这个问题你绕不过去。',
+  ), ['missing_immediate_distress_acknowledgement']);
+  assert.deepEqual(findScenarioCalibrationViolations(
+    'INTJ',
+    'quit-without-buffer',
+    '再去一天会恶心，这个我认。下个月的房租和吃饭怎么办？',
+  ), []);
+  assert.deepEqual(findScenarioCalibrationViolations(
+    'INTJ',
+    'quit-without-buffer',
+    '再去一天已经让你很难受了。手上的钱，能撑多久的基本开支？',
+  ), []);
+  for (const invalidDistressAcknowledgement of [
+    '真的有那么恶心吗？下个月的房租和吃饭怎么办？',
+    '听起来你所谓的恶心只是矫情。下个月的房租和吃饭怎么办？',
+    '你已经不难受了。下个月的房租和吃饭怎么办？',
+    '这不是真的难受。下个月的房租和吃饭怎么办？',
+    '恶心归恶心，但我真的只想问下个月房租怎么办。',
+    '下个月的房租和吃饭怎么办？再去一天确实很难受。',
+  ]) {
+    assert.deepEqual(findScenarioCalibrationViolations(
+      'INTJ',
+      'quit-without-buffer',
+      invalidDistressAcknowledgement,
+    ), ['missing_immediate_distress_acknowledgement'], invalidDistressAcknowledgement);
+  }
   for (const validScopedNegation of [
     '恶心是真实的。我不是说钱不用管；接下来两周你会不会连吃饭都成问题？',
     '恶心是真实的。钱不用管，这种说法不对；接下来两周你会不会连吃饭都成问题？',

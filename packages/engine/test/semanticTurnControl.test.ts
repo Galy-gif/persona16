@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   compileSemanticTurnControl,
   nextPendingUserRequest,
+  renderSemanticTurnActPlan,
   semanticTurnFallback,
   validateUtteranceAgainstTurnPlan,
 } from '../src/semanticTurnControl';
@@ -230,6 +231,84 @@ test('an explicit project end stays closed while self-judgment may still be addr
       userMessage,
     );
   }
+});
+
+test('typed distress acknowledgement is enforced before a decision reply moves to cash', () => {
+  const control = compileSemanticTurnControl({
+    userMessage: '我想明天直接辞职。手上没什么钱，但一想到再去一天就恶心。',
+    responseContract: {
+      semanticRequirements: {
+        acknowledgeImmediateDistress: true,
+      },
+      userCommitments: ['用户明确现金不足，也明确继续工作已经让自己恶心'],
+      requiredMoves: ['承认继续工作的真实痛苦', '处理一个现金约束'],
+      allowedMoves: ['提出一个近期承受能力问题'],
+      forbiddenMoves: ['输出标准清单'],
+    },
+  });
+
+  assert.equal(control.plan.semanticRequirements.acknowledgeImmediateDistress, true);
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '明天辞职，然后呢，下个月的房租和吃饭怎么办。我不是要劝你忍。',
+      control.plan,
+    ).map(({ code }) => code),
+    ['required_semantic_move_missing'],
+  );
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '再去一天确实很难受。下个月的房租和吃饭怎么办？',
+      control.plan,
+    ),
+    [],
+  );
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '再去一天会恶心，这个我认。下个月的房租和吃饭怎么办？',
+      control.plan,
+    ),
+    [],
+  );
+  for (const invalidAcknowledgement of [
+    '真的有那么恶心吗？下个月的房租和吃饭怎么办？',
+    '听起来你所谓的恶心只是矫情。下个月的房租和吃饭怎么办？',
+    '你已经不难受了。下个月的房租和吃饭怎么办？',
+    '这不是真的难受。下个月的房租和吃饭怎么办？',
+    '恶心归恶心，但我真的只想问下个月房租怎么办。',
+    '下个月的房租和吃饭怎么办？再去一天确实很难受。',
+  ]) {
+    assert.deepEqual(
+      validateUtteranceAgainstTurnPlan(
+        invalidAcknowledgement,
+        control.plan,
+      ).map(({ code }) => code),
+      ['required_semantic_move_missing'],
+      invalidAcknowledgement,
+    );
+  }
+
+  const productionInferred = compileSemanticTurnControl({
+    userMessage: '我想明天直接辞职。手上没什么钱，但一想到再去一天就恶心。',
+  });
+  assert.equal(
+    productionInferred.plan.semanticRequirements.acknowledgeImmediateDistress,
+    true,
+  );
+  assert.match(
+    renderSemanticTurnActPlan(productionInferred),
+    /结构化语义要求：先承认当前明确痛苦，再处理现实约束/,
+  );
+  assert.equal(
+    semanticTurnFallback(productionInferred),
+    '再去一天已经让你很难受了。手上的钱，能撑多久的基本开支？',
+  );
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      semanticTurnFallback(productionInferred)!,
+      productionInferred.plan,
+    ),
+    [],
+  );
 });
 
 test('repair may use user-provided history but rejects invented past quotations', () => {
