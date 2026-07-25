@@ -33,8 +33,10 @@ const EXPECTED_SIGNATURE = {
   roomParticipationVersion: PILOT_ROOM_PARTICIPATION_VERSION,
   agentGenerationAttempts: 2,
   agentGenerationTemperature: 1.25,
+  agentConstrainedGenerationTemperature: 0.7,
+  agentGenerationRetryTemperature: 0.2,
   agentGenerationMaxTokens: 900,
-  agentRetryPolicyVersion: 'engine-semantic-retry-v0.7',
+  agentRetryPolicyVersion: 'engine-semantic-retry-v0.7-low-temp',
 } as const;
 
 function completeArtifact(scenarioIds: readonly string[] = EXPECTED_IDS) {
@@ -371,6 +373,20 @@ test('room-only reuse requires a complete current-protocol nine-scenario artifac
   assert.equal(canReuse({
     ...completeArtifact(),
     evaluationSignature: { ...EXPECTED_SIGNATURE, agentGenerationTemperature: 0 },
+  }), false);
+  assert.equal(canReuse({
+    ...completeArtifact(),
+    evaluationSignature: {
+      ...EXPECTED_SIGNATURE,
+      agentConstrainedGenerationTemperature: 0,
+    },
+  }), false);
+  assert.equal(canReuse({
+    ...completeArtifact(),
+    evaluationSignature: {
+      ...EXPECTED_SIGNATURE,
+      agentGenerationRetryTemperature: 1.25,
+    },
   }), false);
   assert.equal(canReuse({
     ...completeArtifact(),

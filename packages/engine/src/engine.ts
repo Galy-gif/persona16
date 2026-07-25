@@ -33,9 +33,11 @@ import {
   type ObserverErrorHandler,
 } from './lifecycleHooks';
 import {
+  SEMANTIC_TURN_GENERATION_POLICY,
   compileTurnFrame,
   compileSemanticTurnControl,
   nextPendingUserRequest,
+  semanticTurnGenerationTemperature,
   semanticTurnFallback,
   validateUtteranceAgainstTurnPlan,
 } from './semanticTurnControl';
@@ -135,13 +137,16 @@ async function generateUtterance(
     relationshipFocus: relationshipFocusForTurn(plan, room),
   });
   const system = buildSystemBlocks(speaker.type);
-  const temperature = semanticControl.plan.conversationAct === 'respond' ? 1.25 : 0.7;
   const requestedTokens = speaker.speechType === '长发言' ? 1200 : 400;
 
   let antiTemplateNote: string | undefined;
   let regenerated = false;
 
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < SEMANTIC_TURN_GENERATION_POLICY.attempts; attempt++) {
+    const temperature = semanticTurnGenerationTemperature(
+      attempt,
+      semanticControl.plan.conversationAct,
+    );
     const prompt = buildTurnPrompt({
       plan,
       room,
@@ -152,9 +157,15 @@ async function generateUtterance(
       safetyMode: opts.safetyMode,
       semanticControl,
     });
-    tracer.emit('agent_prompt', { agent: speaker.type, attempt, prompt });
+    tracer.emit('agent_prompt', {
+      agent: speaker.type,
+      attempt,
+      temperature,
+      retryPolicyVersion: SEMANTIC_TURN_GENERATION_POLICY.retryPolicyVersion,
+      prompt,
+    });
 
-    const isFinalAttempt = attempt === 1;
+    const isFinalAttempt = attempt === SEMANTIC_TURN_GENERATION_POLICY.attempts - 1;
     const reservation = modelBudget.reserve(`persona:${speaker.type}:attempt:${attempt}`, requestedTokens);
     // 人物文本必须先完成最终动作校验；provider delta 不能绕过 delivery gate。
     const onDelta = undefined;

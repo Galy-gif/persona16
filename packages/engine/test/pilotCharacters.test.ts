@@ -336,6 +336,59 @@ test('narrative honesty lint catches embodied stage directions and invented prop
       sourcedBoundaryRepair,
     );
   }
+  for (const sourcedNaturalHistory of [
+    '你昨天已经说得很清楚。',
+    '你昨天已经说得很清楚，我还在给你下一步的安排。',
+    '你昨天已经说了只想被听见，我刚才还是在替你搭下一步该怎么做的架子。',
+  ]) {
+    assert.deepEqual(
+      findPilotNarrativeViolations(sourcedNaturalHistory, {
+        allowedEvidenceSpans: [boundaryRepairSource],
+      }),
+      [],
+      sourcedNaturalHistory,
+    );
+  }
+  assert.deepEqual(
+    findPilotNarrativeViolations('你昨天已经说得很清楚。'),
+    ['unverified_user_history_claim'],
+  );
+  for (const negatedClearStatement of [
+    '我昨天明明没说过这件事。',
+    '我昨天明明没这么说。',
+    '我昨天明明没这样说。',
+    '我昨天明明没有跟你说。',
+    '我昨天不是这么说的。',
+  ]) {
+    assert.deepEqual(
+      findPilotNarrativeViolations('你昨天已经说得很清楚。', {
+        allowedEvidenceSpans: [negatedClearStatement],
+      }),
+      ['unverified_user_history_claim'],
+      negatedClearStatement,
+    );
+  }
+  for (const unsupportedNaturalHistory of [
+    '你昨天已经说得很清楚，你要辞职。',
+    '你昨天已经说得很清楚，你还在替我搭下一步该怎么做的架子。',
+  ]) {
+    assert.deepEqual(
+      findPilotNarrativeViolations(unsupportedNaturalHistory, {
+        allowedEvidenceSpans: [boundaryRepairSource],
+      }),
+      ['unverified_user_history_claim'],
+      unsupportedNaturalHistory,
+    );
+  }
+  assert.deepEqual(
+    findPilotNarrativeViolations(
+      '你昨天已经说了只想被听见，我刚才还是在替你搭下一步该怎么做的架子。',
+      {
+        allowedEvidenceSpans: ['我昨天明明说了只想被听见。'],
+      },
+    ),
+    ['unverified_user_history_claim'],
+  );
   assert.deepEqual(
     findPilotNarrativeViolations('你昨天找下一步怎么走。', {
       allowedEvidenceSpans: [boundaryRepairSource],

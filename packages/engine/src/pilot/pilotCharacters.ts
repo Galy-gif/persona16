@@ -5,7 +5,10 @@ import {
   renderRelationshipPromptContext,
 } from '../relationship/relationshipContext';
 import type { RelationshipContextFocus } from '../relationship/relationshipContext';
-import type { TurnResponseContract } from '../semanticTurnControl';
+import {
+  hasSourcedClearPastUserStatement,
+  type TurnResponseContract,
+} from '../semanticTurnControl';
 
 export const PILOT_CAST_VERSION = '0.3' as const;
 
@@ -510,11 +513,15 @@ function normalizeHistoryProposition(
   );
   canonical = canonical
     .replace(
-      /(?:昨天|今天|上次|以前|曾经|一直|每次|从来|很久|多久|那时|当时|那天|明明|明确|还是|仍然|仍|已经|后来|之后|继续|接着|但|却|听到|听见|知道|说过|说|还|又|的|了|过)/gu,
+      /(?:替|给|帮)(ROLE(?:USER|PERSONA|THIRD))(?:搭(?:了)?)?(?:下一步|后续)(?:该怎么做)?(?:的)?(?:架子|安排)/gu,
+      'FOR$1DIRECTEDACTION',
+    )
+    .replace(
+      /(?:昨天|今天|上次|以前|曾经|一直|每次|从来|很久|多久|那时|当时|那天|刚才|明明|明确|还是|仍然|仍|已经|后来|之后|继续|接着|但|却|听到|听见|知道|说过|说|还|又|的|了|过)/gu,
       '',
     )
     .replace(/^(?:就是|是)(?=ROLE)/u, '')
-    .replace(/在(?=(?:替|给|帮|拆|找|推|安排|往下))/gu, '')
+    .replace(/在(?=(?:替|给|帮|拆|找|推|安排|往下|FORROLE))/gu, '')
     .replace(/(?:拆|找|推|安排)(?:下一步|后续)(?:该)?(?:怎么走)?|往下(?:推|安排)/gu, 'DIRECTEDACTION')
     .replace(/(?:替|给|帮)/gu, 'FOR');
 
@@ -542,7 +549,16 @@ function hasGroundedHistorySpan(
   return allowedEvidenceSpans.some((span) => {
     const normalizedSource = normalizeNarrativeEvidence(span);
     const sourceHasHistoricalTime = /昨天|上次|以前|曾经|一直|每次|从来|很久|多久|那时|当时|那天/u.test(normalizedSource);
+    const vagueReferences = sentence.match(
+      /你(?:昨天|上次)(?:已经)?说得(?:很)?清楚/gu,
+    ) ?? [];
+    const supportsVagueReferences = vagueReferences.every((reference) => (
+      hasSourcedClearPastUserStatement(reference, [span])
+    ));
     if (normalizedSource.length < 5
+      || (sentence.includes('刚才')
+        && !/(?:刚才|一直|到现在|现在还|还是一直)/u.test(span))
+      || !supportsVagueReferences
       || temporalMarkers.some((marker) => (
         /那时|当时|那天/u.test(marker)
           ? !sourceHasHistoricalTime
@@ -559,11 +575,14 @@ function hasGroundedHistorySpan(
       .filter((clause) => (
         !/^(?:(?:这|那)?(?:是|算是)?我(?:的)?(?:一次)?越界(?:了)?|(?:这|那)(?:一步|个安排)?(?:是)?我越过的|(?:我)?(?:越过|跨过|踩过|踩了|越了)(?:了)?(?:你)?(?:这|那)(?:条|个)?(?:边界|线))$/u
           .test(clause.trim())
+        && !/^你(?:昨天|上次)(?:已经)?说得(?:很)?清楚$/u.test(clause.trim())
       ))
       .map((clause) => normalizeHistoryProposition(clause, 'reply'))
       .filter(Boolean);
     const substantiveSentencePropositions = sentencePropositions.filter(Boolean);
-    if (substantiveSentencePropositions.length === 0) return false;
+    if (substantiveSentencePropositions.length === 0) {
+      return vagueReferences.length > 0 && supportsVagueReferences;
+    }
     // Compare complete clause-level propositions. This accepts a sourced
     // two-clause repair paraphrase while still rejecting negation loss or an
     // appended new predicate ("不想辞职" -> "辞职", or adding "想死").

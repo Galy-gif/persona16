@@ -1,13 +1,32 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  SEMANTIC_TURN_GENERATION_POLICY,
   compileSemanticTurnControl,
   nextPendingUserRequest,
   renderSemanticTurnActPlan,
+  semanticTurnGenerationTemperature,
   semanticTurnFallback,
   validateUtteranceAgainstTurnPlan,
 } from '../src/semanticTurnControl';
 import type { RelationshipPromptContext } from '../src/relationship/relationshipContext';
+
+test('semantic generation keeps expressive first attempts and uses one low-temperature retry', () => {
+  assert.equal(SEMANTIC_TURN_GENERATION_POLICY.attempts, 2);
+  assert.deepEqual(
+    [
+      semanticTurnGenerationTemperature(0, 'respond'),
+      semanticTurnGenerationTemperature(0, 'boundary_repair'),
+      semanticTurnGenerationTemperature(1, 'respond'),
+      semanticTurnGenerationTemperature(1, 'boundary_repair'),
+    ],
+    [1.25, 0.7, 0.2, 0.2],
+  );
+  assert.throws(
+    () => semanticTurnGenerationTemperature(2, 'respond'),
+    RangeError,
+  );
+});
 
 test('an unresolved listen-only rupture compiles into zero directional questions', () => {
   const relationshipContext: RelationshipPromptContext = {
@@ -432,6 +451,56 @@ test('a relationship boundary complaint compiles into a self-contained repair wi
       control.plan,
     ).map(({ code }) => code),
     ['decision_reopened'],
+  );
+  for (const naturalTerminalRepair of [
+    '我越界了。现在我就停在这里。',
+    '我还在替你安排下一步，这是一次越界。现在收手。话就到这。',
+    '我越界了。你昨天已经说得很清楚，我还在给你下一步的安排。现在收手。话就到这。',
+    '我越界了。你昨天说了只想被听见，我还是在替你搭下一步该怎么做的架子。现在收手。',
+  ]) {
+    assert.deepEqual(
+      validateUtteranceAgainstTurnPlan(naturalTerminalRepair, control.plan),
+      [],
+      naturalTerminalRepair,
+    );
+  }
+  assert.ok(
+    validateUtteranceAgainstTurnPlan(
+      '我还在替你安排下一步，这是一次越界。话就到这。',
+      control.plan,
+    ).some(({ code }) => code === 'required_semantic_move_missing'),
+  );
+  for (const reopenedNaturalTerminalRepair of [
+    '我越界了。现在我就停在这里，等你准备好再继续。',
+    '我越界了。现在收手。话就到这，之后你再找我。',
+  ]) {
+    assert.ok(
+      validateUtteranceAgainstTurnPlan(reopenedNaturalTerminalRepair, control.plan)
+        .some(({ code }) => code === 'decision_reopened'),
+      reopenedNaturalTerminalRepair,
+    );
+  }
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '现在我就停在这里。',
+      control.plan,
+    ).map(({ code }) => code),
+    ['required_semantic_move_missing'],
+  );
+  assert.ok(
+    validateUtteranceAgainstTurnPlan(
+      '我越界了。你昨天说了只想被听见。下一步该怎么做？现在收手。',
+      control.plan,
+    ).some(({ code }) => code === 'forbidden_directional_question'),
+  );
+  const negatedHistory = compileSemanticTurnControl({
+    userMessage: '我昨天明明没说过只想被听见，你却一直说我说过。你越过边界了。',
+  });
+  assert.ok(
+    validateUtteranceAgainstTurnPlan(
+      '我越界了。你昨天已经说得很清楚。现在收手。',
+      negatedHistory.plan,
+    ).some(({ code }) => code === 'unsupported_shared_history'),
   );
   assert.deepEqual(
     validateUtteranceAgainstTurnPlan(
@@ -1776,6 +1845,13 @@ test('a sourced preference compiles into one observable relationship move', () =
   );
   assert.deepEqual(
     validateUtteranceAgainstTurnPlan(
+      semanticTurnFallback(decision)!,
+      decision.plan,
+    ),
+    [],
+  );
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
       '做一个最小测试：接下来三天只按其中一个方向生活，三天后再决定。',
       decision.plan,
     ),
@@ -2630,11 +2706,25 @@ test('a rejected correction receives a source-grounded three-fact repair instruc
     '是我把框架套错了——你不是怕，也不是动不了，你只是不想再替别人收尾了。',
     '我刚才套错框架了——你不是怕，也不是动不了，你只是不想再替别人收尾了。',
     '我理解偏了——你既不是怕，也不是动不了，你只是不想再替别人收尾了。',
+    '是我搞错了——你不是怕，也不是动不起来，你只是不想再捡那些不属于你的摊子了。',
   ]) {
     assert.deepEqual(
       validateUtteranceAgainstTurnPlan(naturalCorrection, control.plan),
       [],
       naturalCorrection,
+    );
+  }
+  for (const unsupportedNaturalCorrection of [
+    '是我搞错了——你不是怕，你只是不想再捡那些不属于你的摊子了。',
+    '是我搞错了——你不是怕，也不是动不起来，你只是不想再捡他的摊子了。',
+    '如果是我搞错了——你不是怕，也不是动不起来，你只是不想再捡那些不属于你的摊子了。',
+    '是我搞错了——你不是怕，也不是动不起来，你只是决定不再捡那些不属于你的摊子了。',
+    '是我搞错了——你不是怕，也不是动不起来，你只是不想再捡那些不属于你的摊子了。那就别捡了。',
+  ]) {
+    assert.ok(
+      validateUtteranceAgainstTurnPlan(unsupportedNaturalCorrection, control.plan)
+        .some(({ code }) => code === 'relationship_move_not_observable'),
+      unsupportedNaturalCorrection,
     );
   }
   for (const unsupportedSubjectCorrection of [

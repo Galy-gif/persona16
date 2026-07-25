@@ -53,6 +53,8 @@ export interface PilotEvaluationSignature {
   roomParticipationVersion: typeof PILOT_ROOM_PARTICIPATION_VERSION;
   agentGenerationAttempts: number;
   agentGenerationTemperature: number;
+  agentConstrainedGenerationTemperature: number;
+  agentGenerationRetryTemperature: number;
   agentGenerationMaxTokens: number;
   agentRetryPolicyVersion: string;
 }
