@@ -104,6 +104,19 @@ export type {
 } from './runtime/turnEvents';
 export { classifySafety, routeSafety, safetyResponse } from './safety/safetyRouter';
 export type { SafetyClassifier, SafetyDecision, SafetyLevel } from './safety/safetyRouter';
+export {
+  analyzeHistoricalEvidence,
+  isHistoricalClaimSupported,
+} from './historicalEvidence';
+export type {
+  EventTime,
+  HistoricalClaim,
+  HistoricalEvidenceAnalysis,
+  HistoricalEvidencePerspective,
+  HistoricalFactuality,
+  HistoricalParticipant,
+  HistoricalRecipient,
+} from './historicalEvidence';
 export { applyConfirmedMemories, clearInjectedMemories, extractMemoryCandidate } from './memory/memoryPolicy';
 export type {
   InjectableMemory,

@@ -7,7 +7,6 @@ loadEnv({ path: join(import.meta.dirname, '..', '..', '.env') });
 import {
   buildSystemBlocks,
   buildTurnPrompt,
-  chatJson,
   chatText,
   checkUtterance,
   createRoom,
@@ -24,9 +23,11 @@ import {
   type UserEmotion,
   type EngineConfig,
   type EngineDependencies,
+  type Provider,
   runRuntimeText,
 } from '@persona16/engine';
 import { PiAgentRuntime } from '@persona16/runtime-pi';
+import { measuredChatJson } from './modelComparisonTelemetry';
 
 export const ARTIFACT_DIR = join(import.meta.dirname, '..', 'artifacts');
 
@@ -39,6 +40,20 @@ export function saveArtifact(name: string, data: unknown): string {
 }
 
 export const JUDGE_MODEL = defaultJudgeModel();
+function configuredProvider(name: string, fallback: Provider): Provider {
+  const value = process.env[name];
+  if (value === 'anthropic' || value === 'deepseek') return value;
+  return fallback;
+}
+
+export const EVALUATION_CONTROL_PROVIDER = configuredProvider(
+  'PERSONA16_EVAL_CONTROL_PROVIDER',
+  defaultConfig().provider,
+);
+export const JUDGE_PROVIDER = configuredProvider(
+  'PERSONA16_JUDGE_PROVIDER',
+  EVALUATION_CONTROL_PROVIDER,
+);
 let piRuntime: PiAgentRuntime | undefined;
 
 function getPiRuntime(): PiAgentRuntime {
@@ -114,9 +129,12 @@ export async function judge<T>(
   userPrompt: string,
   schema: Record<string, unknown>,
 ): Promise<T> {
-  return chatJson<T>({
+  return measuredChatJson<T>('judge', 'llm_judge', {
+    provider: JUDGE_PROVIDER,
     model: JUDGE_MODEL,
     maxTokens: 8000,
+    temperature: JUDGE_PROVIDER === 'deepseek' ? 0 : null,
+    thinkingMode: 'disabled',
     system: systemPrompt,
     prompt: userPrompt,
     schema,

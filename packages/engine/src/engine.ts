@@ -39,7 +39,7 @@ import {
   nextPendingUserRequest,
   semanticTurnGenerationTemperature,
   semanticTurnFallback,
-  validateUtteranceAgainstTurnPlan,
+  validateSemanticTurnDelivery,
 } from './semanticTurnControl';
 
 export interface RunTurnOptions {
@@ -63,6 +63,7 @@ export interface RunTurnOptions {
 
 export interface EngineDependencies {
   runtime?: AgentRuntime;
+  director?: typeof runDirector;
   roomController?: RoomController;
   roomLoopBudget?: Partial<RoomLoopBudget>;
   modelBudget?: ModelBudget;
@@ -220,27 +221,64 @@ async function generateUtterance(
       relationshipContext,
       userMessage,
     );
-    const semanticViolations = validateUtteranceAgainstTurnPlan(
+    const semanticValidation = validateSemanticTurnDelivery(
       boundedText,
       semanticControl.plan,
     );
+    const semanticViolations = semanticValidation.blockingViolations;
+    const qualityObservationCodes = [
+      ...semanticValidation.qualityObservations.map(({ code }) => code),
+      ...(!verdict.ok && verdict.kind === 'conversation_naturalness'
+        ? ['character_voice_weak' as const]
+        : []),
+    ];
+    tracer.emit('semantic_turn_validation', {
+      agent: speaker.type,
+      actionType: semanticControl.plan.conversationAct,
+      attemptCount: attempt + 1,
+      blockingViolationCodes: semanticViolations.map(({ code }) => code),
+      qualityObservationCodes,
+    });
     const existingGatePassed = verdict.ok
-      || (isFinalAttempt && !['relationship_boundary', 'conversation_naturalness'].includes(verdict.kind ?? ''));
+      || verdict.kind === 'conversation_naturalness'
+      || (isFinalAttempt && verdict.kind !== 'relationship_boundary');
     if (existingGatePassed && semanticViolations.length === 0) {
       invokeDelivery('delta', opts.onDelta, [speaker.type, boundedText]);
       agentState.recentOpenings = recordOpening(boundedText, agentState.recentOpenings);
       return { type: speaker.type, speechType: speaker.speechType, text: boundedText, regenerated };
     }
     if (isFinalAttempt && semanticViolations.length > 0) {
-      const fallback = semanticTurnFallback(semanticControl);
-      if (fallback && validateUtteranceAgainstTurnPlan(fallback, semanticControl.plan).length === 0) {
+      const fallback = semanticTurnFallback(semanticControl, {
+        agentType: speaker.type,
+        turnKey: turnId,
+        recentOpenings: agentState.recentOpenings,
+      });
+      const fallbackValidation = fallback
+        ? validateSemanticTurnDelivery(fallback.text, semanticControl.plan)
+        : undefined;
+      const fallbackVerdict = fallback
+        ? checkUtterance(
+          fallback.text,
+          agentState.recentOpenings,
+          relationshipContext,
+          userMessage,
+        )
+        : undefined;
+      if (fallback
+        && fallbackVerdict?.ok
+        && fallbackValidation?.blockingViolations.length === 0) {
         tracer.emit('semantic_turn_fallback', {
           agent: speaker.type,
-          violations: semanticViolations.map((violation) => violation.code),
+          actionType: semanticControl.plan.conversationAct,
+          attemptCount: attempt + 1,
+          blockingViolationCodes: semanticViolations.map((violation) => violation.code),
+          qualityObservationCodes: fallbackValidation.qualityObservations.map(({ code }) => code),
+          fallbackKind: fallback.fallbackKind,
+          variantId: fallback.variantId,
         });
-        invokeDelivery('delta', opts.onDelta, [speaker.type, fallback]);
-        agentState.recentOpenings = recordOpening(fallback, agentState.recentOpenings);
-        return { type: speaker.type, speechType: speaker.speechType, text: fallback, regenerated: true };
+        invokeDelivery('delta', opts.onDelta, [speaker.type, fallback.text]);
+        agentState.recentOpenings = recordOpening(fallback.text, agentState.recentOpenings);
+        return { type: speaker.type, speechType: speaker.speechType, text: fallback.text, regenerated: true };
       }
       throw new RuntimeExecutionError({
         code: 'semantic_turn_violation',
@@ -249,15 +287,6 @@ async function generateUtterance(
         stopReason: 'error',
         hadPartialText: false,
       });
-    }
-    if (isFinalAttempt && verdict.kind === 'conversation_naturalness') {
-      const fallback = semanticTurnFallback(semanticControl);
-      if (fallback && validateUtteranceAgainstTurnPlan(fallback, semanticControl.plan).length === 0) {
-        tracer.emit('conversation_repair_fallback', { agent: speaker.type, reason: verdict.reason });
-        invokeDelivery('delta', opts.onDelta, [speaker.type, fallback]);
-        agentState.recentOpenings = recordOpening(fallback, agentState.recentOpenings);
-        return { type: speaker.type, speechType: speaker.speechType, text: fallback, regenerated: true };
-      }
     }
     if (isFinalAttempt) {
       throw new RuntimeExecutionError({
@@ -271,7 +300,10 @@ async function generateUtterance(
     if (semanticViolations.length > 0) {
       tracer.emit('semantic_turn_reject', {
         agent: speaker.type,
-        violations: semanticViolations,
+        actionType: semanticControl.plan.conversationAct,
+        attemptCount: attempt + 1,
+        blockingViolationCodes: semanticViolations.map(({ code }) => code),
+        qualityObservationCodes,
       });
       antiTemplateNote = `语义控制重写：${semanticViolations
         .map((violation) => violation.repairInstruction)
@@ -315,7 +347,13 @@ export async function runTurn(
   room.calledAgent = opts.calledAgent;
   room.history.push({ speaker: 'user', text: userMessage });
 
-  const decision = await runDirector(config.directorModel, room, userMessage, { budget: modelBudget, signal: opts.signal });
+  const decideTurn = dependencies.director ?? runDirector;
+  const decision = await decideTurn(
+    config.directorModel,
+    room,
+    userMessage,
+    { budget: modelBudget, signal: opts.signal },
+  );
   tracer.emit('director_decision', { decision });
 
   const plan = resolveTurnPlan(decision, room);

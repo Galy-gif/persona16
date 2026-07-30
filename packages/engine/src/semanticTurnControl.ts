@@ -6,6 +6,13 @@ import {
   type TurnActKind,
 } from './turnActPlan';
 import type { SafetyLevel } from './safety/safetyRouter';
+import {
+  analyzeHistoricalEvidence,
+  isHistoricalClaimSupported,
+  type EventTime,
+  type HistoricalClaim,
+} from './historicalEvidence';
+import type { AgentType } from './types';
 
 export type SemanticTurnAct =
   | 'acknowledge'
@@ -131,6 +138,36 @@ export interface SemanticTurnViolation {
   repairInstruction: string;
 }
 
+export type SemanticTurnBlockingViolationCode = Exclude<
+  SemanticTurnViolationCode,
+  'relationship_move_not_observable'
+>;
+
+export interface SemanticTurnBlockingViolation extends Omit<
+  SemanticTurnViolation,
+  'code'
+> {
+  code: SemanticTurnBlockingViolationCode;
+}
+
+export type SemanticTurnQualityObservationCode =
+  | 'relationship_move_not_observable'
+  | 'response_not_concise'
+  | 'user_wording_not_preserved'
+  | 'character_voice_weak';
+
+export interface SemanticTurnQualityObservation {
+  code: SemanticTurnQualityObservationCode;
+  evidenceSpan?: string;
+  effectId?: string;
+  observation: string;
+}
+
+export interface SemanticTurnValidationResult {
+  blockingViolations: SemanticTurnBlockingViolation[];
+  qualityObservations: SemanticTurnQualityObservation[];
+}
+
 export interface CompileSemanticTurnControlInput {
   userMessage: string;
   responseContract?: TurnResponseContract;
@@ -151,7 +188,7 @@ export const SEMANTIC_TURN_GENERATION_POLICY = Object.freeze({
   initialRespondTemperature: 1.25,
   initialConstrainedTemperature: 0.7,
   retryTemperature: 0.2,
-  retryPolicyVersion: 'engine-semantic-retry-v0.7-low-temp',
+  retryPolicyVersion: 'engine-semantic-retry-v0.8-blocking-only',
 });
 
 export function semanticTurnGenerationTemperature(
@@ -171,32 +208,430 @@ export function semanticTurnGenerationTemperature(
   return SEMANTIC_TURN_GENERATION_POLICY.retryTemperature;
 }
 
+type HistoricalReferenceTime = 'yesterday' | 'last_time';
+export type HistoricalEvidenceTime = HistoricalReferenceTime | 'today';
+
+interface HistoricalEvidenceUnit {
+  text: string;
+  terminator: string;
+  sentenceIndex: number;
+}
+
+interface PastUserSpeechEvidence {
+  time: HistoricalReferenceTime;
+  modifiers: string;
+  speech: string;
+  content: string;
+}
+
+type PastPersonaActionCategory = 'advice' | 'intervene' | 'arrange';
+
+interface PastPersonaActionEvidence {
+  time?: HistoricalEvidenceTime;
+  category: PastPersonaActionCategory;
+}
+
+export interface AffirmedHistoricalEvidenceClause {
+  text: string;
+  sentenceIndex: number;
+  time?: HistoricalEvidenceTime;
+}
+
+function normalizeHistoricalReferenceAliases(text: string): string {
+  return text
+    .replaceAll('昨日', '昨天')
+    .replaceAll('上一次', '上次')
+    .replaceAll('上回', '上次')
+    .replaceAll('在昨天', '昨天');
+}
+
+function historicalReferenceTime(text: string): HistoricalReferenceTime | undefined {
+  const normalized = normalizeHistoricalReferenceAliases(text);
+  if (/(?:不是|并非|不在)(?:昨天|上次)|(?:昨天|上次)(?:以前|之前|之后)/u
+    .test(normalized)) return undefined;
+  if (normalized.includes('昨天')) return 'yesterday';
+  if (normalized.includes('上次')) return 'last_time';
+  return undefined;
+}
+
+function anchoredHistoricalEvidenceTime(
+  text: string,
+): HistoricalEvidenceTime | undefined {
+  const normalized = normalizeHistoricalReferenceAliases(text)
+    .replace(/\s+/gu, '');
+  const match = normalized.match(
+    /^(?:(?:我|用户|你|人物)(昨天|上次|今天)|(昨天|上次|今天)(?:我|用户|你|人物)?)/u,
+  );
+  const marker = match?.[1] ?? match?.[2];
+  if (!marker
+    || /^(?:昨天|上次)(?:以前|之前|之后)/u.test(normalized)
+    || /^(?:我|用户|你|人物)?(?:不是|并非|不在)(?:昨天|上次)/u
+      .test(normalized)) return undefined;
+  return marker === '昨天'
+    ? 'yesterday'
+    : marker === '上次'
+      ? 'last_time'
+      : 'today';
+}
+
+function historicalEvidenceUnits(span: string): HistoricalEvidenceUnit[] {
+  const normalized = normalizeHistoricalReferenceAliases(span);
+  const units: HistoricalEvidenceUnit[] = [];
+  let sentenceIndex = 0;
+  for (const match of normalized.matchAll(
+    /([^，,。！？!?\n；;]+)([，,。！？!?；;\n]|$)/gu,
+  )) {
+    const body = match[1]?.trim() ?? '';
+    const terminator = match[2] ?? '';
+    if (!body) continue;
+    const parts = body
+      .split(/(?<!不)(?:不过|可是|然而|然后|但)/u)
+      .map((part) => part.trim())
+      .filter(Boolean);
+    parts.forEach((part, index) => {
+      units.push({
+        text: part,
+        terminator: index === parts.length - 1 ? terminator : '',
+        sentenceIndex,
+      });
+    });
+    if (/[。！？!?\n]/u.test(terminator)) sentenceIndex += 1;
+  }
+  return units;
+}
+
+function historicalEvidenceUnitIsQuestion(unit: HistoricalEvidenceUnit): boolean {
+  return /[？?]/u.test(unit.terminator)
+    || /(?:哪有|何时|什么时候|是否|有没有|说没说|难道|究竟|到底).{0,16}(?:说|清楚)|(?:说|清楚).{0,8}吗$/u
+      .test(unit.text);
+}
+
+function historicalEvidenceUnitIsConditional(unit: HistoricalEvidenceUnit): boolean {
+  return /^(?:如果|假如|要是|假设|除非|若是|倘若|假若|要不是|若|假使|倘使|如若|就算|即使|哪怕|万一)/u.test(unit.text)
+    || /的话(?:就|才|你|我|他|她|$)/u.test(unit.text)
+    || /才怪$/u.test(unit.text);
+}
+
+function historicalEvidenceUnitIsConfirmationQuestion(
+  unit: HistoricalEvidenceUnit,
+): boolean {
+  return /^(?:对吗|是吗|没错吧|对不对|是不是)$/u.test(unit.text);
+}
+
+function historicalEvidenceUnitIsUncertaintyQualifier(
+  unit: HistoricalEvidenceUnit,
+): boolean {
+  return /^(?:(?:(?:如果|要是|假如|假设|前提是|只要)(?:我)?(?:没(?:有)?|没能)记错(?:的话)?|(?:我)?没记错的话|除非我记错了)|(?:我)?记得没错的话|(?:也许|可能|没准|恐怕)?我记错了|我也不敢确定|还是没有|是还是不是|应该吧|也许吧|大概吧|可能吧|不一定吧|没准吧|(?:也许)?我(?:也许|可能|大概|也|也不)?说不准)$/u
+    .test(unit.text.replace(/\s+/gu, ''));
+}
+
+function historicalEvidenceUnitIsForwardUncertaintyQualifier(
+  unit: HistoricalEvidenceUnit,
+): boolean {
+  return historicalEvidenceUnitIsUncertaintyQualifier(unit)
+    && /记错|记得没错|说不准|不敢确定/u.test(unit.text);
+}
+
+function historicalTopicMatchesPrior(topic: string, priorText: string): boolean {
+  const normalizedTopic = topic.replace(/\s+/gu, '');
+  const normalizedPrior = priorText.replace(/\s+/gu, '');
+  const isBoundaryTopic = /边界|界限|只想被听见|建议|分析/u
+    .test(normalizedTopic);
+  const priorIsBoundaryStatement = /只想被听见|只想(?:让)?你?听|不要(?:再)?(?:给我)?(?:方案|建议)|不想听(?:建议|分析)|边界|界限/u
+    .test(normalizedPrior);
+  return normalizedPrior.includes(normalizedTopic)
+    || normalizedTopic.includes(normalizedPrior)
+    || (isBoundaryTopic && priorIsBoundaryStatement);
+}
+
+function historicalEvidenceUnitHasNonFactualSpeechPrefix(
+  unit: HistoricalEvidenceUnit,
+): boolean {
+  const speechIndex = unit.text.search(/说得|说|讲|告诉|表示|表达|强调|开口/u);
+  if (speechIndex < 0) return false;
+  const prefix = unit.text.slice(0, speechIndex);
+  return /(?:可能|也许|或许|大概|好像|似乎|不确定|记不清|说不准|以为|自以为|想|准备|打算|计划|试图|差点|本来|假装|梦见|听到|听见|听(?:你|他|她|人物)|看到|看见|转述|引用|复述|从未|未曾|不曾|并未|没(?:有)?|(?:选择|决定)?不|拒绝|避免|闭口|否认)/u
+    .test(prefix);
+}
+
+function historicalEvidenceUnitHasNonFactualAction(
+  unit: HistoricalEvidenceUnit,
+): boolean {
+  return /(?:本来)?(?:想|准备|打算|计划|试图|差点|可能|也许|或许|假装).{0,18}(?:(?:替|给|帮)(?:我|你).{0,8}(?:安排|拆|找|推)|(?:安排|介入|干预|插手|越过|越界|踩过))/u
+    .test(unit.text);
+}
+
+function historicalEvidenceUnitRetractsPriorSpeech(
+  unit: HistoricalEvidenceUnit,
+  priorText: string,
+): boolean {
+  const text = unit.text.replace(/\s+/gu, '');
+  const normalizedPrior = priorText.replace(/\s+/gu, '');
+  if (historicalEvidenceUnitIsConditional(unit)
+    && !historicalEvidenceUnitIsUncertaintyQualifier(unit)) return false;
+  const statedTopic = text.match(
+    /关于(.{1,16}?)(?:的)?(?:那|这)?(?:句话|话|说法|表达)/u,
+  )?.[1]
+    ?? text.match(/把(?:那|这)句(.{1,16}?)(?:的)?话.{0,12}(?:撤回|收回)/u)?.[1]
+    ?? text.match(/把(?:昨天|上次)?说(.{1,16}?)(?:的)?(?:那|这)句话.{0,12}(?:撤回|收回)/u)?.[1]
+    ?? text.match(/(?:否认|撤回|收回).{0,4}(.{1,16}?)(?:的)?(?:说法|表达)/u)?.[1];
+  if (statedTopic && !historicalTopicMatchesPrior(statedTopic, normalizedPrior)) {
+    return false;
+  }
+  if (/(?:从未|未曾|不曾).{0,20}(?:说出口|说|讲|告诉|表示|表达|强调|开口)/u
+    .test(text)
+    || /^(?:(?:(?:后来(?:才)?发现|结果(?:才)?发现|其实)?(?:那|这))|其实)?(?:并)?(?:不是|并非)(?:我|用户)(?:说|讲|表达)?(?:的)?$/u
+      .test(text)
+    || /^(?:其实)?是(?:你|他|她|人物).{0,5}说的/u.test(text)
+    || /^(?:后来|之后|现在)?(?:我)?(?:把)?(?:这|那|前面|刚才)?(?:句话|话|说法|表达)?(?:给)?(?:撤回|收回|改口|否认)(?:了|过|掉)?$/u
+      .test(text)
+    || /^(?:现在想想|回头想想|后来(?:才)?发现|结果)?(?:我)?(?:其实)?(?:也)?(?:可能)?(?:并)?(?:没有|没|不算|不是|并非)$/u
+      .test(text)
+    || /(?:否认|撤回|收回|改口).{0,8}(?:说过|这话|那话|说法|表达)/u
+      .test(text)
+    || /(?:撤回|收回|否认).{0,20}(?:这|那|关于).{0,16}(?:话|说法|表达)|(?:这|那|关于).{0,20}(?:话|说法|表达).{0,12}(?:撤回|收回|否认)/u
+      .test(text)
+    || /(?:说)?(?:这|那)句话(?:已经)?不算数|不认(?:这|那)句话/u.test(text)
+    || /(?:推翻|作废).{0,12}(?:前面|这|那).{0,8}(?:说法|话|句)|(?:说)?前面(?:的)?那句(?:话)?不作数/u
+      .test(text)
+    || /^(?:后来|之后|现在)?我?(?:改口|纠正|更正)?(?:说|表示)?(?:我|自己)?(?:其实)?(?:并)?(?:不是|没有|没)(?:这个|那个|这|那)意思(?:了)?$/u
+      .test(text)
+    || /^(?:假设|如果|要是|假如)?我(?:没(?:有)?|没能)记错/u.test(text)
+    || /才怪$/u.test(text)) return true;
+  const specificDenial = text.match(
+    /(?:并未|没(?:有)?)(?:再)?[^，,。！？!?\n；;]{0,20}?(?:说出口|说|讲|告诉|表示|表达|强调|开口)(?:了|过)?(.*)$/u,
+  );
+  if (!specificDenial) return false;
+  const deniedContent = (specificDenial[1] ?? '')
+    .replace(/^(?:出来|清楚地?|明白|完整地?)/u, '')
+    .replace(
+    /^(?:这|那|这些|那些|这件|那件)(?:事|话)?$/u,
+    '',
+  );
+  if (!deniedContent || /^(?:这么|这样|清楚)$/u.test(deniedContent)) return true;
+  return normalizedPrior.includes(deniedContent)
+    || deniedContent.includes(normalizedPrior);
+}
+
+function laterHistoricalUnitRetractsPriorSpeech(
+  units: readonly HistoricalEvidenceUnit[],
+  priorText: string,
+  laterIndex: number,
+): boolean {
+  const laterUnit = units[laterIndex];
+  if (!laterUnit
+    || !historicalEvidenceUnitRetractsPriorSpeech(laterUnit, priorText)) {
+    return false;
+  }
+  const clarification = units[laterIndex + 1];
+  if (clarification?.sentenceIndex === laterUnit.sentenceIndex) {
+    const clarifiedTopic = clarification.text.match(
+      /^(?:我)?(?:指的是|说的是|撤回的是|收回的是)(.+)$/u,
+    )?.[1];
+    if (clarifiedTopic
+      && !historicalTopicMatchesPrior(clarifiedTopic, priorText)) return false;
+  }
+  return true;
+}
+
+export function affirmedHistoricalEvidenceClauseRecords(
+  span: string,
+): AffirmedHistoricalEvidenceClause[] {
+  const units = historicalEvidenceUnits(span);
+  const affirmedUnits = units.filter((unit, index) => (
+      !historicalEvidenceUnitIsQuestion(unit)
+      && !historicalEvidenceUnitIsConditional(unit)
+      && !historicalEvidenceUnitIsUncertaintyQualifier(unit)
+      && !historicalEvidenceUnitHasNonFactualSpeechPrefix(unit)
+      && !historicalEvidenceUnitHasNonFactualAction(unit)
+      && !historicalEvidenceUnitRetractsPriorSpeech(unit, unit.text)
+      && !(
+        index > 0
+        && units[index - 1]?.sentenceIndex === unit.sentenceIndex
+        && historicalEvidenceUnitIsForwardUncertaintyQualifier(units[index - 1]!)
+      )
+      && !units.slice(index + 1).some((laterUnit, laterOffset) => (
+        laterHistoricalUnitRetractsPriorSpeech(
+          units,
+          unit.text,
+          index + laterOffset + 1,
+        )
+        || (
+          laterOffset === 0
+          && laterUnit.sentenceIndex === unit.sentenceIndex
+          && historicalEvidenceUnitIsUncertaintyQualifier(laterUnit)
+        )
+        || (
+          laterOffset === 0
+          && laterUnit.sentenceIndex === unit.sentenceIndex
+          && historicalEvidenceUnitIsConfirmationQuestion(laterUnit)
+        )
+      ))
+    ));
+  return affirmedUnits.map((unit) => {
+    const unitIndex = units.indexOf(unit);
+    const explicitTime = anchoredHistoricalEvidenceTime(unit.text);
+    const inheritedTimeUnit = units
+      .slice(0, unitIndex)
+      .reverse()
+      .find((candidate) => (
+        candidate.sentenceIndex === unit.sentenceIndex
+        && anchoredHistoricalEvidenceTime(candidate.text) !== undefined
+      ));
+    const time = explicitTime ?? (
+      inheritedTimeUnit
+        ? anchoredHistoricalEvidenceTime(inheritedTimeUnit.text)
+        : undefined
+    );
+    return {
+      text: unit.text,
+      sentenceIndex: unit.sentenceIndex,
+      ...(time ? { time } : {}),
+    };
+  });
+}
+
+export function affirmedHistoricalEvidenceClauses(span: string): string[] {
+  return affirmedHistoricalEvidenceClauseRecords(span).map(({ text }) => text);
+}
+
+const USER_SPEECH_MODIFIER_PREFIX = /^(?:(?:明明|明确地?|很明确地?|非常明确地?|十分明确地?|清楚地?|很清楚地?|清清楚楚地|亲口|其实|早就|是真的|当时|确实|已经|也|还|就|都|曾经|又|再次|直接|反复|认真|郑重|跟你|对你|向你)){0,12}$/u;
+
+function parsePastUserSpeechEvidence(
+  evidence: AffirmedHistoricalEvidenceClause,
+): PastUserSpeechEvidence | undefined {
+  if (evidence.time !== 'yesterday' && evidence.time !== 'last_time') {
+    return undefined;
+  }
+  const normalized = normalizeHistoricalReferenceAliases(evidence.text)
+    .replace(/\s+/gu, '');
+  if (/^(?:(?:昨天|上次))?(?:你|人物|他|她)/u.test(normalized)) {
+    return undefined;
+  }
+  const remainder = normalized
+    .replace(/^(?:我|用户)(?:昨天|上次)?/u, '')
+    .replace(/^(?:昨天|上次)(?:我|用户)?/u, '');
+  const statement = remainder.match(
+    /^(.{0,28}?)(说得(?:很)?清楚|说清楚了|说(?:了|过)?|讲(?:了|过)?|告诉(?:了|过)?你?(?:了)?|表示(?:了|过)?|强调(?:了|过)?)(.*)$/u,
+  );
+  if (!statement) return undefined;
+  const modifiers = statement[1] ?? '';
+  const content = statement[3] ?? '';
+  if (!USER_SPEECH_MODIFIER_PREFIX.test(modifiers)
+    || /(?:听|听到|听见|看到|看见|知道)(?:你|人物|他|她)/u
+    .test(modifiers)
+    || /(?:想|准备|打算|计划|试图|差点|假装|梦见|否认|拒绝|避免|闭口|(?:选择|决定)?不)$/u
+      .test(modifiers)
+    || /的(?:人)?(?:是|不是|并非)[\p{Script=Han}\p{Letter}]{1,12}$/u
+      .test(content)) {
+    return undefined;
+  }
+  return {
+    time: evidence.time,
+    modifiers,
+    speech: statement[2] ?? '',
+    content,
+  };
+}
+
+function parseCurrentUserSpeechContent(clause: string): string | undefined {
+  const statement = clause.match(
+    /^(?:我|用户)((?:(?:明明|很明确地?|非常明确地?|明确地?|确实|已经|也|还|就|都|又|再次|亲口|清楚地|跟你|对你|向你)){0,8})(?:说得(?:很)?清楚|说清楚了|说(?:了|过)?|讲(?:了|过)?|告诉(?:了|过)?你?(?:了)?|表示(?:了|过)?|强调(?:了|过)?)(.*)$/u,
+  );
+  return statement?.[2];
+}
+
+function parsePastPersonaActionEvidence(
+  evidence: AffirmedHistoricalEvidenceClause,
+): PastPersonaActionEvidence | undefined {
+  const normalized = normalizeHistoricalReferenceAliases(evidence.text);
+  const anchored = normalized.match(
+    /^(?:(?:你|人物)(昨天|上次|今天)?|(昨天|上次|今天)(?:你|人物))(.*)$/u,
+  );
+  if (!anchored) return undefined;
+  const explicitTimeText = anchored[1] ?? anchored[2];
+  const time = explicitTimeText === '今天'
+    ? 'today'
+    : explicitTimeText === '昨天'
+      ? 'yesterday'
+      : explicitTimeText === '上次'
+        ? 'last_time'
+        : evidence.time;
+  const remainder = anchored[3] ?? '';
+  const action = remainder.match(
+    /^(?:(?:还是|一直到今天|一直|还|仍然|依旧|仍|却|也|又|继续|接着|已经|明摆着|明明|确实|真的|其实|当时|后来|直接|曾经|最终|结果|最后|索性|干脆|居然|竟然|甚至|擅自|硬是|都|在)){0,16}((?:替|给|帮)我.{0,8}(?:安排|拆|找|推)(?:了)?(?:下一步|后续)?|(?:给(?:了|过)?|向|对)我.{0,8}(?:建议|方案)|建议(?:了|过)?我.{0,12}|(?:跟我)?说(?:了|过)?(?:我)?(?:可以|最好|应该|不妨).{0,18}|告诉(?:了|过)?我(?:我)?(?:可以|最好|应该|不妨).{0,18}|(?:继续)?(?:介入|干预|插手)|(?:越过|越界|踩过)(?:了)?(?:边界|线)?|往下(?:推|安排))/u,
+  );
+  if (!action
+    || /(?:没(?:有)?|并未|未曾|不曾|从未|不).{0,10}(?:安排|拆|找|推|建议|方案|介入|干预|插手|越过|越界|踩过)/u
+      .test(remainder)) return undefined;
+  const actionText = action[1] ?? '';
+  const category: PastPersonaActionCategory = /(?:建议|方案)/u.test(actionText)
+    ? 'advice'
+    : /(?:介入|干预|插手|越过|越界|踩过)/u.test(actionText)
+      ? 'intervene'
+      : 'arrange';
+  return { ...(time ? { time } : {}), category };
+}
+
+type BoundaryStatementCategory = 'listen' | 'advice' | 'analysis';
+
+function supportsUserBoundaryCategory(
+  category: BoundaryStatementCategory,
+  value: string,
+  allowImplicitUserSubject: boolean,
+): boolean {
+  const pattern = category === 'listen'
+    ? /只想被听见|只想(?:让)?(?:你)?听(?:我说)?|(?:你就|先|只)(?:听|听我说)/u
+    : category === 'advice'
+      ? /不要(?:再)?(?:给我)?(?:方案|建议)|别(?:再)?(?:给我)?(?:方案|建议)|不想听建议/u
+      : /不想听分析|不要(?:再)?分析|别(?:再)?分析/u;
+  const match = value.match(pattern);
+  if (!match) return false;
+  const prefix = value
+    .slice(0, match.index ?? 0)
+    .replace(/^[\s“”"'‘’、，,：:]+|[\s“”"'‘’、，,：:]+$/gu, '');
+  if (/(?:不是|并不是|并非|不只是|并不只|没有|没|不)$/u.test(prefix)) {
+    return false;
+  }
+  const allowedPrefix = /^(?:(?:这次|现在|当时|在这件事上|关于这件事)(?:我|用户)?|(?:我|用户)(?:(?:明确|就是|只是|已经|真的|就|现在|当时)){0,4})?$/u;
+  if (!allowedPrefix.test(prefix)) return false;
+  return allowImplicitUserSubject || /(?:我|用户)/u.test(prefix);
+}
+
+function clearPastSpeechIsExplicit(evidence: PastUserSpeechEvidence): boolean {
+  return /(?:明明|明确|亲口|清楚)/u.test(
+    `${evidence.modifiers}${evidence.speech}`,
+  )
+    || supportsUserBoundaryCategory('listen', evidence.content, true)
+    || supportsUserBoundaryCategory('advice', evidence.content, true)
+    || supportsUserBoundaryCategory('analysis', evidence.content, true);
+}
+
 export function hasSourcedClearPastUserStatement(
   reference: string,
   allowedEvidenceSpans: readonly string[],
 ): boolean {
-  const time = reference.includes('昨天')
-    ? '昨天'
-    : reference.includes('上次')
-      ? '上次'
-      : undefined;
+  const time = historicalReferenceTime(reference);
   if (!time) return false;
+  const expectedTime: EventTime = {
+    kind: 'point',
+    value: time,
+    origin: 'explicit',
+  };
   return allowedEvidenceSpans.some((span) => (
-    span
-      .split(/[，,。！？!?\n；;]|(?:但|不过|可是|而且|然后)/u)
-      .map((clause) => clause.trim())
-      .filter(Boolean)
-      .some((clause) => {
-        if (!clause.includes(time)) return false;
-        const clearStatement = clause.match(
-          /(?:我|用户).{0,8}(?:(?:明明|明确).{0,8}说(?:了|过)?|说得(?:很)?清楚)/u,
-        );
-        return Boolean(
-          clearStatement
-          && !/(?:没(?:有)?|并未|从未|不曾|未曾|未|并非|并?不是)[^，,。！？!?\n；;]{0,10}说/u
-            .test(clearStatement[0]),
-        );
-      })
+    analyzeHistoricalEvidence(span, 'user_message').claims.some((claim) => (
+      claim.kind === 'speech'
+      && claim.actor === 'user'
+      && claim.attributedOwner === 'user'
+      && claim.factuality.mode === 'asserted'
+      && claim.factuality.retractedBy === undefined
+      && claim.eventTime.kind === 'point'
+      && claim.eventTime.value === expectedTime.value
+      && (
+        claim.boundaryCategory !== undefined
+        || /(?:明明|明确|亲口|清楚)/u.test(claim.source.text)
+      )
+    ))
   ));
 }
 
@@ -220,11 +655,14 @@ const FINISHED_SPEAKING = /(?:我)?说完了|就这些|大概就是这样|好了
 const CANCEL_PENDING_REQUEST = /不用(?:再)?(?:分析|给建议|一起想)了|(?:别|不要)(?:再)?(?:分析|给建议)了/u;
 const ADVICE_ACT = /建议|你可以|不妨|最好|你应该|不如|(?:你)?先(?:把|去|做|写|列|停|休息).{1,24}(?<!不)再/u;
 const NEGATED_ADVICE_MENTION = /(?:我)?(?:不(?:会|打算|准备|想|要|继续|急着|先)?|别)(?:再)?(?:给(?:你|我)?|提供|提)?(?:任何)?(?:建议|方案)/gu;
-const DIRECT_IMPERATIVE_ADVICE = /^(?:(?:你)?(?:先|马上|立刻)(?:把.{1,28}|去(?:做|选|找|问|休息|睡觉)|休息|睡觉|停一下|做|写|列|选|试)|(?:你)?(?:该|应该|得|必须)(?:先)?(?:休息|睡觉|停|做|去|把)|把.{1,28}(?:放下|停下|做完|删掉|搁下|关掉)|去(?:做|选|找|问|休息|睡觉)|直接(?:选|做|去|停|继续)|选.{1,24}|别再.{0,20}(?:浪费|纠结|继续|做)|继续(?:做|推进|坚持))/u;
+const NEGATED_ADVICE_OR_PLAN_ACTION = /(?:不听建议|不给方案|不再往前推|不再替你往前推)/gu;
+const PAST_ADVICE_REFERENCE = /^(?:(?:我)(?:在)?(?:昨天|昨日|上次|上一次|上回|刚才|之前|当时)|(?:昨天|昨日|上次|上一次|上回|刚才|之前|当时)(?:我))(?:(?:还|还是|一直|仍然|仍|却|也|又|继续|接着|已经|明明|确实|真的|其实|当时|后来|直接|曾经|最终|结果|最后|在)){0,10}(?:(?:(?:给(?:了|过)?|向|对)你).{0,10}(?:建议|方案)(?:了|过)?|建议(?:了|过)?你.{0,18}|(?:跟你)?说(?:了|过)?(?:你)?(?:可以|最好|应该|不妨).{0,18}|告诉(?:了|过)?你(?:你)?(?:可以|最好|应该|不妨).{0,18})[。！？!?]?$/u;
+const DIRECT_IMPERATIVE_ADVICE = /^(?:(?:你)?(?:先|马上|立刻)(?:把.{1,28}|去(?:做|选|找|问|休息|睡觉)|休息|睡觉|停一下|做|写|列|选|试)|(?:你)?(?:该|应该|得|必须)(?:先)?(?:休息|睡觉|停|做|去|把)|(?:你)?(?:休息|睡觉|停一下)(?:一下|一会儿|几天|一周)?吧|(?:你)?(?:辞职|离职|请假)(?:吧)?$|把.{1,28}(?:放下|停下|做完|删掉|搁下|关掉)|去(?:做|选|找|问|休息|睡觉)|直接(?:选|做|去|停|继续)|选.{1,24}|别再.{0,20}(?:浪费|纠结|继续|做)|继续(?:做|推进|坚持))/u;
 const PERMISSION_NOT_ADVICE = /^你可以(?:不回答|不说|拒绝|随时停|先不回答|先不说)/u;
 const ACKNOWLEDGEMENT_ACT = /(?:我(?:先)?听着|(?:我)?(?:就)?在这(?:儿|里)听(?:着)?|我在听|我听到了|我不(?:再)?(?:说|插嘴|分析|给建议)|听起来|你(?:已经)?说(?:了|过)|我(?:知道|明白)(?:你|，(?:这|刚才|现在|你))|你可以(?:不回答|不说)|(?:越过|跨过|踩过|踩了|越了).{0,12}(?:边界|线)|越界|我先停下来|我会停下来)/u;
 const REFLECTION_ACT = /(?:听起来|你(?:现在|已经|刚刚|一边|会觉得)|这(?:件事|种处境|一下))/u;
 const STOP_INTERVENING_ACT = /(?:现在(?:我|那我)(?:先|就)?停在这(?:里|儿)(?=[，,。！!；;\s]|$)|(?:(?:我|那我)?(?:先|会|就|现在)?(?:停|停下|停下来|收手)(?=[，,。！!；;\s]|$)|(?:我|那我)?(?:先|会|就|现在)?停止(?:(?:(?:继续)?(?:介入|干预|插手)|替你(?:安排(?:下一步|后续)?|决定|往下推)|给(?:你)?(?:建议|方案))|[，,。！!；;\s]|$)|(?:我|那我)?(?:先|会|就|现在)?停在这(?:里|儿)(?=[，,。！!；;\s]|$)|(?:我|那我)?(?:先|会|就|现在)?(?:不再|不继续|撤回|收回).{0,18}(?:替你(?:安排(?:下一步|后续)?|决定|往下推)|安排(?:下一步|后续)?|建议|方案|介入|干预|插手|往下(?:推|安排)?)|(?:我)?(?:现在)?把.{0,8}(?:安排|建议|方案).{0,4}(?:收回来|撤回)|不再替你.{0,12}(?:安排(?:下一步|后续)?|决定|往下推)))/u;
+const ADDITIONAL_STOP_INTERVENING_ACT = /(?:不再替你往前推(?:这一步)?|不替你(?:整理|安排)下一步|不再把.{0,12}重新变成.{0,18})/u;
 const PURE_STOP_INTERVENING_CLAUSE = new RegExp(`^(?:${STOP_INTERVENING_ACT.source})$`, 'u');
 const TERMINAL_BOUNDARY_REPAIR_CLOSURE = /^话就到这$/u;
 const CONCLUSION_ASSERTION = /(?:(?:我的)?(?:结论|判断)(?:是|：|:).{1,20}|我(?:认为|觉得).{1,20}(?:应该|更适合|更值得|不值得|不该|更像|未必|不一定|先|停|继续|选)|我更倾向(?:于)?(?:先|选|留|停|继续|放弃).{0,16}|在我看来[，,]?.{1,20}(?:应该|更适合|更值得|不值得|不该|更像|未必|不一定)|(?:先|可以先|暂时)(?:试|做|停|等|选|留|继续|放弃).{0,16}|(?:别|不要)(?:做|选|急|继续).{0,16})/u;
@@ -250,13 +688,13 @@ const SIMULATED_IRREVERSIBLE_ACTION = new RegExp(
 );
 const BOUNDARY_REPAIR_ACKNOWLEDGEMENT = /^(?:(?:(?:这次|刚才|那)?(?:确实|还是)?(?:是)?我|我(?:这次|刚才)?)?(?:确实|还是)?(?:越过|跨过|踩过|踩了|越了).{0,20}(?:边界|线)|(?:(?:这次|刚才|那|这)?(?:是)?我|我(?:这次|刚才)?)(?:确实|还是)?(?:的)?越界(?:了)?|(?:这个|这是|那是)?(?:一次)?越界(?:了)?|(?:你(?:昨天|上次|已经)?|(?:昨天|上次)你(?:明确)?)说(?:了|过)?.{0,24}(?:只想被听见|不要(?:方案|建议)|不想听(?:建议|分析))|我(?:听到|听见|知道)(?:了)?|(?:只想被听见|不要方案|不想听建议).{0,24}(?:我|还|却|仍然).{0,24}(?:安排(?:了)?(?:下一步|后续)?(?:了)?|建议|介入|往下(?:推|安排))|我(?:今天|现在)?(?:还|还是|却|仍然).{0,16}(?:替你|给你|帮你).{0,16}(?:安排(?:了)?(?:下一步|后续)?(?:了)?|建议|介入|往下(?:推|安排))|我没(?:听|尊重).{0,16}(?:你|边界))$/u;
 const BOUNDARY_REPAIR_SPECIFIC_ACKNOWLEDGEMENT = /^(?:(?:(?:这次|刚才|那)?(?:确实|还是)?(?:是)?我|我(?:这次|刚才)?)(?:确实|还是)?(?:越过|跨过|踩过|踩了|越了).{0,20}(?:你.{0,16}(?:边界|线)|[这那](?:条|个)(?:边界|线))|(?:(?:这次|刚才|那|这)?(?:是)?我|我(?:这次|刚才)?)(?:确实|还是)?(?:的)?越界(?:了)?|(?:只想被听见|不要方案|不想听建议).{0,24}(?:我|还|却|仍然).{0,24}(?:安排(?:了)?(?:下一步|后续)?(?:了)?|建议|介入|往下(?:推|安排))|我(?:今天|现在)?(?:还|还是|却|仍然).{0,16}(?:替你|给你|帮你).{0,16}(?:安排(?:了)?(?:下一步|后续)?(?:了)?|建议|介入|往下(?:推|安排))|我没(?:听|尊重).{0,16}(?:你|边界))$/u;
-const BOUNDARY_REPAIR_SPECIFIC_ACKNOWLEDGEMENT_SPAN = /(?:(?:我|这次|刚才|那).{0,12}(?:(?:越过|跨过|踩过|踩了|越了).{0,20}(?:你.{0,16}(?:边界|线)|[这那](?:条|个)(?:边界|线))|越界)|(?:只想被听见|不要方案|不想听建议).{0,24}(?:我|还|却|仍然).{0,24}(?:安排|建议|介入|往下(?:推|安排))|我(?:还|却|仍然).{0,16}(?:替你|给你|帮你).{0,16}(?:安排|建议|介入|往下(?:推|安排))|我没(?:听|尊重).{0,16}(?:你|边界))/u;
-const BOUNDARY_REPAIR_SOURCED_BOUNDARY_REFERENCE = /^(?:我(?:昨天|上次)在|(?:昨天|上次))?你(?:(?:昨天|上次)(?:明确)?|明确)?说(?:了|过)?.{0,12}(?:只想被听见|不要(?:方案|建议)|不想听(?:建议|分析))[”"’']?(?:之后)?$/u;
+const BOUNDARY_REPAIR_SPECIFIC_ACKNOWLEDGEMENT_SPAN = /(?:(?:我|这次|刚才|那).{0,12}(?:(?:越过|跨过|踩过|踩了|越了).{0,20}(?:你.{0,16}(?:边界|线)|[这那](?:条|个)(?:边界|线))|越界)|(?:只想被听见|不要方案|不想听建议).{0,24}(?:我|还|却|仍然).{0,24}(?:安排|建议|介入|往下(?:推|安排))|我(?:还|却|仍然).{0,16}(?:替你|给你|帮你).{0,16}(?:安排|建议|介入|往下(?:推|安排))|我没(?:听|尊重).{0,16}(?:你|边界)|我没停手.{0,24}(?:替你想|安排).{0,12}下一步)/u;
+const BOUNDARY_REPAIR_SOURCED_BOUNDARY_REFERENCE = /^(?:我(?:昨天|上次)在|(?:昨天|上次))?你(?:(?:昨天|上次)(?:明确)?|明确)?(?:已经)?说(?:了|过)?.{0,12}(?:只想被听见|不要(?:方案|建议)|不想听(?:建议|分析))[”"’']?(?:之后)?$/u;
 const BOUNDARY_REPAIR_INTERVENTION_ACKNOWLEDGEMENT = /^(?:我(?:昨天|今天|现在|刚才)?|那我)?(?:还|还是|却|仍然)?(?:继续|接着)?(?:在)?(?:(?:替|给|帮)你(?:拆|找|推|安排)(?:了)?(?:下一步|后续)(?:该)?(?:怎么走)?(?:了)?|给你(?:下一步|后续)(?:的)?安排|替你搭(?:了)?下一步该怎么做的架子)$/u;
 const BOUNDARY_REPAIR_PAST_SEQUENCED_INTERVENTION = /^我之后(?:还|还是|却|仍然)?(?:继续|接着)?(?:替|给|帮)你(?:拆|找|推|安排)(?:了)?(?:下一步|后续)(?:该)?(?:怎么走)?(?:了)?$/u;
 const BOUNDARY_REPAIR_RESPONSIBILITY_ACKNOWLEDGEMENT = /^(?:(?:这个|这是|那是|那就是)?(?:一次)?越界(?:了)?|(?:这|那)(?:一步|个[“"]?安排[”"]?)?(?:是)?我(?:越过|跨过)(?:去)?的|(?:我)?(?:越过|跨过|踩过|踩了|越了)(?:了)?(?:这|那)(?:条|个)?(?:边界|线))$/u;
 const BARE_BOUNDARY_LABEL = /^(?:这|那)(?:是|就是|算是)?(?:一次)?越界(?:了)?$/u;
-const BOUNDARY_REPAIR_DISCOURSE_MARKER = /^(?:对|嗯|是|抱歉|对不起|你说得对)$/u;
+const BOUNDARY_REPAIR_DISCOURSE_MARKER = /^(?:对|嗯|是|这次|抱歉|对不起|你说得对|你说的对)$/u;
 const BOUNDARY_REPAIR_VAGUE_SOURCED_REFERENCE = /^你(?:昨天|上次)(?:已经)?说得(?:很)?清楚$/u;
 const PERSONAL_OR_CLINICAL_INFERENCE = /(?:[\p{Script=Han}]{1,10}(?:症(?!结)|综合征|人格障碍)|(?:心理|精神|人格|依恋|创伤|情绪).{0,8}(?:疾病|障碍|问题|反应|模式|类型|倾向|表现|不健康|不(?:太|大|怎么)?正常|异常|病态)|[\p{Script=Han}]{0,8}(?:型人格|型依恋)|(?:抑郁|焦虑|躁郁|双相|边缘|逃避|回避|讨好|偏执|表演|控制|自恋|自我中心)(?:型|倾向|人格|的人)?|神经病|有点不(?:太|大|怎么)?正常|疯(?:了)?|变态|病态|很懒|懒惰|自私|虚伪|矫情|软弱|冷漠|有(?:心理|精神)?病)/gu;
 const NON_LISTENING_INTERPRETATION = /(?:根本|真正的问题|其实|说明|意味着|导致|归根结底|说到底|本质上|是在逃避|不肯|你缺的是|你需要|应该|必须)/u;
@@ -299,10 +737,13 @@ function findAdviceViolationSentence(text: string): string | undefined {
       .some((clause) => {
         const withoutNegatedAdvice = clause
           .replace(NEGATED_ADVICE_MENTION, '')
+          .replace(NEGATED_ADVICE_OR_PLAN_ACTION, '')
           .replace(/^[，,；;\s]+/u, '')
           .trim();
         if (!withoutNegatedAdvice) return false;
-        const stop = withoutNegatedAdvice.match(STOP_INTERVENING_ACT);
+        if (PAST_ADVICE_REFERENCE.test(withoutNegatedAdvice)) return false;
+        const stop = withoutNegatedAdvice.match(STOP_INTERVENING_ACT)
+          ?? withoutNegatedAdvice.match(ADDITIONAL_STOP_INTERVENING_ACT);
         const pureStop = Boolean(
           stop
           && (stop.index ?? 0) === 0
@@ -354,12 +795,20 @@ function affirmedCorrectionEvidence(
   fearDenied: boolean;
   actionlessnessDenied: boolean;
   cleanupPropositions: string[];
-  cleanupSubject: '所有人' | '别人' | '他' | '人';
+  cleanupSubject?: string;
+  cleanupBoundary?: string;
 } {
   let fearDenied = false;
   let actionlessnessDenied = false;
   const cleanupPropositions: string[] = [];
-  let cleanupSubject: '所有人' | '别人' | '他' | '人' = '人';
+  let cleanupSubject: string | undefined;
+  let cleanupBoundary: string | undefined;
+  const safeCleanupSubject = (value: string): string | undefined => {
+    const subject = value.trim().replace(/^(?:那个|那些|这个|这些)/u, '');
+    return /^[\p{Script=Han}A-Za-z0-9·_-]{1,12}$/u.test(subject)
+      ? subject
+      : undefined;
+  };
   const metaNegationBefore = (sentence: string, index: number): boolean => (
     /(?:没(?:有)?说|不是说|并非说|并不是说|并未(?:说|表示)|没有(?:说|表示)|不能说|别(?:再)?说|不要说|(?:别人|同事|他|她)说)[^。！？!?\n；;]{0,28}$/u
       .test(sentence.slice(0, index))
@@ -378,7 +827,8 @@ function affirmedCorrectionEvidence(
         fearDenied = false;
         actionlessnessDenied = false;
         cleanupPropositions.length = 0;
-        cleanupSubject = '人';
+        cleanupSubject = undefined;
+        cleanupBoundary = undefined;
         continue;
       }
       const directDenial = /(?:^|[；;])\s*我(?:既)?不是(?:害怕失败|怕失败|害怕|怕)[，,]\s*也不是(?:缺行动力|动不了|动不起来)(?=$|[，,；;])/u
@@ -396,10 +846,19 @@ function affirmedCorrectionEvidence(
           '',
         );
         cleanupPropositions.push(normalizeCorrectionEvidence(cleanupEvidence));
-        const subject = match[1] ?? match[2] ?? '';
-        if (/(?:所有人|大家)/u.test(subject)) cleanupSubject = '所有人';
-        else if (/别人/u.test(subject)) cleanupSubject = '别人';
-        else if (/他/u.test(subject)) cleanupSubject = '他';
+        const subject = safeCleanupSubject(match[1] ?? match[2] ?? '');
+        if (subject) {
+          cleanupSubject = subject;
+          cleanupBoundary = match[1]
+            ? `再替${subject}收尾`
+            : `再当${subject}的收尾人`;
+        } else if (/不想再当(?:那个)?(?:最后)?(?:收拾残局|收拾|收尾|兜底)(?:的人|人)/u
+          .test(cleanupEvidence)) {
+          const role = cleanupEvidence.match(
+            /不想(再当(?:那个)?(?:最后)?(?:收拾残局|收拾|收尾|兜底)(?:的人|人))/u,
+          )?.[1];
+          if (role) cleanupBoundary = role;
+        }
       }
     }
   }
@@ -408,6 +867,7 @@ function affirmedCorrectionEvidence(
     actionlessnessDenied,
     cleanupPropositions,
     cleanupSubject,
+    cleanupBoundary,
   };
 }
 
@@ -1396,7 +1856,7 @@ function hasUnsupportedPersonalAttribution(
 }
 
 function boundaryRepairUnits(text: string): string[] {
-  return text
+  return normalizeHistoricalReferenceAliases(text)
     .split(/[，,。！？；;\n]|(?:但|不过|可是|而且|然后|另外|只是)/u)
     .map((unit) => unit.trim())
     .filter(Boolean);
@@ -1409,6 +1869,7 @@ function isBoundaryRepairAcknowledgementUnit(
   return BOUNDARY_REPAIR_ACKNOWLEDGEMENT.test(unit)
     || BOUNDARY_REPAIR_SOURCED_BOUNDARY_REFERENCE.test(unit)
     || BOUNDARY_REPAIR_VAGUE_SOURCED_REFERENCE.test(unit)
+    || PAST_ADVICE_REFERENCE.test(unit)
     || BOUNDARY_REPAIR_INTERVENTION_ACKNOWLEDGEMENT.test(unit)
     || (pastBoundaryAnchored
       && BOUNDARY_REPAIR_PAST_SEQUENCED_INTERVENTION.test(unit))
@@ -1419,6 +1880,10 @@ function hasSpecificBoundaryRepairAcknowledgement(text: string): boolean {
   const units = boundaryRepairUnits(text);
   const pastBoundaryAnchored = /(?:昨天|上次).{0,32}(?:只想被听见|不要(?:方案|建议)|不想听(?:建议|分析))/u
     .test(text);
+  if (/我没停手[^。！？]{0,24}(?:替你想|安排)[^。！？]{0,12}下一步/u
+    .test(text)) {
+    return true;
+  }
   if (units.some((unit) => (
     !BARE_BOUNDARY_LABEL.test(unit)
     && (
@@ -1427,7 +1892,8 @@ function hasSpecificBoundaryRepairAcknowledgement(text: string): boolean {
     )
   ))) return true;
   return units.some((unit) => (
-    BOUNDARY_REPAIR_INTERVENTION_ACKNOWLEDGEMENT.test(unit)
+    PAST_ADVICE_REFERENCE.test(unit)
+    || BOUNDARY_REPAIR_INTERVENTION_ACKNOWLEDGEMENT.test(unit)
     || (pastBoundaryAnchored
       && BOUNDARY_REPAIR_PAST_SEQUENCED_INTERVENTION.test(unit))
   ))
@@ -1440,8 +1906,15 @@ function findDisallowedBoundaryRepairUnit(text: string): string | undefined {
   return boundaryRepairUnits(text).find((unit) => {
     if (BOUNDARY_REPAIR_DISCOURSE_MARKER.test(unit)) return false;
     if (TERMINAL_BOUNDARY_REPAIR_CLOSURE.test(unit)) return false;
-    const stop = unit.match(STOP_INTERVENING_ACT);
-    if (!stop) return !isBoundaryRepairAcknowledgementUnit(unit, pastBoundaryAnchored);
+    const stop = unit.match(STOP_INTERVENING_ACT)
+      ?? unit.match(ADDITIONAL_STOP_INTERVENING_ACT);
+    if (!stop) {
+      if (isBoundaryRepairAcknowledgementUnit(unit, pastBoundaryAnchored)) {
+        return false;
+      }
+      return /(?:等你|等到你|一直等你|以后|之后|下次|随时|有需要|需要的时候|再来找我|准备好|还会在|我还在|我们再|再继续|重新开始|希望你|别难过|由你决定|你来决定)/u
+        .test(unit);
+    }
     const stopEnd = (stop.index ?? 0) + stop[0].length;
     if (stopEnd !== unit.length) return true;
     const prefix = unit.slice(0, stop.index ?? 0).trim();
@@ -1457,62 +1930,60 @@ function findUnsupportedBoundaryHistoryReference(
   text: string,
   allowedEvidenceSpans: readonly string[],
 ): string | undefined {
+  const sourceClaims = allowedEvidenceSpans.flatMap((span) => (
+    analyzeHistoricalEvidence(span, 'user_message').claims
+  ));
   for (const reference of text.matchAll(
-    /你(?:昨天|上次)(?:已经)?说得(?:很)?清楚/gu,
+    /你(?:在)?(?:昨天|昨日|上次|上一次|上回)(?:已经)?说得(?:很)?清楚/gu,
   )) {
     const value = reference[0];
     if (!hasSourcedClearPastUserStatement(value, allowedEvidenceSpans)) return value;
   }
   const boundaryPattern = /只想被听见|只想(?:让)?(?:你)?听(?:我说)?|不要(?:再)?(?:给我)?(?:方案|建议)|别(?:再)?(?:给我)?(?:方案|建议)|不想听(?:建议|分析)/gu;
-  const categoryFor = (boundary: string): 'listen' | 'advice' | 'analysis' => {
-    if (/分析/u.test(boundary)) return 'analysis';
-    if (/(?:方案|建议)/u.test(boundary)) return 'advice';
-    return 'listen';
+  const categoryFor = (boundary: string): {
+    category: BoundaryStatementCategory;
+    polarity: 'positive' | 'negative';
+  } => {
+    if (/分析/u.test(boundary)) {
+      return { category: 'analysis', polarity: 'negative' };
+    }
+    if (/(?:方案|建议)/u.test(boundary)) {
+      return { category: 'advice', polarity: 'negative' };
+    }
+    return { category: 'listen', polarity: 'positive' };
   };
-  const evidenceSupports = (
-    category: 'listen' | 'advice' | 'analysis',
-    time: '昨天' | '上次' | undefined,
-  ): boolean => allowedEvidenceSpans.some((span) => {
-    const supportsCategory = category === 'listen'
-      ? /只想被听见|只想(?:让)?(?:你)?听(?:我说)?|(?:你就|先|只)(?:听|听我说)/u.test(span)
-      : category === 'advice'
-        ? /不要(?:再)?(?:给我)?(?:方案|建议)|别(?:再)?(?:给我)?(?:方案|建议)|不想听建议/u.test(span)
-        : /不想听分析|不要(?:再)?分析|别(?:再)?分析/u.test(span);
-    return supportsCategory && (!time || span.includes(time));
-  });
   for (const boundary of text.matchAll(boundaryPattern)) {
     const index = boundary.index ?? 0;
     const localStart = Math.max(0, index - 48);
     const localEnd = Math.min(text.length, index + boundary[0].length + 24);
     const local = text.slice(localStart, localEnd);
-    const time = local.includes('昨天')
-      ? '昨天'
-      : local.includes('上次')
-        ? '上次'
-        : undefined;
-    if (!evidenceSupports(categoryFor(boundary[0]), time)) return local.trim();
+    const { category, polarity } = categoryFor(boundary[0]);
+    const supported = sourceClaims.some((claim) => (
+      claim.actor === 'user'
+      && claim.attributedOwner === 'user'
+      && claim.boundaryCategory === category
+      && claim.boundaryPolarity === polarity
+      && claim.factuality.mode === 'asserted'
+      && claim.factuality.retractedBy === undefined
+    ));
+    if (!supported) return local.trim();
   }
-  const pastPersonaActions = [...text.matchAll(
-    /(?:(?:我)(?:昨天|上次)|(?:昨天|上次)(?:我))[^。！？!?\n]{0,32}(?:替你(?:安排|拆|找|推)(?:了)?(?:下一步|后续)?|给你(?:建议|方案)|继续(?:介入|干预|插手)|越(?:过|界)|踩过(?:边界|线))/gu,
-  )];
-  for (const action of pastPersonaActions) {
-    const value = action[0];
-    const time = value.includes('昨天') ? '昨天' : '上次';
-    const category = /(?:建议|方案)/u.test(value)
-      ? 'advice'
-      : /(?:介入|干预|插手|越过|越界|踩过)/u.test(value)
-        ? 'intervene'
-        : 'arrange';
-    const sourced = allowedEvidenceSpans.some((span) => {
-      if (!span.includes(time)) return false;
-      if (category === 'advice') return /(?:建议|方案)/u.test(span);
-      if (category === 'intervene') {
-        return /(?:介入|干预|插手|越过|越界|踩过|边界|线)/u.test(span);
-      }
-      return /(?:替(?:我|你)?(?:安排|拆|找|推)|安排(?:了)?(?:下一步|后续)|往下(?:推|安排))/u
-        .test(span);
-    });
-    if (!sourced) return value;
+  const candidateClaims = analyzeHistoricalEvidence(text, 'persona_reply').claims;
+  for (const candidate of candidateClaims) {
+    const historical = candidate.eventTime.kind === 'point'
+      || candidate.eventTime.kind === 'habitual';
+    if (!historical
+      || candidate.factuality.mode !== 'asserted'
+      || candidate.factuality.retractedBy !== undefined) continue;
+    if (candidate.eventTime.kind === 'point'
+      && candidate.eventTime.value === 'recent'
+      && candidate.kind === 'directed_action'
+      && candidate.actionCategory === 'intervene') {
+      continue;
+    }
+    if (!isHistoricalClaimSupported(candidate, sourceClaims)) {
+      return candidate.source.text;
+    }
   }
   return undefined;
 }
@@ -1853,6 +2324,9 @@ export function compileSemanticTurnControl(
     ...effects.flatMap((effect) => effect.forbiddenActs),
     ...actsForbiddenByContract(input.responseContract),
     ...(isBoundaryRepair ? ['justify_intent' as const] : []),
+    ...(selectedRelationshipMove?.observableCue === 'avoid_advice'
+      ? ['advise' as const]
+      : []),
     ...(closedCorrectionRequired ? ['ask_directional' as const] : []),
     ...(frame.explicitDecisions.length > 0 ? ['reopen_decision' as const] : []),
   ]);
@@ -2042,6 +2516,11 @@ function hasDirectionalQuestionAct(sentence: string): boolean {
     /替你搭下一步该怎么做的架子/gu,
     '替你安排下一步',
   );
+  if (!/[？?]/u.test(actionDescription)
+    && /(?:我)?(?:没停手|还|还是|继续|接着).{0,12}替你想下一步(?:要|该)做什么/u
+      .test(actionDescription)) {
+    return false;
+  }
   const questionWord = /(?:谁|什么|哪(?:个|一|些|边|部分)?|怎么|为什么|多少|几|何时|哪里)/u;
   const declarativeUncertainty = new RegExp(
     `(?:不知道|不清楚|没想好|说不清|无法确定|不能确定)[^。！？!?\\n]{0,24}${questionWord.source}|${questionWord.source}[^。！？!?\\n]{0,20}(?:都)?(?:不知道|不清楚|没想好|说不清|无法确定|不能确定)`,
@@ -2156,7 +2635,7 @@ export function validateUtteranceAgainstTurnPlan(
   }
   if (plan.forbiddenActs.includes('justify_intent')) {
     const justification = sentences(text).find((sentence) => (
-      /(?:我只是想|我(?:原本|当时)?是想|我的本意|出发点|因为我.{0,8}(?:担心|想帮))/u.test(sentence)
+      /(?:我只是想|我(?:原本|当时)?是想|我的本意|出发点|因为我.{0,8}(?:担心|想帮)|我.{0,6}(?:是)?因为(?:担心|想帮))/u.test(sentence)
     ));
     if (justification) {
       violations.push({
@@ -2198,7 +2677,8 @@ export function validateUtteranceAgainstTurnPlan(
       .map((clause) => clause.trim())
       .filter(Boolean)
       .at(-1);
-    const finalStopMatch = finalClause?.match(STOP_INTERVENING_ACT);
+    const finalStopMatch = finalClause?.match(STOP_INTERVENING_ACT)
+      ?? finalClause?.match(ADDITIONAL_STOP_INTERVENING_ACT);
     const finalClauseIsOnlyStop = Boolean(
       finalClause
       && (
@@ -2209,7 +2689,8 @@ export function validateUtteranceAgainstTurnPlan(
         )
       ),
     );
-    const hasStopInterveningAct = STOP_INTERVENING_ACT.test(text);
+    const hasStopInterveningAct = STOP_INTERVENING_ACT.test(text)
+      || ADDITIONAL_STOP_INTERVENING_ACT.test(text);
     if (hasStopInterveningAct
       && (disallowedUnit || !finalClauseIsOnlyStop)
       && !violations.some(({ code }) => code === 'decision_reopened')) {
@@ -2232,7 +2713,10 @@ export function validateUtteranceAgainstTurnPlan(
   }
   if (plan.forbiddenActs.includes('assign_responsibility')) {
     const assignment = sentences(text).find((sentence) => (
-      /(?:让|由)(?:我|你|林衡|夏栩|周禾|许野).{0,10}(?:负责|承担).{0,8}(?:维护|回滚|收尾|交接)|(?:我|你|林衡|夏栩|周禾|许野)(?:来|会).{0,4}(?:负责|承担).{0,8}(?:维护|回滚|收尾|交接)/u.test(sentence)
+      !/(?:谁|何人).{0,8}(?:负责|承担)|(?:负责人|责任主体).{0,12}(?:尚未|还没|没有|未|待)(?:确认|确定|定)|(?:尚未|还没|没有|未|待)(?:确认|确定).{0,12}(?:负责人|责任主体)/u
+        .test(sentence)
+      && /(?:(?:让|由)[^，,。！？!?\n；;]{1,18}?(?:来)?(?:负责|承担)|(?:^|[，,；;])[^，,。！？!?\n；;]{1,18}?(?:来|将|会)?(?:负责|承担))[^，,。！？!?\n；;]{0,16}(?:维护|回滚|收尾|交接)/u
+        .test(sentence)
     ));
     if (assignment) {
       violations.push({
@@ -2243,9 +2727,10 @@ export function validateUtteranceAgainstTurnPlan(
     }
   }
   const evidenceText = plan.allowedEvidenceSpans.join('\n');
-  const unsupportedBoundaryHistory = plan.conversationAct === 'boundary_repair'
-    ? findUnsupportedBoundaryHistoryReference(text, plan.allowedEvidenceSpans)
-    : undefined;
+  const unsupportedBoundaryHistory = findUnsupportedBoundaryHistoryReference(
+    text,
+    plan.allowedEvidenceSpans,
+  );
   if (unsupportedBoundaryHistory) {
     violations.push({
       code: 'unsupported_shared_history',
@@ -2308,7 +2793,8 @@ export function validateUtteranceAgainstTurnPlan(
           plan.currentEvidenceSpans,
           plan.allowedEvidenceSpans,
         )
-      : !STOP_INTERVENING_ACT.test(text))
+      : !STOP_INTERVENING_ACT.test(text)
+        && !ADDITIONAL_STOP_INTERVENING_ACT.test(text))
     && !violations.some(({ code }) => code === 'required_semantic_move_missing')) {
     violations.push({
       code: 'required_semantic_move_missing',
@@ -2409,6 +2895,48 @@ export function validateUtteranceAgainstTurnPlan(
   return violations;
 }
 
+function qualityObservationCodeForPlan(
+  plan: SemanticTurnActPlan,
+): SemanticTurnQualityObservationCode {
+  if (plan.relationshipMove?.observableCue === 'concise_response') {
+    return 'response_not_concise';
+  }
+  if (plan.relationshipMove?.observableCue === 'honest_tentative_judgment'
+    && requiresClosedCorrection(plan.currentEvidenceSpans)) {
+    return 'user_wording_not_preserved';
+  }
+  return 'relationship_move_not_observable';
+}
+
+/**
+ * v0.8 delivery contract. Only `blockingViolations` may trigger a rewrite or
+ * fallback. Quality observations remain visible to traces and evaluation.
+ *
+ * `validateUtteranceAgainstTurnPlan` remains as a legacy diagnostic collector
+ * while callers migrate; it intentionally contains both classes of findings.
+ */
+export function validateSemanticTurnDelivery(
+  text: string,
+  plan: SemanticTurnActPlan,
+): SemanticTurnValidationResult {
+  const findings = validateUtteranceAgainstTurnPlan(text, plan);
+  const blockingViolations: SemanticTurnBlockingViolation[] = [];
+  const qualityObservations: SemanticTurnQualityObservation[] = [];
+  for (const finding of findings) {
+    if (finding.code === 'relationship_move_not_observable') {
+      qualityObservations.push({
+        code: qualityObservationCodeForPlan(plan),
+        ...(finding.evidenceSpan ? { evidenceSpan: finding.evidenceSpan } : {}),
+        ...(finding.effectId ? { effectId: finding.effectId } : {}),
+        observation: finding.repairInstruction,
+      });
+      continue;
+    }
+    blockingViolations.push(finding as SemanticTurnBlockingViolation);
+  }
+  return { blockingViolations, qualityObservations };
+}
+
 export function renderSemanticTurnActPlan(control: SemanticTurnControl): string {
   const { frame, plan } = control;
   const semanticRequirements = [
@@ -2448,7 +2976,188 @@ export function renderSemanticTurnActPlan(control: SemanticTurnControl): string 
   ].join('\n');
 }
 
-export function semanticTurnFallback(control: SemanticTurnControl): string | undefined {
+export type SemanticTurnFallbackKind =
+  | 'listen'
+  | 'boundary_repair'
+  | 'correction'
+  | 'neutral';
+
+export interface SemanticTurnFallbackContext {
+  agentType?: AgentType;
+  turnKey: string;
+  recentOpenings?: readonly string[];
+}
+
+export interface SemanticTurnFallbackResult {
+  text: string;
+  fallbackKind: SemanticTurnFallbackKind;
+  variantId: string;
+}
+
+interface CharacterFallbackVariant {
+  id: string;
+  text: (cleanupBoundary: string) => string;
+}
+
+const CHARACTERIZED_FALLBACKS: Partial<Record<
+  AgentType,
+  Record<'listen' | 'boundary_repair' | 'correction', readonly [
+    CharacterFallbackVariant,
+    CharacterFallbackVariant,
+  ]>
+>> = {
+  INTJ: {
+    listen: [
+      { id: 'intj-listen-v1', text: () => '我先听着。' },
+      { id: 'intj-listen-v2', text: () => '我在听。' },
+    ],
+    boundary_repair: [
+      { id: 'intj-boundary-v1', text: () => '我越界了。我现在停止介入。' },
+      { id: 'intj-boundary-v2', text: () => '这次是我越界。我收手。' },
+    ],
+    correction: [
+      {
+        id: 'intj-correction-v1',
+        text: (boundary) => `是我判断错了：你不是害怕失败，也不是缺行动力，只是不想${boundary}。`,
+      },
+      {
+        id: 'intj-correction-v2',
+        text: (boundary) => `我理解错了：不是害怕失败，也不是缺行动力；你是不想${boundary}。`,
+      },
+    ],
+  },
+  ENFP: {
+    listen: [
+      { id: 'enfp-listen-v1', text: () => '嗯，我听着。' },
+      { id: 'enfp-listen-v2', text: () => '我先在这儿听着。' },
+    ],
+    boundary_repair: [
+      { id: 'enfp-boundary-v1', text: () => '是我越界了。我先停，不再往下推。' },
+      { id: 'enfp-boundary-v2', text: () => '刚才是我越界了。我现在停。' },
+    ],
+    correction: [
+      {
+        id: 'enfp-correction-v1',
+        text: (boundary) => `好，我收回刚才的理解：你不是害怕失败，也不是缺行动力，只是不想${boundary}。`,
+      },
+      {
+        id: 'enfp-correction-v2',
+        text: (boundary) => `明白，是我听偏了：不是害怕失败，也不是缺行动力，是不想${boundary}。`,
+      },
+    ],
+  },
+  ISFJ: {
+    listen: [
+      { id: 'isfj-listen-v1', text: () => '我先在这里听着。' },
+      { id: 'isfj-listen-v2', text: () => '嗯，我在听。' },
+    ],
+    boundary_repair: [
+      { id: 'isfj-boundary-v1', text: () => '这次是我越界了。我先停，不再介入。' },
+      { id: 'isfj-boundary-v2', text: () => '我越界了。我现在不再替你安排。' },
+    ],
+    correction: [
+      {
+        id: 'isfj-correction-v1',
+        text: (boundary) => `是我没听准：你不是害怕失败，也不是缺行动力，只是不想${boundary}。`,
+      },
+      {
+        id: 'isfj-correction-v2',
+        text: (boundary) => `我理解错了。你不是害怕失败，也不是缺行动力；你只是不想${boundary}。`,
+      },
+    ],
+  },
+  ESTP: {
+    listen: [
+      { id: 'estp-listen-v1', text: () => '我听着。' },
+      { id: 'estp-listen-v2', text: () => '我听到了。' },
+    ],
+    boundary_repair: [
+      { id: 'estp-boundary-v1', text: () => '我越界了。我收手。' },
+      { id: 'estp-boundary-v2', text: () => '是我越界。我现在停。' },
+    ],
+    correction: [
+      {
+        id: 'estp-correction-v1',
+        text: (boundary) => `我说偏了：你不是害怕失败，也不是缺行动力，你就是不想${boundary}。`,
+      },
+      {
+        id: 'estp-correction-v2',
+        text: (boundary) => `对，是我理解错了。不是怕失败，也不是缺行动力，是不想${boundary}。`,
+      },
+    ],
+  },
+};
+
+function fallbackHash(value: string): number {
+  let hash = 2166136261;
+  for (const character of value) {
+    hash ^= character.codePointAt(0) ?? 0;
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function fallbackOpening(text: string): string {
+  return text.trim().replace(/\s+/gu, '').slice(0, 8);
+}
+
+function characterizedFallback(
+  kind: 'listen' | 'boundary_repair' | 'correction',
+  context: SemanticTurnFallbackContext,
+  cleanupBoundary: string,
+): SemanticTurnFallbackResult | undefined {
+  if (!context.agentType) return undefined;
+  const variants = CHARACTERIZED_FALLBACKS[context.agentType]?.[kind];
+  if (!variants) return undefined;
+  const preferredIndex = fallbackHash(
+    `${context.agentType}:${kind}:${context.turnKey}`,
+  ) % variants.length;
+  const ordered = [
+    variants[preferredIndex]!,
+    variants[(preferredIndex + 1) % variants.length]!,
+  ];
+  const recent = new Set(context.recentOpenings ?? []);
+  const selected = ordered.find((variant) => (
+    !recent.has(fallbackOpening(variant.text(cleanupBoundary)))
+  ));
+  if (!selected) return undefined;
+  return {
+    text: selected.text(cleanupBoundary),
+    fallbackKind: kind,
+    variantId: selected.id,
+  };
+}
+
+function hasCharacterizedFallback(
+  kind: 'listen' | 'boundary_repair' | 'correction',
+  agentType: AgentType | undefined,
+): boolean {
+  return Boolean(agentType && CHARACTERIZED_FALLBACKS[agentType]?.[kind]);
+}
+
+function neutralFallback(
+  text: string,
+  fallbackKind: SemanticTurnFallbackKind,
+  variantId: string,
+): SemanticTurnFallbackResult {
+  return { text, fallbackKind, variantId };
+}
+
+export function semanticTurnFallback(
+  control: SemanticTurnControl,
+  context: SemanticTurnFallbackContext,
+): SemanticTurnFallbackResult | undefined {
+  if (control.plan.conversationAct === 'boundary_repair') {
+    const characterized = characterizedFallback(
+      'boundary_repair',
+      context,
+      '所有人',
+    );
+    if (characterized) return characterized;
+    if (hasCharacterizedFallback('boundary_repair', context.agentType)) {
+      return undefined;
+    }
+  }
   const conversationFallback = conversationRepairFallback({
     kind: control.plan.conversationAct,
     instruction: '',
@@ -2457,35 +3166,80 @@ export function semanticTurnFallback(control: SemanticTurnControl): string | und
       ? { boundaryRepairSubject: control.plan.boundaryRepairSubject }
       : {}),
   });
-  if (conversationFallback) return conversationFallback;
+  if (conversationFallback) {
+    return neutralFallback(
+      conversationFallback,
+      control.plan.conversationAct === 'boundary_repair'
+        ? 'boundary_repair'
+        : 'neutral',
+      `neutral-${control.plan.conversationAct}-v1`,
+    );
+  }
   if (control.plan.interactionMode === 'listen') {
-    return '嗯，我听着。';
+    const characterized = characterizedFallback('listen', context, '所有人');
+    if (characterized) return characterized;
+    return hasCharacterizedFallback('listen', context.agentType)
+      ? undefined
+      : neutralFallback('嗯，我听着。', 'listen', 'neutral-listen-v1');
   }
   if (!control.plan.reopenDecisionAllowed
     && control.plan.semanticRequirements.acceptProjectEnd
     && control.plan.semanticRequirements.handleSelfJudgmentAfterEnd) {
-    return '那就结束。项目可以结束，但项目结束不等于你没能力。';
+    return neutralFallback(
+      '那就结束。项目可以结束，但项目结束不等于你没能力。',
+      'neutral',
+      'neutral-project-end-v1',
+    );
   }
   if (control.plan.semanticRequirements.acknowledgeImmediateDistress
     && control.plan.mustAddress.some((item) => CASH_CONSTRAINT.test(item))) {
-    return '再去一天已经让你很难受了。手上的钱，能撑多久的基本开支？';
+    return neutralFallback(
+      '再去一天已经让你很难受了。手上的钱，能撑多久的基本开支？',
+      'neutral',
+      'neutral-cash-v1',
+    );
   }
   if (control.plan.relationshipMove?.observableCue === 'reversible_small_experiment') {
-    return '先只选一边试一天，开始前写下退出条件；一天后再决定值不值得继续，随时可以停。';
+    return neutralFallback(
+      '先只选一边试一天，开始前写下退出条件；一天后再决定值不值得继续，随时可以停。',
+      'neutral',
+      'neutral-experiment-v1',
+    );
   }
   if (control.plan.relationshipMove?.observableCue === 'honest_tentative_judgment') {
     const correctionEvidence = affirmedCorrectionEvidence(
       control.plan.currentEvidenceSpans,
     );
     if (requiresClosedCorrection(control.plan.currentEvidenceSpans)) {
-      return `我理解错了：你不是害怕失败，也不是缺行动力，你只是不想再替${correctionEvidence.cleanupSubject}收尾。`;
+      if (!correctionEvidence.cleanupBoundary) return undefined;
+      const characterized = characterizedFallback(
+        'correction',
+        context,
+        correctionEvidence.cleanupBoundary,
+      );
+      if (characterized) return characterized;
+      return hasCharacterizedFallback('correction', context.agentType)
+        ? undefined
+        : neutralFallback(
+          `我理解错了：你不是害怕失败，也不是缺行动力，你只是不想${correctionEvidence.cleanupBoundary}。`,
+          'correction',
+          'neutral-correction-v1',
+        );
     }
     if (hasPersonaCertaintyBlameEvidence(control.plan.currentEvidenceSpans)) {
-      return '不，我不觉得你活该。你烦我当时那种笃定的样子，这没问题。';
+      return neutralFallback(
+        '不，我不觉得你活该。你烦我当时那种笃定的样子，这没问题。',
+        'neutral',
+        'neutral-judgment-v1',
+      );
     }
     if (hasFatigueEvidence(control.plan.currentEvidenceSpans)
       && hasStoppingEvidence(control.plan.currentEvidenceSpans)) {
-      return '我不觉得硬撑就是前进。';
+      return neutralFallback(
+        '我不觉得硬撑就是前进。',
+        'neutral',
+        'neutral-fatigue-v1',
+      );
     }
   }
   return undefined;

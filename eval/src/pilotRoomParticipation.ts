@@ -84,6 +84,12 @@ export interface PilotRoomEvidenceSource {
   text: string;
 }
 
+export function pilotRoomNarrativeEvidenceSpans(
+  userEvidence: PilotRoomEvidenceSource,
+): string[] {
+  return [userEvidence.text];
+}
+
 export type PilotRoomGeneratedMessage = Omit<PilotRoomMessage, 'id'>;
 
 export type PilotRoomInvalidIntentReason =

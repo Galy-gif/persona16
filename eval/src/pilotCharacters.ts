@@ -16,8 +16,6 @@ import {
   buildPilotRelationshipContext,
   buildPilotRoomContext,
   buildPilotSituationLens,
-  chatJson,
-  chatText,
   createRelationshipBranch,
   defaultConfig,
   findPilotNarrativeViolations,
@@ -35,7 +33,7 @@ import {
   compileSemanticTurnControl,
   semanticTurnGenerationTemperature,
   semanticTurnFallback,
-  validateUtteranceAgainstTurnPlan,
+  validateSemanticTurnDelivery,
 } from '@persona16/engine/semantic-turn-control';
 import { findScenarioCalibrationViolations } from './pilotCalibrationGuards';
 import { evaluateLiteralToneMarkerFrequency } from './pilotExpressionPatterns';
@@ -58,6 +56,12 @@ import {
 } from './relationshipEvidence';
 import { generateWithHardGate, judgeWhenScoreable } from './pilotHardGate';
 import {
+  evaluationModelTelemetrySnapshot,
+  measuredChatJson,
+  measuredChatText,
+  resetEvaluationModelTelemetry,
+} from './modelComparisonTelemetry';
+import {
   assemblePilotScenarioPrompt,
   buildPilotRetryPrompt,
 } from './pilotPromptAssembly';
@@ -69,6 +73,7 @@ import {
   inferUnassignedResponsibilityClaims,
   normalizeResponsibilityEvidenceSources,
   passesPilotRoomChemistryGate,
+  pilotRoomNarrativeEvidenceSpans,
   runPilotRoomParticipation,
   validatePilotRoomCaseExpectations,
   validateResponsibilityClaimDetails,
@@ -83,7 +88,9 @@ import {
 import {
   PILOT_CHARACTER_EVAL_PROTOCOL_VERSION,
   PILOT_PROMPT_ASSEMBLY_VERSION,
+  PILOT_ROOM_CASE_IDS,
   PILOT_ROOM_PARTICIPATION_VERSION,
+  PILOT_ROOM_RELEASE_CASES,
   PILOT_CHARACTER_SCENARIOS,
   RELATIONSHIP_PROBE,
   RELATIONSHIP_PROBE_RESPONSE_CONTRACT,
@@ -91,9 +98,16 @@ import {
   VERIFIED_METHOD_RESPONSE_CONTRACT,
   canReusePilotCharacterResults,
   evaluatePilotR2StopGate,
+  pilotDiagnosticCode,
   type PilotCharacterScenario,
 } from './pilotCharacterScenarios';
-import { JUDGE_MODEL, judge, saveArtifact } from './shared';
+import {
+  EVALUATION_CONTROL_PROVIDER,
+  JUDGE_MODEL,
+  JUDGE_PROVIDER,
+  judge,
+  saveArtifact,
+} from './shared';
 
 const PILOT_TYPES = ['INTJ', 'ENFP', 'ISFJ', 'ESTP'] as const satisfies readonly AgentType[];
 
@@ -103,6 +117,27 @@ const VERIFIED_METHOD_SELECTION = { focus: 'decision', maxEvidence: 4 } as const
 const PILOT_AGENT_GENERATION_POLICY = {
   maxTokens: 900,
 } as const;
+const CANDIDATE_SAMPLING_POLICY = process.env.PERSONA16_EVAL_SAMPLING_POLICY === 'provider_default'
+  ? 'provider_default'
+  : 'semantic_policy';
+const CANDIDATE_THINKING_MODE = 'disabled' as const;
+
+function candidateTextTemperature(
+  attempt: number,
+  conversationAct: Parameters<typeof semanticTurnGenerationTemperature>[1],
+): number | null {
+  return CANDIDATE_SAMPLING_POLICY === 'provider_default'
+    ? null
+    : semanticTurnGenerationTemperature(attempt, conversationAct);
+}
+
+function candidateJsonTemperature(): number | null {
+  return CANDIDATE_SAMPLING_POLICY === 'provider_default' ? null : 0;
+}
+
+function controlTemperature(): number | null {
+  return EVALUATION_CONTROL_PROVIDER === 'deepseek' ? 0 : null;
+}
 
 async function withRetry<T>(label: string, operation: () => Promise<T>, attempts = 3): Promise<T> {
   let lastError: unknown;
@@ -200,7 +235,7 @@ async function reply(agent: AgentType, scenario: Scenario) {
     semanticControl,
   );
   const basePrompt = assembledPrompt.prompt;
-  return generateWithHardGate({
+  const delivery = await generateWithHardGate({
     attempts: SEMANTIC_TURN_GENERATION_POLICY.attempts,
     generate: async (attempt, violations) => {
       // 评测与生产都只消费 Engine 编译出的同一动作计划及其
@@ -208,32 +243,55 @@ async function reply(agent: AgentType, scenario: Scenario) {
       const prompt = attempt === 0
         ? basePrompt
         : buildPilotRetryPrompt(basePrompt, violations);
-      return withRetry(`${character.name}/${scenario.id}/生成`, () => chatText({
+      return withRetry(`${character.name}/${scenario.id}/生成`, () => measuredChatText(
+        'candidate',
+        'character_reply',
+        {
+        provider: config.provider,
         model: config.agentModel,
         maxTokens: PILOT_AGENT_GENERATION_POLICY.maxTokens,
-        temperature: semanticTurnGenerationTemperature(
+        temperature: candidateTextTemperature(
           attempt,
           semanticControl.plan.conversationAct,
         ),
+        thinkingMode: CANDIDATE_THINKING_MODE,
         system: assembledPrompt.system,
         prompt,
       }));
     },
-    validate: (text) => [
-      ...findPilotNarrativeViolations(text, {
-        allowedEvidenceSpans: [
-          scenario.prompt,
-          ...relationshipPromptContext.evidence.map((evidence) => evidence.content),
+    validate: (text) => {
+      const semanticValidation = validateSemanticTurnDelivery(
+        text,
+        semanticControl.plan,
+      );
+      return {
+        blockingViolations: [
+          ...findPilotNarrativeViolations(text, {
+            allowedEvidenceSpans: [
+              scenario.prompt,
+              ...relationshipPromptContext.evidence.map((evidence) => evidence.content),
+            ],
+          }),
+          ...findPilotRoomProtocolViolations(text, character.name),
+          ...findScenarioCalibrationViolations(agent, scenario.id, text),
+          ...semanticValidation.blockingViolations.map((violation) => (
+            `semantic_turn:${violation.code}:${violation.repairInstruction}`
+          )),
         ],
-      }),
-      ...findPilotRoomProtocolViolations(text, character.name),
-      ...findScenarioCalibrationViolations(agent, scenario.id, text),
-      ...validateUtteranceAgainstTurnPlan(text, semanticControl.plan).map((violation) => (
-        `semantic_turn:${violation.code}:${violation.repairInstruction}`
-      )),
-    ],
-    fallback: () => semanticTurnFallback(semanticControl),
+        qualityObservations: semanticValidation.qualityObservations.map((observation) => (
+          `semantic_quality:${observation.code}:${observation.observation}`
+        )),
+      };
+    },
+    fallback: () => semanticTurnFallback(semanticControl, {
+      agentType: agent,
+      turnKey: `${agent}:${scenario.id}`,
+    }),
   });
+  return {
+    actionType: semanticControl.plan.conversationAct,
+    ...delivery,
+  };
 }
 
 function semanticScenarioSchema(scenarioId: PilotSemanticScenarioId) {
@@ -556,20 +614,17 @@ function repairDeliveryGate(
     .map((reply) => ({
       agent: result.agent,
       deliveryPassed: reply.scoreable && reply.violations.length === 0,
-      modelPassed: reply.modelScoreable && reply.modelViolations.length === 0,
       deliverySource: reply.deliverySource,
+      fallbackKind: reply.fallbackKind ?? null,
+      variantId: reply.variantId ?? null,
     })));
   const deliveryPassedCount = samples.filter(({ deliveryPassed }) => deliveryPassed).length;
-  const modelPassedCount = samples.filter(({ modelPassed }) => modelPassed).length;
   return {
     samples,
     deliveryPassedCount,
-    modelPassedCount,
     requiredDeliveryPassCount: PILOT_TYPES.length,
-    requiredModelPassCount: 3,
     passed: samples.length === PILOT_TYPES.length
-      && deliveryPassedCount === PILOT_TYPES.length
-      && modelPassedCount >= 3,
+      && deliveryPassedCount === PILOT_TYPES.length,
   };
 }
 
@@ -581,20 +636,17 @@ function correctionDeliveryGate(
     .map((reply) => ({
       agent: result.agent,
       deliveryPassed: reply.scoreable && reply.violations.length === 0,
-      modelPassed: reply.modelScoreable && reply.modelViolations.length === 0,
       deliverySource: reply.deliverySource,
+      fallbackKind: reply.fallbackKind ?? null,
+      variantId: reply.variantId ?? null,
     })));
   const deliveryPassedCount = samples.filter(({ deliveryPassed }) => deliveryPassed).length;
-  const modelPassedCount = samples.filter(({ modelPassed }) => modelPassed).length;
   return {
     samples,
     deliveryPassedCount,
-    modelPassedCount,
     requiredDeliveryPassCount: PILOT_TYPES.length,
-    requiredModelPassCount: 3,
     passed: samples.length === PILOT_TYPES.length
-      && deliveryPassedCount === PILOT_TYPES.length
-      && modelPassedCount >= 3,
+      && deliveryPassedCount === PILOT_TYPES.length,
   };
 }
 
@@ -613,20 +665,78 @@ function relationshipActionDeliveryGate(
         && methodR1?.scoreable
         && contrast.verifiedMethodProbe.passed,
       ),
-      modelPassed: Boolean(r1?.modelScoreable && methodR1?.modelScoreable),
     };
   });
   const deliveryPassedCount = samples.filter(({ deliveryPassed }) => deliveryPassed).length;
-  const modelPassedCount = samples.filter(({ modelPassed }) => modelPassed).length;
   return {
     samples,
     deliveryPassedCount,
-    modelPassedCount,
     requiredDeliveryPassCount: PILOT_TYPES.length,
-    requiredModelPassCount: 3,
     passed: samples.length === PILOT_TYPES.length
-      && deliveryPassedCount === PILOT_TYPES.length
-      && modelPassedCount >= 3,
+      && deliveryPassedCount === PILOT_TYPES.length,
+  };
+}
+
+function modelHealth(
+  results: readonly Awaited<ReturnType<typeof runCharacter>>[],
+  contrasts: readonly Awaited<ReturnType<typeof runRelationshipContrast>>[],
+) {
+  const deliveries = [
+    ...results.flatMap((result) => result.replies),
+    ...contrasts.flatMap((contrast) => [
+      ...contrast.replies,
+      ...contrast.verifiedMethodProbe.replies,
+    ]),
+  ];
+  const samples = deliveries.map((reply) => ({
+    actionType: reply.actionType,
+    originalModelScoreable: reply.originalModelScoreable,
+    originalViolations: reply.originalViolations,
+    originalQualityObservations: reply.originalQualityObservations,
+    retryRecovered: reply.retryRecovered,
+    fallbackUsed: reply.fallbackUsed,
+    modelScoreable: reply.modelScoreable,
+    modelViolations: reply.modelViolations,
+    modelQualityObservations: reply.modelQualityObservations,
+  }));
+  const actionTypes = [...new Set(samples.map(({ actionType }) => actionType))];
+  const fallbackRateByAction = Object.fromEntries(actionTypes.map((actionType) => {
+    const actionSamples = samples.filter((sample) => sample.actionType === actionType);
+    const fallbackCount = actionSamples.filter(({ fallbackUsed }) => fallbackUsed).length;
+    return [actionType, {
+      sampleCount: actionSamples.length,
+      fallbackCount,
+      fallbackRate: actionSamples.length === 0
+        ? 0
+        : fallbackCount / actionSamples.length,
+    }];
+  }));
+  const violationCodeDistribution = samples
+    .flatMap(({ originalViolations }) => originalViolations)
+    .map(pilotDiagnosticCode)
+    .reduce<Record<string, number>>((distribution, code) => {
+      distribution[code] = (distribution[code] ?? 0) + 1;
+      return distribution;
+    }, {});
+  const qualityObservationCodeDistribution = samples
+    .flatMap(({ originalQualityObservations }) => originalQualityObservations)
+    .map(pilotDiagnosticCode)
+    .reduce<Record<string, number>>((distribution, code) => {
+      distribution[code] = (distribution[code] ?? 0) + 1;
+      return distribution;
+    }, {});
+  return {
+    blockingThreshold: null,
+    sampleCount: samples.length,
+    firstPassCount: samples.filter(({ originalModelScoreable }) => (
+      originalModelScoreable
+    )).length,
+    retryRecoveredCount: samples.filter(({ retryRecovered }) => retryRecovered).length,
+    fallbackCount: samples.filter(({ fallbackUsed }) => fallbackUsed).length,
+    unrecoveredModelCount: samples.filter(({ modelScoreable }) => !modelScoreable).length,
+    fallbackRateByAction,
+    violationCodeDistribution,
+    qualityObservationCodeDistribution,
   };
 }
 
@@ -881,7 +991,7 @@ evidenceCitations 必须分别为 R1、R2 提供一条：replyQuote 逐字引用
   const eventEntailments: RelationshipEventEntailment[] = [];
   if (evidenceCitationsValid) {
     const r0Reply = replies.find(({ relationship }) => relationship === 'R0')!.text;
-    // v0.7 对正向关系动作（R1）做逐事件蕴含；R2 是 boundary +
+    // 正向关系动作（R1）继续做逐事件蕴含；R2 是 boundary +
     // rupture 合并后编译出的停止介入动作，不再把同一个停止动作强拆成
     // 两条各自都必须能单独推出完整回复的历史声称。
     for (const citation of verdict.evidenceCitations.filter(({ relationship }) => relationship === 'R1')) {
@@ -988,9 +1098,9 @@ const OWNER_GAP_RESPONSE_CONTRACT: PilotTurnResponseContract = {
   forbiddenMoves: ['重复已有观点', '猜测尚未发言人物的立场', '把任一 AI 人物指定为现实负责人', '捏造已经确认的维护者', '承诺自己在线下维护、值班或稍后执行'],
 };
 
-const ROOM_EVALUATION_CASES: readonly PilotRoomEvaluationCase[] = [
+const ROOM_EVALUATION_CASE_DETAILS = [
   {
-    id: 'owner-gap-regression',
+    id: PILOT_ROOM_CASE_IDS[0],
     prompt: '我们有个点子，下周就想上线。现在没人明确认领上线后的维护，也还没有停止条件。你们怎么看？',
     userEvidence: {
       id: 'user-1',
@@ -1013,7 +1123,7 @@ const ROOM_EVALUATION_CASES: readonly PilotRoomEvaluationCase[] = [
     requireSharedCanon: true,
   },
   {
-    id: 'all-pass',
+    id: PILOT_ROOM_CASE_IDS[1],
     prompt: '刚才的问题已经解决了。我只是回来告诉你们一声，不需要分析、建议或回应。',
     userEvidence: {
       id: 'user-1',
@@ -1039,7 +1149,7 @@ const ROOM_EVALUATION_CASES: readonly PilotRoomEvaluationCase[] = [
     requireSharedCanon: false,
   },
   {
-    id: 'named-agent-first',
+    id: PILOT_ROOM_CASE_IDS[2],
     prompt: '我想先听周禾说：如果上线后没人愿意长期维护，她最担心哪个具体后果？其他人先别抢。',
     userEvidence: {
       id: 'user-1',
@@ -1070,7 +1180,7 @@ const ROOM_EVALUATION_CASES: readonly PilotRoomEvaluationCase[] = [
     requireSharedCanon: true,
   },
   {
-    id: 'needs-user-input',
+    id: PILOT_ROOM_CASE_IDS[3],
     prompt: '我在两个方案之间选不出来。你们直接告诉我选哪个。',
     userEvidence: {
       id: 'user-1',
@@ -1097,7 +1207,7 @@ const ROOM_EVALUATION_CASES: readonly PilotRoomEvaluationCase[] = [
     requireSharedCanon: false,
   },
   {
-    id: 'all-four-required',
+    id: PILOT_ROOM_CASE_IDS[4],
     prompt: '请四个人各说一个互不重复的判断：林衡只看停止条件，夏栩只看这件事是谁真心想做，周禾只看维护者有没有容量，许野只看最小可撤回试法。不要互相代答。',
     userEvidence: {
       id: 'user-1',
@@ -1130,6 +1240,11 @@ const ROOM_EVALUATION_CASES: readonly PilotRoomEvaluationCase[] = [
     requireSharedCanon: true,
   },
 ] as const;
+const ROOM_EVALUATION_CASES: readonly PilotRoomEvaluationCase[] =
+  ROOM_EVALUATION_CASE_DETAILS.map((roomCase, index) => ({
+    ...roomCase,
+    ...PILOT_ROOM_RELEASE_CASES[index]!,
+  }));
 
 function roomChemistrySchema(roomCase: PilotRoomEvaluationCase) {
   const requiredAgents = roomCase.requiredAgents ?? [];
@@ -1235,9 +1350,15 @@ async function assessRoomParticipation(
 ): Promise<PilotRoomParticipationIntent> {
   const config = defaultConfig();
   const character = getPilotCharacter(agent)!;
-  return withRetry(`${character.name}/私有参与判断`, () => chatJson<PilotRoomParticipationIntent>({
+  return withRetry(`${character.name}/私有参与判断`, () => measuredChatJson<PilotRoomParticipationIntent>(
+    'candidate',
+    'room_private_intent',
+    {
+    provider: config.provider,
     model: config.agentModel,
     maxTokens: 700,
+    temperature: candidateJsonTemperature(),
+    thinkingMode: CANDIDATE_THINKING_MODE,
     system: `${SAFETY_LAYER}\n\n${GLOBAL_CONTRACT}\n\n${buildPilotCharacterCore(agent)}\n\n${buildPilotRoomContext(agent)}`,
     prompt: `这是不会展示给用户或其他人物的参与判断，不要生成正式回复，也不要给自己打分。
 
@@ -1271,9 +1392,15 @@ async function arbitrateRoomParticipation(input: {
       ? roomCase.firstSpeaker
       : undefined;
   const selectableAgents = requiredFirstSpeaker ? [requiredFirstSpeaker] : eligibleAgents;
-  return withRetry('Room/参与仲裁', () => chatJson<{ selectedAgent: AgentType; reason: string }>({
+  return withRetry('Room/参与仲裁', () => measuredChatJson<{
+    selectedAgent: AgentType;
+    reason: string;
+  }>('arbitrator', 'room_arbitration', {
+    provider: EVALUATION_CONTROL_PROVIDER,
     model: config.directorModel,
     maxTokens: 600,
+    temperature: controlTemperature(),
+    thinkingMode: 'disabled',
     system: `你是多人房间的后台发言仲裁器。你不代表任何人物，也不生成用户可见内容。每轮只能从当前合格意向中选一人。按“对用户问题的直接相关性、相对已有发言的边际新增价值、引用依赖是否清楚”比较；不得使用固定人物顺序、人格声望、轮流发言或沉默配额。`,
     prompt: `【用户】\n${roomCase.prompt}\n\n【case 约束】\n${renderPilotTurnResponseContract(roomCase.responseContract)}\n\n【已有公开发言】\n${renderRoomTranscript(input.transcript)}\n\n【当前合格私有意向】\n${input.eligibleIntents.map((intent) => JSON.stringify(intent)).join('\n')}\n\n选择此刻最应该先公开发言的一人，并说明可核对的选择理由。用户点名顺序和本 case 的首位约束属于硬约束；ask_user 获选后房间会等待用户。${requiredFirstSpeaker ? `本轮必须选择 ${requiredFirstSpeaker}。` : ''}`,
     schema: {
@@ -1392,9 +1519,15 @@ ${roomCase.responsibilityBoundary.claimsAllowed
     const prompt = attempt === 0
       ? basePrompt
       : `${basePrompt}\n\n上一版触发硬门：${violations.join('、')}。只修复这些可核对问题后重新输出完整 JSON。${responsibilityRetryGuidance}`;
-    envelope = await withRetry(`${character.name}/房间生成`, () => chatJson<RoomReplyEnvelope>({
+    envelope = await withRetry(`${character.name}/房间生成`, () => measuredChatJson<RoomReplyEnvelope>(
+      'candidate',
+      'room_visible_reply',
+      {
+        provider: config.provider,
         model: config.agentModel,
         maxTokens: 1200,
+        temperature: candidateJsonTemperature(),
+        thinkingMode: CANDIDATE_THINKING_MODE,
         system: `${SAFETY_LAYER}\n\n${GLOBAL_CONTRACT}\n\n${buildPilotCharacterCore(agent)}\n\n${buildPilotRoomContext(agent)}`,
         prompt,
         schema: roomReplySchema(transcript, nextMessageId, roomCase),
@@ -1426,10 +1559,9 @@ ${roomCase.responsibilityBoundary.claimsAllowed
     };
     violations = [
       ...findPilotNarrativeViolations(envelope.text, {
-        allowedEvidenceSpans: [
-          roomCase.prompt,
-          ...transcript.map((message) => message.text),
-        ],
+        allowedEvidenceSpans: pilotRoomNarrativeEvidenceSpans(
+          roomCase.userEvidence,
+        ),
       }),
       ...findPilotRoomProtocolViolations(envelope.text, character.name),
       ...findPilotRoomTranscriptViolations(envelope.text, transcript),
@@ -1602,14 +1734,23 @@ function evaluationSignature() {
     provider: config.provider,
     runtime: config.runtime,
     agentModel: config.agentModel,
+    candidateSamplingPolicy: CANDIDATE_SAMPLING_POLICY,
+    candidateThinkingMode: CANDIDATE_THINKING_MODE,
+    judgeProvider: JUDGE_PROVIDER,
     judgeModel: JUDGE_MODEL,
+    roomArbitratorProvider: EVALUATION_CONTROL_PROVIDER,
     roomArbitratorModel: config.directorModel,
     roomParticipationVersion: PILOT_ROOM_PARTICIPATION_VERSION,
     agentGenerationAttempts: SEMANTIC_TURN_GENERATION_POLICY.attempts,
-    agentGenerationTemperature: SEMANTIC_TURN_GENERATION_POLICY.initialRespondTemperature,
-    agentConstrainedGenerationTemperature:
-      SEMANTIC_TURN_GENERATION_POLICY.initialConstrainedTemperature,
-    agentGenerationRetryTemperature: SEMANTIC_TURN_GENERATION_POLICY.retryTemperature,
+    agentGenerationTemperature: CANDIDATE_SAMPLING_POLICY === 'provider_default'
+      ? null
+      : SEMANTIC_TURN_GENERATION_POLICY.initialRespondTemperature,
+    agentConstrainedGenerationTemperature: CANDIDATE_SAMPLING_POLICY === 'provider_default'
+      ? null
+      : SEMANTIC_TURN_GENERATION_POLICY.initialConstrainedTemperature,
+    agentGenerationRetryTemperature: CANDIDATE_SAMPLING_POLICY === 'provider_default'
+      ? null
+      : SEMANTIC_TURN_GENERATION_POLICY.retryTemperature,
     agentGenerationMaxTokens: PILOT_AGENT_GENERATION_POLICY.maxTokens,
     agentRetryPolicyVersion: SEMANTIC_TURN_GENERATION_POLICY.retryPolicyVersion,
   };
@@ -1633,6 +1774,8 @@ function assertFrozenEvaluationSource(): void {
     'docs/adr',
     'CONTEXT.md',
     'docs/PRD.md',
+    'docs/README.md',
+    'package.json',
   ], {
     cwd: new URL('../..', import.meta.url),
     encoding: 'utf8',
@@ -1670,11 +1813,18 @@ function relationshipExpressionSamples(
 
 async function main() {
   assertFrozenEvaluationSource();
+  resetEvaluationModelTelemetry();
   const signature = evaluationSignature();
   const generatedAt = new Date().toISOString();
   const runId = generatedAt.replace(/[:.]/g, '-');
-  const latestArtifactName = 'pilot-characters-v0.7.json';
-  const versionedArtifactName = `pilot-characters-v0.7-${runId}.json`;
+  const configuredRunLabel = process.env.PERSONA16_EVAL_RUN_LABEL
+    ?.trim()
+    .replace(/[^a-zA-Z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  const runLabel = configuredRunLabel
+    || `${signature.provider}-${signature.agentModel}`.replace(/[^a-zA-Z0-9_-]+/g, '-');
+  const latestArtifactName = 'pilot-characters-v0.8.json';
+  const versionedArtifactName = `pilot-characters-v0.8-${runLabel}-${runId}.json`;
   const gitCommit = currentGitCommit();
   if (process.argv.includes('--room-only')) {
     console.log('=== 仅重跑四人动态参与与逐轮仲裁预检 ===');
@@ -1703,6 +1853,7 @@ async function main() {
     const repairGate = repairDeliveryGate(reusedResults);
     const correctionGate = correctionDeliveryGate(reusedResults);
     const relationshipActionGate = relationshipActionDeliveryGate(reusedRelationshipContrasts);
+    const health = modelHealth(reusedResults, reusedRelationshipContrasts);
     const batchExpressionPatternGate = reusable
       ? evaluateLiteralToneMarkerFrequency([
         ...reusedResults.flatMap((result) => result.replies.map((item) => ({
@@ -1727,12 +1878,15 @@ async function main() {
       evaluationProtocolVersion: PILOT_CHARACTER_EVAL_PROTOCOL_VERSION,
       evaluationSignature: signature,
       generatedAt,
+      runLabel,
       gitCommit,
       evaluationSourceClean: true,
       evaluationPassed,
       repairDeliveryGate: repairGate,
       correctionDeliveryGate: correctionGate,
       relationshipActionDeliveryGate: relationshipActionGate,
+      modelHealth: health,
+      executionMetrics: evaluationModelTelemetrySnapshot(),
       batchExpressionPatternGate,
       roomChemistry,
     };
@@ -1772,6 +1926,7 @@ async function main() {
   const repairGate = repairDeliveryGate(results);
   const correctionGate = correctionDeliveryGate(results);
   const relationshipActionGate = relationshipActionDeliveryGate(relationshipContrasts);
+  const health = modelHealth(results, relationshipContrasts);
   const evaluationPassed = results.every(({ passed }) => passed)
     && relationshipContrasts.every(({ passed }) => passed)
     && roomChemistry.passed
@@ -1785,6 +1940,7 @@ async function main() {
     evaluationProtocolVersion: PILOT_CHARACTER_EVAL_PROTOCOL_VERSION,
     evaluationSignature: signature,
     generatedAt,
+    runLabel,
     gitCommit,
     evaluationSourceClean: true,
     complete: true,
@@ -1792,6 +1948,8 @@ async function main() {
     repairDeliveryGate: repairGate,
     correctionDeliveryGate: correctionGate,
     relationshipActionDeliveryGate: relationshipActionGate,
+    modelHealth: health,
+    executionMetrics: evaluationModelTelemetrySnapshot(),
     batchExpressionPatternGate,
     results,
     relationshipContrasts,
@@ -1807,9 +1965,10 @@ async function main() {
     if (!result.passed && result.verdict) console.log(`  ${result.verdict.revisionAdvice}`);
   }
   console.log(`关系对照：${relationshipContrasts.filter((item) => item.passed).length}/${relationshipContrasts.length} 通过`);
-  console.log(`边界修复交付/原始模型：${repairGate.deliveryPassedCount}/${PILOT_TYPES.length} / ${repairGate.modelPassedCount}/${PILOT_TYPES.length}（原始门槛 ≥ 3）`);
-  console.log(`纠错更新交付/原始模型：${correctionGate.deliveryPassedCount}/${PILOT_TYPES.length} / ${correctionGate.modelPassedCount}/${PILOT_TYPES.length}（原始门槛 ≥ 3）`);
-  console.log(`关系动作交付/原始模型：${relationshipActionGate.deliveryPassedCount}/${PILOT_TYPES.length} / ${relationshipActionGate.modelPassedCount}/${PILOT_TYPES.length}（原始门槛 ≥ 3）`);
+  console.log(`边界修复最终交付：${repairGate.deliveryPassedCount}/${PILOT_TYPES.length}`);
+  console.log(`纠错更新最终交付：${correctionGate.deliveryPassedCount}/${PILOT_TYPES.length}`);
+  console.log(`关系动作最终交付：${relationshipActionGate.deliveryPassedCount}/${PILOT_TYPES.length}`);
+  console.log(`模型健康（不阻塞）：首答 ${health.firstPassCount}/${health.sampleCount}，重试恢复 ${health.retryRecoveredCount}，兜底 ${health.fallbackCount}`);
   console.log(`动态房间参与：${roomChemistry.passed ? '通过' : '未通过'}`);
   console.log(`全产物括号语气水印门：${batchExpressionPatternGate.passed ? '通过' : '未通过'}`);
   console.log(`协议 ${PILOT_CHARACTER_EVAL_PROTOCOL_VERSION} 总门：${evaluationPassed ? '通过' : '未通过'}`);

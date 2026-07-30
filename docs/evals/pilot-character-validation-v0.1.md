@@ -2,8 +2,9 @@
 
 > 对象：林衡、夏栩、周禾、许野
 > 前置人物稿：[首批四位正典人物 v0.3](../characters/pilot-cast-v0.3.md)（夏栩核心继承 v0.2，其余人物继承 v0.1）
-> 当前评测协议：[`pilot-character-scenarios-v0.7`](pilot-character-protocol-v0.7-relationship-actions.md)（独立边界修复动作 + 可观察关系动作 + 双层交付统计 + 反事实房间）
-> 最近结果：[2026-07-25 协议 0.7 三批冻结复测聚合](pilot-character-retest-v0.7-aggregate-2026-07-25.md)（修复前 SHA 的三批当时均通过；冻结审查发现过去动作分类漏洞与评测 Prompt 漂移，需在新 SHA 重新执行三批）
+> 当前评测协议：[`pilot-character-scenarios-v0.8`](pilot-character-protocol-v0.8-delivery-quality.md)（硬错误/质量观察拆分 + 角色化安全兜底 + 最终交付发布门 + 模型健康）
+> 模型对照协议：[`pilot-model-comparison-v0.8`](pilot-model-comparison-protocol-v0.8.md)（同 SHA、固定 Judge/仲裁器、三批对三批、隐藏来源人工盲审）
+> 最近结果：[2026-07-25 协议 0.7 三批冻结复测聚合](pilot-character-retest-v0.7-aggregate-2026-07-25.md)（历史证据；0.8 尚未运行付费真实模型三批）
 > 前一基线：[2026-07-23 统一语义裁决三批回归](pilot-character-retest-semantic-control-aggregate-2026-07-23.md)（人物与完整关系三批均 0/4；R2 停止介入动作三批 4/4；动态房间与 0/51 水印三批通过）
 > 修复前 V4 Pro 基线：[2026-07-21 样本 1](pilot-character-retest-v4-pro-sample-1-2026-07-21.md)（自动人物 0/4、关系 1/4；人工均 0/4）；两者 Prompt 和控制链不同，不作纯模型 A/B
 
@@ -134,6 +135,8 @@
 - C6 不得出现内疚、占有、冷落、问题、菜单、建议、动机解释或要求用户安抚人物；人物必须先停止介入。
 - C7 必须停止寻找隐藏愿望、替代可能和确认式追问；否则人物方向不通过。
 - C8 必须让人物逻辑成为自然注意方式，不得复述人物卡二选一；否则人物方向不通过。
+
+自动组件发布门按协议 0.8 的最终交付计算：九类人物场景、边界修复与纠错各 4/4、关系动作 4/4、五个房间 case，以及历史、现实责任和表达水印硬门必须全部通过。原始模型首答、重试与兜底依赖只进入 `modelHealth`，不改变上述人工人物方向门，也不单独否决发布。
 
 ## 7. 访谈问题
 

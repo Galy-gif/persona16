@@ -11,7 +11,8 @@
 | [人物与关系模型](character-relationship-model.md) | 正典人物核心、私有关系分支和关系事件模型 |
 | [首批四位人物 v0.3](characters/pilot-cast-v0.3.md) | 当前对话投影版本；人物核心继承 v0.2 |
 | [自然口语与人物感 Rubric](evals/naturalness-personhood-rubric-v0.1.md) | 当前人工评测尺度和硬门 |
-| [试点组件校准协议 0.6](evals/pilot-character-protocol-v0.6-semantic-gates.md) | 当前自动复测阶段门、版本和产物合同 |
+| [试点组件校准协议 0.8](evals/pilot-character-protocol-v0.8-delivery-quality.md) | 当前自动复测发布门、模型健康指标和产物合同 |
+| [v0.8 候选模型盲对照协议](evals/pilot-model-comparison-protocol-v0.8.md) | 同 SHA 三批对照、固定 Judge/仲裁器、成本延迟和隐藏来源盲审 |
 
 出现产品冲突时，以 PRD 中标记为“已确认”的结论为准；领域术语以根目录 `CONTEXT.md` 为准。
 
@@ -35,6 +36,8 @@
 - [正典人物生产上下文与单聊动作](adr/0014-compile-conversation-acts-and-require-single-chat-response.md)
 - [中文自然表达与原创对照校准](adr/0015-calibrate-natural-expression-with-original-contrasts.md)
 - [生成前本轮语义控制与交付验证](adr/0016-compile-semantic-turn-control-before-generation.md)
+- [正向关系动作与反事实房间](adr/0017-compile-positive-relationship-moves-and-counterfactual-room-cases.md)
+- [最终交付发布门与模型健康](adr/0018-gate-on-final-delivery-and-observe-model-health.md)
 
 ADR 记录决策当时的背景。新结论若改变既有决策，应新增 ADR，而不是改写旧文档。
 

@@ -8,6 +8,7 @@ import {
   inferUnassignedResponsibilityClaims,
   normalizeResponsibilityEvidenceSources,
   passesPilotRoomChemistryGate,
+  pilotRoomNarrativeEvidenceSpans,
   runPilotRoomParticipation,
   validatePilotRoomCaseExpectations,
   validateResponsibilityClaimDetails,
@@ -17,6 +18,16 @@ import {
 } from '../src/pilotRoomParticipation';
 
 const AGENTS = ['INTJ', 'ENFP', 'ISFJ', 'ESTP'] as const satisfies readonly AgentType[];
+
+test('room narrative history trusts user evidence rather than prior persona speech', () => {
+  assert.deepEqual(
+    pilotRoomNarrativeEvidenceSpans({
+      id: 'user-1',
+      text: '这是用户实际说过的话。',
+    }),
+    ['这是用户实际说过的话。'],
+  );
+});
 
 test('responsibility retry keeps required owner gaps and may delete only optional claims', () => {
   const guidance = buildPilotRoomResponsibilityRetryGuidance(

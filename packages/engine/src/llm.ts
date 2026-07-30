@@ -70,12 +70,19 @@ export function defaultJudgeModel(): string {
 }
 
 export interface ChatTextOpts {
+  /** Defaults to PERSONA16_PROVIDER/currentProvider; evals may pin providers per role. */
+  provider?: Provider;
   model: string;
   system: SystemBlock[];
   prompt: string;
   maxTokens: number;
-  /** 仅 deepseek 路径生效；人格发言默认 1.25（拉开声线），anthropic 不支持该参数 */
-  temperature?: number;
+  /**
+   * `null` omits the sampling override. This is required for models such as
+   * Claude Sonnet 5 that reject non-default sampling parameters.
+   */
+  temperature?: number | null;
+  /** Allows a fair non-thinking comparison without changing production defaults. */
+  thinkingMode?: 'provider_default' | 'disabled';
   onDelta?: (delta: string) => void;
   signal?: AbortSignal;
   onUsage?: (usage: Omit<ModelActualUsage, 'calls'>) => void;
@@ -99,11 +106,14 @@ function deepseekCacheUsage(usage: unknown): { cacheReadTokens: number; cacheWri
 
 /** 流式文本生成，返回完整文本 */
 export async function chatText(opts: ChatTextOpts): Promise<string> {
-  if (currentProvider() === 'deepseek') {
+  const provider = opts.provider ?? currentProvider();
+  if (provider === 'deepseek') {
     const stream = await getDeepseek().chat.completions.create({
       model: opts.model,
       max_tokens: opts.maxTokens,
-      temperature: opts.temperature ?? 1.25,
+      ...(opts.temperature === null
+        ? {}
+        : { temperature: opts.temperature ?? 1.25 }),
       ...DEEPSEEK_NON_THINKING,
       stream: true,
       stream_options: { include_usage: true },
@@ -141,6 +151,12 @@ export async function chatText(opts: ChatTextOpts): Promise<string> {
     })),
     messages: [{ role: 'user', content: opts.prompt }],
     output_config: { effort: 'low' },
+    ...(opts.thinkingMode === 'disabled'
+      ? { thinking: { type: 'disabled' as const } }
+      : {}),
+    ...(typeof opts.temperature === 'number'
+      ? { temperature: opts.temperature }
+      : {}),
   }, { signal: opts.signal });
   let text = '';
   for await (const event of stream) {
@@ -160,11 +176,19 @@ export async function chatText(opts: ChatTextOpts): Promise<string> {
 }
 
 export interface ChatJsonOpts {
+  /** Defaults to PERSONA16_PROVIDER/currentProvider; evals may pin providers per role. */
+  provider?: Provider;
   model: string;
   system: string;
   prompt: string;
   schema: Record<string, unknown>;
   maxTokens: number;
+  /**
+   * DeepSeek keeps the historical deterministic default when omitted.
+   * `null` explicitly uses the provider default for cross-provider sampling.
+   */
+  temperature?: number | null;
+  thinkingMode?: 'provider_default' | 'disabled';
   signal?: AbortSignal;
   onUsage?: (usage: Omit<ModelActualUsage, 'calls'>) => void;
 }
@@ -181,7 +205,8 @@ function extractJson(text: string): string {
 
 /** 结构化 JSON 生成，deepseek 路径带一次解析重试 */
 export async function chatJson<T>(opts: ChatJsonOpts): Promise<T> {
-  if (currentProvider() === 'deepseek') {
+  const provider = opts.provider ?? currentProvider();
+  if (provider === 'deepseek') {
     const system = `${opts.system}
 
 你必须输出一个 JSON 对象（不要 markdown 代码块、不要解释文字），严格符合以下 JSON Schema：
@@ -191,7 +216,9 @@ ${JSON.stringify(opts.schema)}`;
       const response = await getDeepseek().chat.completions.create({
         model: opts.model,
         max_tokens: opts.maxTokens,
-        temperature: 0, // 导演与评审必须可复现
+        ...(opts.temperature === null
+          ? {}
+          : { temperature: opts.temperature ?? 0 }),
         ...DEEPSEEK_NON_THINKING,
         response_format: { type: 'json_object' },
         messages: [
@@ -226,6 +253,12 @@ ${JSON.stringify(opts.schema)}`;
     system: [{ type: 'text', text: opts.system, cache_control: { type: 'ephemeral' } }],
     messages: [{ role: 'user', content: opts.prompt }],
     output_config: { format: { type: 'json_schema', schema: opts.schema } },
+    ...(opts.thinkingMode === 'disabled'
+      ? { thinking: { type: 'disabled' as const } }
+      : {}),
+    ...(typeof opts.temperature === 'number'
+      ? { temperature: opts.temperature }
+      : {}),
   }, { signal: opts.signal });
   const text = response.content.find((b) => b.type === 'text');
   opts.onUsage?.({

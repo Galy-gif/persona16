@@ -8,6 +8,7 @@
     "eval:blindtest": "pnpm --filter @persona16/eval blindtest",
     "eval:dynamics": "pnpm --filter @persona16/eval dynamics",
     "eval:pilot-characters": "pnpm --filter @persona16/eval pilot:characters",
+    "eval:pilot-model-compare": "pnpm --filter @persona16/eval pilot:compare-models",
     "eval:rooms": "pnpm --filter @persona16/eval rooms",
     "eval:room-adversarial": "pnpm --filter @persona16/eval room:adversarial",
     "eval:safety": "pnpm --filter @persona16/eval safety",

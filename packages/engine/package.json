@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./historical-evidence": "./src/historicalEvidence.ts",
     "./personas": "./src/personas/index.ts",
     "./recovery": "./src/runtime/recoveryPolicy.ts",
     "./semantic-turn-control": "./src/semanticTurnControl.ts",

@@ -6,6 +6,7 @@ import {
 } from '../relationship/relationshipContext';
 import type { RelationshipContextFocus } from '../relationship/relationshipContext';
 import {
+  affirmedHistoricalEvidenceClauseRecords,
   hasSourcedClearPastUserStatement,
   type TurnResponseContract,
 } from '../semanticTurnControl';
@@ -439,19 +440,40 @@ export function buildPilotRelationshipContext(
 const EMBODIED_STAGE_DIRECTION = /(?:^|\n)\s*[（(][^）)\n]{0,60}(?:放下|拿起|递给|看着|看向|抬头|低头|点头|摇头|叹气|皱眉|走到|坐到|坐在|靠到|拉住|握住|抱住|拍拍|(?:安静|沉默)(?:了)?(?:.{0,6}(?:秒|分钟)|一会儿|片刻|一下|半晌)|停顿|顿了|停了)[^）)\n]{0,60}[）)]/;
 const EMBODIED_PROP_OR_ACTION = /(?:我(?:正|先|就|会|也)?(?:看向你|看着你|抬头看你|低头看你|点头|摇头|递给你|拉住(?:你的)?手|握住(?:你的)?手|抱住你|拍拍(?:你|你的肩)|靠到你身边|坐(?:到|在)(?:你|用户)(?:的)?(?:旁边|身边))|我(?:会|就|只|先|也)?(?:闭嘴[，,]?)?(?:只)?点头|我(?:那副|的)表情|(?:这|那)?(?:把)?椅子.{0,8}(?:够近|挪|搬|放)|(?:拉住|握住)(?:你的)?手|抱住你|拍拍(?:你|你的肩)|递给你(?:一|这|那)?(?:杯|个|部))/;
 const UNVERIFIED_AUTOBIOGRAPHICAL_CLAIM = /(?:我(?:以前也|曾经也|有一次|有次|(?:又)?不是没有过|确实(?:有过|做过)|.{0,12}(?:见过|经历过|踩过|碰过|扛过|试过)|(?:还|也)?认识(?:一|很多|些|过)|(?:一天|这周|最近).{0,12}(?:听见|看到|遇到).{0,12}(?:遍|次|人)|(?:这个月|这周|今天|手上).{0,20}(?:有|已经|忙|任务|活|排了))|(?:林衡|夏栩|周禾|许野).{0,10}(?:以前|总是|一直|每次|太多次)|(?:这|那|你说的)?让我想起(?:上回|上次|以前|曾经|有一次|有次))/;
-const UNVERIFIED_USER_HISTORY_CLAIM = /(?:你(?:一直都|一直是|每次都|从来都|以前总|上次也|曾经|昨天|这是已经.{0,12}(?:多少遍|多久|很久))|(?:昨天|上次|以前|曾经).{0,4}你|(?:那时|当时|那天)[^，,。！？!?\n]{0,12}(?:了|过|曾经|已经)|昨天那些话|我猜(?:测)?你(?:以前|一直|上次|曾经))/;
-const CONDITIONAL_OR_FUTURE_DEICTIC = /^(?:如果|假如|要是|假设|未来|等到|等以后|到那时|(?:那时|当时|那天).{0,6}(?:可能|会|将|也许))/;
+const UNVERIFIED_USER_HISTORY_CLAIM = /(?:你(?:(?:一直|每次|每回|每一次|从来|以前|过去|总是|向来|一向|一贯|通常|习惯|惯常|历来|素来|动不动)(?:都|是|在|总|就|会)?|老(?:是|这么|这样)|(?:在)?(?:上次|上一次|上回|昨天|昨日)|曾经|这是已经.{0,12}(?:多少遍|多久|很久))|(?:(?:上次|上一次|上回|昨天|昨日)|以前|过去|曾经).{0,4}你|(?:那时|当时|那天)[^，,。！？!?\n]{0,12}(?:了|过|曾经|已经)|(?:昨天|昨日)那些话|(?:每次|每回|每一次)(?:都|总)?(?:是|这样|如此)|我猜(?:测)?你(?:以前|一直|上次|上一次|上回|曾经))/;
+const FUTURE_DEICTIC = /^(?:未来|等到|等以后|到那时|(?:那时|当时|那天).{0,6}(?:可能|会|将|也许))/u;
+const NON_HISTORICAL_PERMISSION = /^你(?:总是|一直|每次|每回|每一次|从来|向来|一向|通常|随时)(?:都)?(?:(?:可以|有权|能)(?:(?:自己|随时)?(?:(?:决定|选择)(?:要不要|是否|不(?:回答|说|回应)|继续|停|离开|(?=$|[。！？!?\s]))|选(?=$|[。！？!?\s]|不(?:回答|说|回应)|继续|停|离开)|拒绝(?:回答|回应|继续)?|不(?:回答|说|回应)|停(?:下|止)?|离开)|保持沉默)|有(?:自己)?(?:决定|选择|选|拒绝|不(?:回答|说|回应)).{0,12}(?:的权利|的自由)|不必(?:回答|说|回应)|无需(?:回答|说|回应)|没有(?:回答|说|回应)的义务)/u;
+
+function isConditionalRatherThanHistoricalReport(clause: string): boolean {
+  if (/的话$/u.test(clause)) {
+    return !/(?:说|讲|表示|告诉|提到|提及|强调|声称|答应|承认)(?:了|过)?(?:的)?话$/u
+      .test(clause);
+  }
+  const conditionalIndex = clause.search(/如果|假如|要是|假设|若是|倘若|假若|要不是|若|假使|倘使|如若|就算|即使|哪怕|万一/u);
+  if (conditionalIndex < 0) return false;
+  const prefix = clause
+    .slice(0, conditionalIndex)
+    .replace(/[\s，,：:]/gu, '');
+  if (!prefix) return true;
+  return /^(?:你(?:在)?(?:上次|上一次|上回|昨天|昨日|以前|过去|曾经)|(?:上次|上一次|上回|昨天|昨日|以前|过去|曾经)(?:的)?你)$/u
+    .test(prefix);
+}
 
 function factualHistorySpan(sentence: string): string | undefined {
   const clauses = sentence
     .split(/[，,；;]|(?:但|不过|可是|而且|然后)/u)
     .map((clause) => clause.trim())
     .filter(Boolean);
-  if (!clauses.some((clause) => CONDITIONAL_OR_FUTURE_DEICTIC.test(clause))) {
+  const isNonFactualClause = (clause: string): boolean => (
+    FUTURE_DEICTIC.test(clause)
+    || isConditionalRatherThanHistoricalReport(clause)
+    || NON_HISTORICAL_PERMISSION.test(clause)
+  );
+  if (!clauses.some(isNonFactualClause)) {
     return sentence;
   }
   const factualClauses = clauses.filter((clause) => (
-    !CONDITIONAL_OR_FUTURE_DEICTIC.test(clause)
+    !isNonFactualClause(clause)
   ));
   return factualClauses.length > 0 ? factualClauses.join('，') : undefined;
 }
@@ -465,7 +487,12 @@ export interface PilotNarrativeValidationContext {
 }
 
 function normalizeNarrativeEvidence(text: string): string {
-  return text.replace(/[^\p{Script=Han}\p{Letter}\p{Number}]/gu, '');
+  return text
+    .replaceAll('昨日', '昨天')
+    .replaceAll('上一次', '上次')
+    .replaceAll('上回', '上次')
+    .replaceAll('在昨天', '昨天')
+    .replace(/[^\p{Script=Han}\p{Letter}\p{Number}]/gu, '');
 }
 
 function normalizeHistoryProposition(
@@ -530,10 +557,9 @@ function normalizeHistoryProposition(
   if (/^(?:FORROLE(?:USER|PERSONA|THIRD)|DIRECTEDACTION)/u.test(canonical)) {
     canonical = `${defaultSubject}${canonical}`;
   }
-  canonical = canonical.replace(
-    /(ROLE(?:USER|PERSONA|THIRD))FORROLE(?:USER|PERSONA|THIRD)DIRECTEDACTION/gu,
-    '$1DIRECTEDACTION',
-  );
+  if (canonical === 'ROLEPERSONADIRECTEDACTION') {
+    canonical = 'ROLEPERSONAFORROLEUSERDIRECTEDACTION';
+  }
   if (/^(?:ROLE(?:USER|PERSONA|THIRD|SHAREDGROUP|SECONDGROUP|THIRDGROUP))+$/u
     .test(canonical)) {
     return '';
@@ -545,11 +571,18 @@ function hasGroundedHistorySpan(
   sentence: string,
   allowedEvidenceSpans: readonly string[],
 ): boolean {
-  const temporalMarkers = sentence.match(/昨天|上次|以前|曾经|一直|每次|从来|很久|多久|那时|当时|那天/gu) ?? [];
+  const normalizedSentence = sentence
+    .replaceAll('昨日', '昨天')
+    .replaceAll('上一次', '上次')
+    .replaceAll('上回', '上次')
+    .replaceAll('在昨天', '昨天');
+  const temporalMarkers = normalizedSentence.match(
+    /昨天|上次|以前|曾经|一直|每次|从来|很久|多久|那时|当时|那天/gu,
+  ) ?? [];
   return allowedEvidenceSpans.some((span) => {
     const normalizedSource = normalizeNarrativeEvidence(span);
     const sourceHasHistoricalTime = /昨天|上次|以前|曾经|一直|每次|从来|很久|多久|那时|当时|那天/u.test(normalizedSource);
-    const vagueReferences = sentence.match(
+    const vagueReferences = normalizedSentence.match(
       /你(?:昨天|上次)(?:已经)?说得(?:很)?清楚/gu,
     ) ?? [];
     const supportsVagueReferences = vagueReferences.every((reference) => (
@@ -564,22 +597,31 @@ function hasGroundedHistorySpan(
           ? !sourceHasHistoricalTime
           : !normalizedSource.includes(marker)
       ))) return false;
-    const sourcePropositions = span
-      .split(/[，,。！？!?\n；;]|(?:但|不过|可是|而且|然后)/u)
-      .map((clause) => normalizeHistoryProposition(clause, 'source'))
-      .filter(Boolean);
-    const sentencePropositions = sentence
-      .split(/[，,；;]|(?:但|不过|可是|而且|然后)/u)
+    const sourcePropositions = affirmedHistoricalEvidenceClauseRecords(span)
+      .map(({ text, time }) => ({
+        value: normalizeHistoryProposition(text, 'source'),
+        time,
+        continuous: /(?:一直|到现在|现在还|还是一直)/u.test(text),
+      }))
+      .filter(({ value }) => Boolean(value));
+    const sentencePropositions = affirmedHistoricalEvidenceClauseRecords(
+      normalizedSentence,
+    )
       // “这是我的越界”是在当前回复里对已核实行为作责任判断，
       // 不是对用户过去新增事实；保留其他附加从句的历史核验。
-      .filter((clause) => (
+      .filter(({ text: clause }) => (
         !/^(?:(?:这|那)?(?:是|算是)?我(?:的)?(?:一次)?越界(?:了)?|(?:这|那)(?:一步|个安排)?(?:是)?我越过的|(?:我)?(?:越过|跨过|踩过|踩了|越了)(?:了)?(?:你)?(?:这|那)(?:条|个)?(?:边界|线))$/u
           .test(clause.trim())
         && !/^你(?:昨天|上次)(?:已经)?说得(?:很)?清楚$/u.test(clause.trim())
       ))
-      .map((clause) => normalizeHistoryProposition(clause, 'reply'))
-      .filter(Boolean);
-    const substantiveSentencePropositions = sentencePropositions.filter(Boolean);
+      .map(({ text: clause, time }) => ({
+        value: normalizeHistoryProposition(clause, 'reply'),
+        time,
+      }))
+      .filter(({ value }) => Boolean(value));
+    const substantiveSentencePropositions = sentencePropositions.filter(
+      ({ value }) => Boolean(value),
+    );
     if (substantiveSentencePropositions.length === 0) {
       return vagueReferences.length > 0 && supportsVagueReferences;
     }
@@ -587,7 +629,14 @@ function hasGroundedHistorySpan(
     // two-clause repair paraphrase while still rejecting negation loss or an
     // appended new predicate ("不想辞职" -> "辞职", or adding "想死").
     return substantiveSentencePropositions.every((proposition) => (
-      sourcePropositions.includes(proposition)
+      sourcePropositions.some((source) => (
+        source.value === proposition.value
+        && (
+          !proposition.time
+          || source.time === proposition.time
+          || source.continuous
+        )
+      ))
     ));
   });
 }

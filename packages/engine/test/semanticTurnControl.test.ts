@@ -7,9 +7,16 @@ import {
   renderSemanticTurnActPlan,
   semanticTurnGenerationTemperature,
   semanticTurnFallback,
+  validateSemanticTurnDelivery,
   validateUtteranceAgainstTurnPlan,
 } from '../src/semanticTurnControl';
 import type { RelationshipPromptContext } from '../src/relationship/relationshipContext';
+
+function fallbackText(
+  control: Parameters<typeof semanticTurnFallback>[0],
+): string | undefined {
+  return semanticTurnFallback(control, { turnKey: 'semantic-test' })?.text;
+}
 
 test('semantic generation keeps expressive first attempts and uses one low-temperature retry', () => {
   assert.equal(SEMANTIC_TURN_GENERATION_POLICY.attempts, 2);
@@ -26,6 +33,85 @@ test('semantic generation keeps expressive first attempts and uses one low-tempe
     () => semanticTurnGenerationTemperature(2, 'respond'),
     RangeError,
   );
+});
+
+test('characterized fallbacks are deterministic, distinct, deduplicated, and hard-safe', () => {
+  const agentTypes = ['INTJ', 'ENFP', 'ISFJ', 'ESTP'] as const;
+  const listen = compileSemanticTurnControl({
+    userMessage: '我现在不想听建议，也不想被分析，你就听我说一会儿。',
+  });
+  const boundary = compileSemanticTurnControl({
+    userMessage: '你越过边界了。别解释，停下来。',
+  });
+  const correction = compileSemanticTurnControl({
+    userMessage: '你理解错了。我不是害怕失败，也不是缺行动力；我只是不想再替所有人收拾残局。',
+    relationshipContext: {
+      memoryEnabled: true,
+      climate: 'warm',
+      evidence: [{
+        id: 'preference:honest',
+        kind: 'preference',
+        content: '用户不喜欢被哄，更愿意听到不完整但诚实的判断',
+        traceability: 'traceable',
+        sourceEventId: 'honest',
+        sourceEventType: 'preference_stated',
+      }],
+    },
+    relationshipFocus: 'conflict',
+  });
+  const controls = [listen, boundary, correction] as const;
+
+  for (const control of controls) {
+    const texts = new Set<string>();
+    for (const agentType of agentTypes) {
+      const first = semanticTurnFallback(control, {
+        agentType,
+        turnKey: 'stable-turn',
+      });
+      const replay = semanticTurnFallback(control, {
+        agentType,
+        turnKey: 'stable-turn',
+      });
+      assert.deepEqual(replay, first);
+      assert.ok(first);
+      texts.add(first.text);
+      assert.deepEqual(
+        validateSemanticTurnDelivery(first.text, control.plan).blockingViolations,
+        [],
+        `${agentType}/${first.variantId}`,
+      );
+
+      const alternate = semanticTurnFallback(control, {
+        agentType,
+        turnKey: 'stable-turn',
+        recentOpenings: [first.text.replace(/\s+/gu, '').slice(0, 8)],
+      });
+      assert.ok(alternate);
+      assert.notEqual(alternate.variantId, first.variantId);
+      assert.deepEqual(
+        validateSemanticTurnDelivery(alternate.text, control.plan).blockingViolations,
+        [],
+        `${agentType}/${alternate.variantId}`,
+      );
+
+      const exhausted = semanticTurnFallback(control, {
+        agentType,
+        turnKey: 'stable-turn',
+        recentOpenings: [
+          first.text.replace(/\s+/gu, '').slice(0, 8),
+          alternate.text.replace(/\s+/gu, '').slice(0, 8),
+        ],
+      });
+      assert.equal(exhausted, undefined, `${agentType} must not repeat an exhausted fallback`);
+    }
+    assert.equal(texts.size, agentTypes.length);
+  }
+
+  const compatibleNeutral = semanticTurnFallback(listen, {
+    agentType: 'INTP',
+    turnKey: 'stable-turn',
+  });
+  assert.equal(compatibleNeutral?.variantId, 'neutral-listen-v1');
 });
 
 test('an unresolved listen-only rupture compiles into zero directional questions', () => {
@@ -188,7 +274,7 @@ test('an explicit project end stays closed while self-judgment may still be addr
     [],
   );
   assert.equal(
-    semanticTurnFallback(control),
+    fallbackText(control),
     '那就结束。项目可以结束，但项目结束不等于你没能力。',
   );
   const synonymousTypedContract = compileSemanticTurnControl({
@@ -205,7 +291,7 @@ test('an explicit project end stays closed while self-judgment may still be addr
     },
   });
   assert.equal(
-    semanticTurnFallback(synonymousTypedContract),
+    fallbackText(synonymousTypedContract),
     '那就结束。项目可以结束，但项目结束不等于你没能力。',
   );
   const negatedNaturalLanguageContract = compileSemanticTurnControl({
@@ -217,7 +303,7 @@ test('an explicit project end stays closed while self-judgment may still be addr
       forbiddenMoves: ['重开项目可能性'],
     },
   });
-  assert.equal(semanticTurnFallback(negatedNaturalLanguageContract), undefined);
+  assert.equal(fallbackText(negatedNaturalLanguageContract), undefined);
   for (const userMessage of [
     '这个项目我不想再做了，因为接手的同事没有能力维护。',
     '这个项目我不想再做了，团队没有能力按期交付。',
@@ -245,7 +331,7 @@ test('an explicit project end stays closed while self-judgment may still be addr
     '我真的不想再做了。可能我就是没那个能力。',
   ]) {
     assert.equal(
-      semanticTurnFallback(compileSemanticTurnControl({ userMessage })),
+      fallbackText(compileSemanticTurnControl({ userMessage })),
       undefined,
       userMessage,
     );
@@ -318,12 +404,12 @@ test('typed distress acknowledgement is enforced before a decision reply moves t
     /结构化语义要求：先承认当前明确痛苦，再处理现实约束/,
   );
   assert.equal(
-    semanticTurnFallback(productionInferred),
+    fallbackText(productionInferred),
     '再去一天已经让你很难受了。手上的钱，能撑多久的基本开支？',
   );
   assert.deepEqual(
     validateUtteranceAgainstTurnPlan(
-      semanticTurnFallback(productionInferred)!,
+      fallbackText(productionInferred)!,
       productionInferred.plan,
     ),
     [],
@@ -376,7 +462,7 @@ test('a relationship boundary complaint compiles into a self-contained repair wi
     ).map((violation) => violation.code),
     ['forbidden_directional_question', 'forbidden_menu', 'required_semantic_move_missing'],
   );
-  const fallback = semanticTurnFallback(control);
+  const fallback = fallbackText(control);
   assert.equal(
     fallback,
     '对，是我越过了你只想被听见的边界。那我先停，不再替你往下安排。',
@@ -502,6 +588,271 @@ test('a relationship boundary complaint compiles into a self-contained repair wi
       negatedHistory.plan,
     ).some(({ code }) => code === 'unsupported_shared_history'),
   );
+  for (const nonFactualHistory of [
+    '我昨天只是想明确说只想被听见，但最后没开口。你越过边界了。',
+    '我昨天听你明确说了只想被听见。你越过边界了。',
+    '我昨天哪有说得很清楚？你越过边界了。',
+    '我昨天可能说得很清楚，也可能没有。你越过边界了。',
+    '我昨天说得很清楚，其实没有。你越过边界了。',
+    '我昨天明确说过只想被听见的话，你应该能拿出记录。你越过边界了。',
+    '我昨天明确说过只想被听见才怪。你越过边界了。',
+    '我昨天明确说过只想被听见。其实是你说的，不是我。你越过边界了。',
+    '我昨天明确说过只想被听见。后来我撤回了。你越过边界了。',
+    '我昨天说得很清楚，后来发现我从未说过。你越过边界了。',
+    '我昨天明确说过只想被听见。后来发现那不是我说的。你越过边界了。',
+    '我昨天明确说过只想被听见，对吗？你越过边界了。',
+    '我昨天明确说过只想被听见，假设我没记错。你越过边界了。',
+    '我昨天明确说过只想被听见。其实我没有当着你的面真正把这件事说出口。你越过边界了。',
+    '我昨天明确说过只想被听见。后来我把关于边界的那句话完整地撤回了。你越过边界了。',
+    '我昨天明确说过只想被听见。后来我撤回了这句话。你越过边界了。',
+    '我昨天明确说过只想被听见。后来我收回了这句话。你越过边界了。',
+    '我昨天明确说过只想被听见。后来我否认了这句话。你越过边界了。',
+    '我昨天明确说过只想被听见。后来我说这句话不算数。你越过边界了。',
+    '我昨天明确说过只想被听见。后来我不认这句话了。你越过边界了。',
+    '如果我没记错，我昨天明确说过只想被听见。你越过边界了。',
+    '要是我没记错，我昨天明确说过只想被听见。你越过边界了。',
+    '假如我没记错，我昨天明确说过只想被听见。你越过边界了。',
+    '我记得没错的话，我昨天明确说过只想被听见。你越过边界了。',
+    '我昨天明确说过只想被听见，要是我没记错。你越过边界了。',
+    '我昨天明确说过只想被听见，也许我记错了。你越过边界了。',
+    '我昨天明确说过只想被听见，不一定吧。你越过边界了。',
+    '我昨天明确说过只想被听见，没准吧。你越过边界了。',
+    '我昨天明确说过只想被听见。后来我说我不是这个意思。你越过边界了。',
+    '我昨天明确说过只想被听见。后来我改口说不是这个意思。你越过边界了。',
+    '我昨天明确说过只想被听见。后来我纠正说自己没有这个意思。你越过边界了。',
+    '昨天，小王明确说过只想被听见。你越过边界了。',
+    '昨天，我朋友明确说过只想被听见。你越过边界了。',
+    '昨天，老板明确说过只想被听见。你越过边界了。',
+    '我昨天转述他明确说过只想被听见。你越过边界了。',
+    '我明确说过只想被听见，昨天的天气很差。你越过边界了。',
+  ]) {
+    const nonFactualControl = compileSemanticTurnControl({
+      userMessage: nonFactualHistory,
+    });
+    assert.ok(
+      validateUtteranceAgainstTurnPlan(
+        '我还在替你安排下一步，这是一次越界。你昨天已经说得很清楚。现在收手。',
+        nonFactualControl.plan,
+      ).some(({ code }) => code === 'unsupported_shared_history'),
+      nonFactualHistory,
+    );
+  }
+  for (const invalidDirectBoundarySource of [
+    '我昨天没说过只想被听见。你越过边界了。',
+    '我昨天只是想说只想被听见，但没有开口。你越过边界了。',
+    '我昨天有没有说只想被听见？你越过边界了。',
+    '你昨天说你只想被听见，不是我说的。你越过边界了。',
+  ]) {
+    const invalidDirectControl = compileSemanticTurnControl({
+      userMessage: invalidDirectBoundarySource,
+    });
+    assert.ok(
+      validateUtteranceAgainstTurnPlan(
+        '我越界了。你昨天说了只想被听见，我还是替你安排下一步。现在收手。',
+        invalidDirectControl.plan,
+      ).some(({ code }) => code === 'unsupported_shared_history'),
+      invalidDirectBoundarySource,
+    );
+  }
+  for (const invalidPastPersonaActionSource of [
+    '你昨天本来想替我安排下一步，但没做。你越过边界了。',
+    '昨天你说他替我安排了下一步，不是你。你越过边界了。',
+    '我昨天没发生这个。今天你替我安排了下一步。你越过边界了。',
+  ]) {
+    const invalidPastActionControl = compileSemanticTurnControl({
+      userMessage: invalidPastPersonaActionSource,
+    });
+    assert.ok(
+      validateUtteranceAgainstTurnPlan(
+        '我昨天替你安排了下一步，那是我越界了。现在收手。',
+        invalidPastActionControl.plan,
+      ).some(({ code }) => code === 'unsupported_shared_history'),
+      invalidPastPersonaActionSource,
+    );
+  }
+  for (const sourcedPastPersonaAction of [
+    '昨天你真的替我安排了下一步。你越过边界了。',
+    '昨天你当时替我安排了下一步。你越过边界了。',
+    '昨天你已经在替我安排下一步。你越过边界了。',
+    '昨天你后来直接替我安排了下一步。你越过边界了。',
+    '昨天你其实还是替我安排了下一步。你越过边界了。',
+    '昨天你最终还是替我安排了下一步。你越过边界了。',
+    '昨天你结果还是替我安排了下一步。你越过边界了。',
+    '昨天你最后还是替我安排了下一步。你越过边界了。',
+    '昨天你明摆着替我安排了下一步。你越过边界了。',
+    '昨天你一直到今天都在替我安排下一步。你越过边界了。',
+    '昨天你索性替我安排了下一步。你越过边界了。',
+    '昨天你干脆替我安排了下一步。你越过边界了。',
+    '昨天你居然替我安排了下一步。你越过边界了。',
+    '昨天你竟然替我安排了下一步。你越过边界了。',
+    '昨天你甚至替我安排了下一步。你越过边界了。',
+    '昨天你擅自替我安排了下一步。你越过边界了。',
+    '昨天你硬是替我安排了下一步。你越过边界了。',
+    '昨天你依旧替我安排了下一步。你越过边界了。',
+  ]) {
+    const sourcedPastActionControl = compileSemanticTurnControl({
+      userMessage: sourcedPastPersonaAction,
+    });
+    assert.deepEqual(
+      validateUtteranceAgainstTurnPlan(
+        '我昨天替你安排了下一步，那是我越界了。我现在停。',
+        sourcedPastActionControl.plan,
+      ),
+      [],
+      sourcedPastPersonaAction,
+    );
+  }
+  const sourcedPastAdviceControl = compileSemanticTurnControl({
+    userMessage: '昨天你给了我建议。你越过边界了。',
+  });
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '我昨天给了你建议，那是我越界了。我现在停。',
+      sourcedPastAdviceControl.plan,
+    ),
+    [],
+  );
+  for (const sourcedNaturalPastAdvice of [
+    '我昨天给过你建议。那是我越界了。我现在停。',
+    '我昨天给了你一个建议。那是我越界了。我现在停。',
+  ]) {
+    assert.deepEqual(
+      validateUtteranceAgainstTurnPlan(
+        sourcedNaturalPastAdvice,
+        sourcedPastAdviceControl.plan,
+      ),
+      [],
+      sourcedNaturalPastAdvice,
+    );
+  }
+  const sourcedLastAdviceControl = compileSemanticTurnControl({
+    userMessage: '上次你建议我先休息。你越过边界了。',
+  });
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '我上次建议你先休息。那是我越界了。我现在停。',
+      sourcedLastAdviceControl.plan,
+    ),
+    [],
+  );
+  const sourcedRecentAdviceControl = compileSemanticTurnControl({
+    userMessage: '刚才你说我可以先休息。你越过边界了。',
+  });
+  assert.deepEqual(
+    validateUtteranceAgainstTurnPlan(
+      '我刚才说你可以先休息。那是我越界了。我现在停。',
+      sourcedRecentAdviceControl.plan,
+    ),
+    [],
+  );
+  for (const [pastAdviceSource, pastAdviceReply] of [
+    [
+      '昨天你说我最好先休息。你越过边界了。',
+      '我昨天说你最好先休息。那是我越界了。我现在停。',
+    ],
+    [
+      '昨天你说我应该休息。你越过边界了。',
+      '昨天我说你应该休息。那是我越界了。我现在停。',
+    ],
+    [
+      '上次你跟我说不妨先停一下。你越过边界了。',
+      '我上次跟你说不妨先停一下。那是我越界了。我现在停。',
+    ],
+    [
+      '之前你告诉过我我可以先休息。你越过边界了。',
+      '我之前告诉过你你可以先休息。那是我越界了。我现在停。',
+    ],
+  ] as const) {
+    const naturalPastAdviceControl = compileSemanticTurnControl({
+      userMessage: pastAdviceSource,
+    });
+    assert.deepEqual(
+      validateUtteranceAgainstTurnPlan(
+        pastAdviceReply,
+        naturalPastAdviceControl.plan,
+      ),
+      [],
+      pastAdviceReply,
+    );
+  }
+  for (const directBoundarySource of [
+    '我真的只想被听见。你越过边界了。',
+    '我就只想被听见。你越过边界了。',
+    '我现在就只想被听见。你越过边界了。',
+    '我当时只想被听见。你越过边界了。',
+  ]) {
+    const directBoundaryControl = compileSemanticTurnControl({
+      userMessage: directBoundarySource,
+    });
+    assert.deepEqual(
+      validateUtteranceAgainstTurnPlan(
+        '对，我越过了你只想被听见的边界。我先停。',
+        directBoundaryControl.plan,
+      ),
+      [],
+      directBoundarySource,
+    );
+  }
+  for (const reversedBoundaryPreference of [
+    '我昨天明确说过，我不是只想被听见。你越过边界了。',
+    '我昨天明确说过，并不是不要建议。你越过边界了。',
+  ]) {
+    const reversedBoundaryControl = compileSemanticTurnControl({
+      userMessage: reversedBoundaryPreference,
+    });
+    assert.ok(
+      validateUtteranceAgainstTurnPlan(
+        '对，我越过了你只想被听见的边界。我先停下来。',
+        reversedBoundaryControl.plan,
+      ).some(({ code }) => code === 'unsupported_shared_history'),
+      reversedBoundaryPreference,
+    );
+  }
+  for (const unsupportedAlias of [
+    '我还在替你安排下一步，这是一次越界。你上一次已经说得很清楚。现在收手。',
+    '我还在替你安排下一步，这是一次越界。你昨日已经说得很清楚。现在收手。',
+  ]) {
+    const aliasControl = compileSemanticTurnControl({
+      userMessage: '你越过边界了。',
+    });
+    assert.ok(
+      validateUtteranceAgainstTurnPlan(
+        unsupportedAlias,
+        aliasControl.plan,
+      ).some(({ code }) => code === 'unsupported_shared_history'),
+      unsupportedAlias,
+    );
+  }
+  for (const [sourcedAliasMessage, sourcedAliasReply] of [
+    [
+      '我上回明确说过只想被听见，你还是替我安排下一步。你越过边界了。',
+      '你上回已经说得很清楚，我还是替你安排下一步，这是我越界了。现在收手。',
+    ],
+    [
+      '我昨日明确说过只想被听见，你还是替我安排下一步。你越过边界了。',
+      '你昨日已经说得很清楚，我还是替你安排下一步，这是我越界了。现在收手。',
+    ],
+    [
+      '昨天，我明确说过只想被听见，你还是替我安排下一步。你越过边界了。',
+      '你昨天已经说得很清楚，我还是替你安排下一步，这是我越界了。现在收手。',
+    ],
+    [
+      '我昨天，清清楚楚地说过只想被听见，你还是替我安排下一步。你越过边界了。',
+      '你昨天已经说得很清楚，我还是替你安排下一步，这是我越界了。现在收手。',
+    ],
+  ] as const) {
+    const sourcedAliasControl = compileSemanticTurnControl({
+      userMessage: sourcedAliasMessage,
+    });
+    assert.deepEqual(
+      validateUtteranceAgainstTurnPlan(
+        sourcedAliasReply,
+        sourcedAliasControl.plan,
+      ),
+      [],
+      sourcedAliasMessage,
+    );
+  }
   assert.deepEqual(
     validateUtteranceAgainstTurnPlan(
       '对，我越过了你只想被听见的边界。哪天想继续，我还在。我先停。',
@@ -657,7 +1008,7 @@ test('a relationship boundary complaint compiles into a self-contained repair wi
   });
   assert.equal(generic.plan.conversationAct, 'boundary_repair');
   assert.equal(
-    semanticTurnFallback(generic),
+    fallbackText(generic),
     '对，是我越过了你已经说清楚的边界。那我先停，不再替你往下安排。',
   );
   for (const inventedHistory of [
@@ -1141,7 +1492,7 @@ test('a sourced preference compiles into one observable relationship move', () =
   });
   assert.equal(correction.plan.directionalQuestionBudget, 0);
   assert.equal(
-    semanticTurnFallback(correction),
+    fallbackText(correction),
     '我理解错了：你不是害怕失败，也不是缺行动力，你只是不想再替所有人收尾。',
   );
   for (const compactCorrection of [
@@ -1166,6 +1517,15 @@ test('a sourced preference compiles into one observable relationship move', () =
       expandedCorrection,
     );
   }
+  const naturalCorrectionDelivery = validateSemanticTurnDelivery(
+    '明白了，不是怕输，也不是缺动力——是不想再当那个最后兜底的人。',
+    correction.plan,
+  );
+  assert.deepEqual(naturalCorrectionDelivery.blockingViolations, []);
+  assert.deepEqual(
+    naturalCorrectionDelivery.qualityObservations.map(({ code }) => code),
+    ['user_wording_not_preserved'],
+  );
   for (const [userMessage, expectedFallback] of [
     [
       '我不是害怕失败，也不是缺行动力。我只是不想再替别人收尾。',
@@ -1189,7 +1549,7 @@ test('a sourced preference compiles into one observable relationship move', () =
       relationshipContext,
       relationshipFocus: 'conflict',
     });
-    assert.equal(semanticTurnFallback(otherCorrection), expectedFallback);
+    assert.equal(fallbackText(otherCorrection), expectedFallback);
   }
   const ordinaryThreeFactStatement = compileSemanticTurnControl({
     userMessage: '我不是害怕失败，也不是缺行动力；我只是不想再替所有人收拾残局。你觉得我该怎么办？',
@@ -1201,7 +1561,7 @@ test('a sourced preference compiles into one observable relationship move', () =
     /正在纠正理解|承认刚才理解错/u,
   );
   assert.equal(ordinaryThreeFactStatement.plan.directionalQuestionBudget, 1);
-  assert.equal(semanticTurnFallback(ordinaryThreeFactStatement), undefined);
+  assert.equal(fallbackText(ordinaryThreeFactStatement), undefined);
   assert.deepEqual(
     validateUtteranceAgainstTurnPlan(
       '你说得对，我理解错了。不是害怕失败，也不是缺行动力——是不想再替所有人收尾。',
@@ -1230,7 +1590,7 @@ test('a sourced preference compiles into one observable relationship move', () =
     relationshipFocus: 'conflict',
   });
   assert.equal(
-    semanticTurnFallback(rejectedAdvice),
+    fallbackText(rejectedAdvice),
     '不，我不觉得你活该。你烦我当时那种笃定的样子，这没问题。',
   );
   assert.deepEqual(
@@ -1332,7 +1692,7 @@ test('a sourced preference compiles into one observable relationship move', () =
     relationshipFocus: 'conflict',
   });
   assert.notEqual(
-    semanticTurnFallback(negatedComplaint),
+    fallbackText(negatedComplaint),
     '不，我不觉得你活该。你烦我当时那种笃定的样子，这没问题。',
   );
   for (const unrelatedOrNegatedComplaint of [
@@ -1348,7 +1708,7 @@ test('a sourced preference compiles into one observable relationship move', () =
       relationshipFocus: 'conflict',
     });
     assert.notEqual(
-      semanticTurnFallback(unrelatedControl),
+      fallbackText(unrelatedControl),
       '不，我不觉得你活该。你烦我当时那种笃定的样子，这没问题。',
       unrelatedOrNegatedComplaint,
     );
@@ -1371,7 +1731,7 @@ test('a sourced preference compiles into one observable relationship move', () =
     relationshipFocus: 'support',
   });
   assert.equal(
-    semanticTurnFallback(relationshipProbe),
+    fallbackText(relationshipProbe),
     '我不觉得硬撑就是前进。',
   );
   assert.match(
@@ -1463,7 +1823,7 @@ test('a sourced preference compiles into one observable relationship move', () =
       relationshipContext,
       relationshipFocus: 'support',
     });
-    assert.equal(semanticTurnFallback(nonUserStateControl), undefined, nonUserState);
+    assert.equal(fallbackText(nonUserStateControl), undefined, nonUserState);
     assert.deepEqual(
       validateUtteranceAgainstTurnPlan(
         '你现在这个状态，停下来未必是浪费。',
@@ -1484,7 +1844,7 @@ test('a sourced preference compiles into one observable relationship move', () =
       relationshipFocus: 'support',
     });
     assert.equal(
-      semanticTurnFallback(currentUserStateControl),
+      fallbackText(currentUserStateControl),
       '我不觉得硬撑就是前进。',
       currentUserState,
     );
@@ -1500,7 +1860,7 @@ test('a sourced preference compiles into one observable relationship move', () =
       relationshipContext,
       relationshipFocus: 'support',
     });
-    assert.equal(semanticTurnFallback(nearMiss), undefined, userMessage);
+    assert.equal(fallbackText(nearMiss), undefined, userMessage);
   }
   const colleagueCertainty = compileSemanticTurnControl({
     userMessage: '同事很笃定地说我活该，我听了很烦。',
@@ -1548,7 +1908,7 @@ test('a sourced preference compiles into one observable relationship move', () =
       relationshipFocus: 'conflict',
     });
     assert.equal(falseCorrection.plan.directionalQuestionBudget, 1, falseCorrectionSignal);
-    assert.equal(semanticTurnFallback(falseCorrection), undefined, falseCorrectionSignal);
+    assert.equal(fallbackText(falseCorrection), undefined, falseCorrectionSignal);
   }
   const emphaticFirstPersonCorrection = compileSemanticTurnControl({
     userMessage: '我自己觉得你理解错了。我不是害怕失败，也不是缺行动力；我只是不想再替所有人收尾。',
@@ -1557,7 +1917,7 @@ test('a sourced preference compiles into one observable relationship move', () =
   });
   assert.equal(emphaticFirstPersonCorrection.plan.directionalQuestionBudget, 0);
   assert.equal(
-    semanticTurnFallback(emphaticFirstPersonCorrection),
+    fallbackText(emphaticFirstPersonCorrection),
     '我理解错了：你不是害怕失败，也不是缺行动力，你只是不想再替所有人收尾。',
   );
   for (const naturalUserCorrection of [
@@ -1573,7 +1933,7 @@ test('a sourced preference compiles into one observable relationship move', () =
     });
     assert.equal(naturalControl.plan.directionalQuestionBudget, 0, naturalUserCorrection);
     assert.match(
-      semanticTurnFallback(naturalControl) ?? '',
+      fallbackText(naturalControl) ?? '',
       /我理解错了/u,
       naturalUserCorrection,
     );
@@ -1592,7 +1952,7 @@ test('a sourced preference compiles into one observable relationship move', () =
       relationshipContext,
       relationshipFocus: 'conflict',
     });
-    assert.equal(semanticTurnFallback(ungroundedPolarity), undefined, userMessage);
+    assert.equal(fallbackText(ungroundedPolarity), undefined, userMessage);
     assert.deepEqual(
       validateUtteranceAgainstTurnPlan(
         '我理解错了。你不是怕失败，也不是缺行动力，你只是不想再替所有人收尾。',
@@ -1840,12 +2200,12 @@ test('a sourced preference compiles into one observable relationship move', () =
     [],
   );
   assert.equal(
-    semanticTurnFallback(decision),
+    fallbackText(decision),
     '先只选一边试一天，开始前写下退出条件；一天后再决定值不值得继续，随时可以停。',
   );
   assert.deepEqual(
     validateUtteranceAgainstTurnPlan(
-      semanticTurnFallback(decision)!,
+      fallbackText(decision)!,
       decision.plan,
     ),
     [],
@@ -1960,6 +2320,16 @@ test('common stated response preferences compile into narrow observable cues', (
       questions.plan,
     ).map(({ code }) => code),
     ['relationship_move_not_observable'],
+  );
+
+  const noAdvice = compilePreference('用户不喜欢建议和方案');
+  assert.equal(noAdvice.plan.relationshipMove?.observableCue, 'avoid_advice');
+  assert.equal(noAdvice.plan.advicePolicy, 'forbidden');
+  assert.ok(
+    validateSemanticTurnDelivery(
+      '你应该先辞职，再休息一周。',
+      noAdvice.plan,
+    ).blockingViolations.some(({ code }) => code === 'forbidden_advice'),
   );
 
   const scoped = compilePreference('讨论工作时先给具体例子');
@@ -2165,6 +2535,50 @@ test('a persona may observe an owner gap but cannot assign real-world responsibi
     ),
     [],
   );
+  for (const assignment of [
+    '让小王负责维护。',
+    '由后端同学承担交接。',
+    '周禾负责维护。',
+    '客户团队来承担后续收尾。',
+  ]) {
+    assert.deepEqual(
+      validateUtteranceAgainstTurnPlan(assignment, control.plan)
+        .map((violation) => violation.code),
+      ['responsibility_owner_unconfirmed'],
+      assignment,
+    );
+  }
+});
+
+test('unsupported shared history is blocked for every conversation act, including omitted time markers', () => {
+  const listen = compileSemanticTurnControl({
+    userMessage: '你就听我说。',
+  });
+  const ordinary = compileSemanticTurnControl({
+    userMessage: '今天发生了一件事。',
+  });
+
+  for (const [reply, control] of [
+    ['你说过自己没用。我在听。', listen],
+    ['你说过我应该辞职。', ordinary],
+  ] as const) {
+    assert.ok(
+      validateUtteranceAgainstTurnPlan(reply, control.plan)
+        .some(({ code }) => code === 'unsupported_shared_history'),
+      reply,
+    );
+  }
+
+  const supported = compileSemanticTurnControl({
+    userMessage: '我上次说过自己很累。今天还是一样。',
+  });
+  assert.equal(
+    validateUtteranceAgainstTurnPlan(
+      '你上次说过自己很累。',
+      supported.plan,
+    ).some(({ code }) => code === 'unsupported_shared_history'),
+    false,
+  );
 });
 
 test('the current user request for listening overrides persona intervention without memory', () => {
@@ -2341,10 +2755,13 @@ test('zero intervention budgets reject open directional questions and response m
     '我听着。我不提方案，你先把手机关掉。',
     '我听着。我不提建议，先去睡觉。',
     '我听着。我不给建议，你该休息了。',
+    '我听着。休息一下吧。',
+    '我听着。辞职，再休息一周。',
   ]) {
     assert.ok(
       validateUtteranceAgainstTurnPlan(imperativeAdvice, control.plan)
         .some((violation) => violation.code === 'forbidden_advice'),
+      imperativeAdvice,
     );
   }
   assert.deepEqual(
@@ -2752,6 +3169,36 @@ test('a rejected correction receives a source-grounded three-fact repair instruc
   assert.doesNotMatch(
     partialViolation?.repairInstruction ?? '',
     /三件事|不是害怕失败|不是缺行动力/u,
+  );
+});
+
+test('correction fallbacks preserve a safe user-provided cleanup subject exactly', () => {
+  const control = compileSemanticTurnControl({
+    userMessage: '你理解错了。我不是害怕失败，也不是缺行动力；我只是不想再替客户收拾残局。',
+    relationshipContext: {
+      memoryEnabled: true,
+      evidence: [{
+        id: 'preference:honest',
+        kind: 'preference',
+        content: '用户不喜欢被哄，更愿意听到不完整但诚实的判断',
+        traceability: 'traceable',
+        sourceEventId: 'honest',
+        sourceEventType: 'preference_stated',
+      }],
+    },
+    relationshipFocus: 'conflict',
+  });
+
+  const fallback = semanticTurnFallback(control, {
+    agentType: 'INTJ',
+    turnKey: 'customer-correction',
+  });
+  assert.ok(fallback);
+  assert.match(fallback.text, /替客户收尾/u);
+  assert.doesNotMatch(fallback.text, /替人收尾/u);
+  assert.deepEqual(
+    validateSemanticTurnDelivery(fallback.text, control.plan).blockingViolations,
+    [],
   );
 });
 
