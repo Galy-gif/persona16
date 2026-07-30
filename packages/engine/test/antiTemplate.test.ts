@@ -78,6 +78,30 @@ test('rejects banned assistant-style openings', () => {
   assert.match(verdict.reason ?? '', /模板开场/);
 });
 
+test('rejects unsolicited self-narration instead of answering a simple greeting', () => {
+  const verdict = checkUtterance(
+    '我是那种会先观察整体结构再说话的人。有什么想聊的，直接说就行。',
+    [],
+    undefined,
+    '你好',
+  );
+
+  assert.equal(verdict.ok, false);
+  assert.match(verdict.reason ?? '', /自我说明|人设/);
+});
+
+test('rejects meta-defensive explanations when the user says the reply sounds performative', () => {
+  const verdict = checkUtterance(
+    '不是装。是对模糊的东西养成了先抽离再说的习惯。',
+    [],
+    undefined,
+    '你说话怎么这么装',
+  );
+
+  assert.equal(verdict.ok, false);
+  assert.match(verdict.reason ?? '', /解释人设|立即换说法/);
+});
+
 test('rejects stage directions at the opening', () => {
   assert.equal(checkUtterance('（放下杯子）你继续。', []).ok, false);
   assert.equal(checkUtterance('*叹气* 这事不简单。', []).ok, false);

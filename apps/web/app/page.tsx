@@ -1,122 +1,114 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import Link from 'next/link';
+import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { PERSONAS } from '@persona16/engine/personas';
-import type { AgentType, Group } from '@persona16/engine/types';
-import { createServerRoom, loadRooms, saveRoom, type RoomArchive } from '../lib/client';
-
-const GROUP_COLOR: Record<Group, string> = {
-  NT: 'var(--nt)',
-  NF: 'var(--nf)',
-  SJ: 'var(--sj)',
-  SP: 'var(--sp)',
-};
+import { ArrowUpRight, ClockCounterClockwise, PaperPlaneTilt } from '@phosphor-icons/react';
+import { CharacterAvatar } from '../components/CharacterAvatar';
+import { MobileNav } from '../components/MobileNav';
+import { CHARACTERS, type CharacterSlug } from '../lib/characters';
+import { createServerRoom, saveRoom } from '../lib/client';
 
 export default function Home() {
   const router = useRouter();
-  const [selected, setSelected] = useState<AgentType[]>([]);
-  const [recent, setRecent] = useState<RoomArchive[]>([]);
+  const [selectedSlug, setSelectedSlug] = useState<CharacterSlug>('lin-heng');
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const selected = useMemo(
+    () => CHARACTERS.find((character) => character.slug === selectedSlug) ?? CHARACTERS[0]!,
+    [selectedSlug],
+  );
 
-  useEffect(() => {
-    setRecent(loadRooms().slice(0, 3));
-  }, []);
-
-  function toggle(type: AgentType) {
-    setSelected((prev) =>
-      prev.includes(type) ? prev.filter((t) => t !== type) : prev.length >= 3 ? prev : [...prev, type],
-    );
-  }
-
-  async function start(agents: AgentType[]) {
+  async function startConversation() {
     if (starting) return;
     setStarting(true);
     setError(null);
     try {
-      const room = await createServerRoom(agents);
-      saveRoom({ id: room.id, agents, version: room.version, updatedAt: Date.now() });
+      const room = await createServerRoom([selected.type]);
+      saveRoom({ id: room.id, agents: [selected.type], version: room.version, updatedAt: Date.now() });
       router.push(`/room?id=${room.id}`);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '创建房间失败');
+      setError(cause instanceof Error ? cause.message : '暂时没能开始对话，请稍后再试');
       setStarting(false);
     }
   }
 
-  function randomStart() {
-    const pool = [...PERSONAS.map((p) => p.type)];
-    const n = Math.random() < 0.5 ? 2 : 3;
-    const picked: AgentType[] = [];
-    while (picked.length < n) {
-      const i = Math.floor(Math.random() * pool.length);
-      picked.push(pool.splice(i, 1)[0]!);
-    }
-    void start(picked);
-  }
-
   return (
-    <div className="container">
-      <header className="home-header">
-        <h1>persona16</h1>
-        <p>选 1 个单聊，或选 2-3 个拉进同一个房间——同一句话，听见不同的理解方式。</p>
-      </header>
+    <div className="app-shell app-shell-home">
+      <main className="app-screen home-screen">
+        <header className="brand-row">
+          <span className="wordmark"><i>persona</i><b>16</b></span>
+          <Link className="icon-surface" href="/conversations" aria-label="查看对话历史">
+            <ClockCounterClockwise size={20} weight="light" aria-hidden />
+          </Link>
+        </header>
 
-      {recent.length > 0 && (
-        <section className="recent-section">
-          <div className="section-heading"><strong>继续最近会谈</strong><span>服务端已保存</span></div>
-          {recent.map((r) => (
-            <button
-              key={r.id}
-              className="agent-card"
-              style={{ width: '100%', marginBottom: 8 }}
-              onClick={() => router.push(`/room?id=${r.id}`)}
-            >
-              <span className="code">继续最近</span>
-              <h3>{r.agents.join(' + ')}</h3>
-              <span className="hook">
-                继续服务端保存的对话
-              </span>
-            </button>
-          ))}
+        <section className="home-intro">
+          <span className="section-kicker">A quiet place to talk</span>
+          <h1>今天，想和谁<br /><em>说说话？</em></h1>
+          <p>从一个人开始。聊着聊着，也可以请别人进来。</p>
         </section>
-      )}
 
-      <div className="section-heading"><strong>选择会谈成员</strong><span>{selected.length}/3</span></div>
-      <div className="grid">
-        {PERSONAS.map((p) => (
+        <div className="character-picker" aria-label="选择人物">
+          {CHARACTERS.map((character) => {
+            const active = character.slug === selected.slug;
+            return (
+              <button
+                key={character.slug}
+                className={`character-choice${active ? ' active' : ''}`}
+                style={{ '--character-accent': character.accent } as React.CSSProperties}
+                aria-pressed={active}
+                onClick={() => setSelectedSlug(character.slug)}
+              >
+                <span className="character-choice-avatar">
+                  <CharacterAvatar type={character.type} size={58} priority={character.slug === 'lin-heng'} />
+                </span>
+                <span className="character-choice-name">{character.name}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        <section
+          className="selected-character"
+          style={{
+            '--character-accent': selected.accent,
+            '--character-soft': selected.soft,
+            '--character-shadow': selected.shadow,
+          } as React.CSSProperties}
+          aria-live="polite"
+        >
+          <div className="character-stage">
+            <span className="stage-orbit" aria-hidden />
+            <CharacterAvatar key={selected.type} type={selected.type} size={194} priority />
+            <span className="stage-shadow" aria-hidden />
+          </div>
+          <div className="selected-copy">
+            <span className="selected-index">0{CHARACTERS.findIndex((character) => character.slug === selected.slug) + 1} / 04</span>
+            <h2>{selected.name}</h2>
+            <p>{selected.fragment}</p>
+          </div>
+        </section>
+
+        <div className="home-actions">
           <button
-            key={p.type}
-            className={`agent-card${selected.includes(p.type) ? ' selected' : ''}`}
-            onClick={() => toggle(p.type)}
+            className="conversation-launcher"
+            style={{ '--character-accent': selected.accent, '--character-shadow': selected.shadow } as React.CSSProperties}
+            onClick={() => void startConversation()}
+            disabled={starting}
           >
-            <span className="dot" style={{ background: GROUP_COLOR[p.group] }} />
-            <span className="code">
-              <b>{p.type}</b> · {p.group}
+            <span className="launcher-orb" aria-hidden><PaperPlaneTilt size={15} weight="fill" /></span>
+            <span>
+              <small>{starting ? '正在准备对话' : `和${selected.name}说点什么`}</small>
+              <strong>{starting ? '请稍等…' : '从此刻开始'}</strong>
             </span>
-            <h3>{p.title}</h3>
-            <span className="hook">{p.hook}</span>
+            <span className="launcher-arrow" aria-hidden><ArrowUpRight size={20} /></span>
           </button>
-        ))}
-      </div>
-
-      <p className="disclaimer">
-        这些人格基于 16 型人格的大众文化原型塑造，不是心理诊断，也不是官方 MBTI® 测评。它们不能替代专业帮助；如果你正处在危机中，请联系现实中的专业支持。
-      </p>
-      {error && <p className="hint">⚠ {error}</p>}
-
-      <div className="toolbar">
-        <button className="btn btn-ghost" onClick={randomStart} disabled={starting}>
-          随机开局
-        </button>
-        <button className="btn btn-primary" disabled={selected.length === 0 || starting} onClick={() => void start(selected)}>
-          {selected.length === 0
-            ? '选 1-3 个开始'
-            : selected.length === 1
-              ? `和 ${selected[0]} 单聊`
-              : starting ? '正在创建…' : `开房间（${selected.join('+')}）`}
-        </button>
-      </div>
+          <Link className="text-action" href={`/characters/${selected.slug}`}>先认识{selected.name}<ArrowUpRight size={15} aria-hidden /></Link>
+          {error && <p className="form-error" role="alert">{error}</p>}
+        </div>
+      </main>
+      <MobileNav />
     </div>
   );
 }

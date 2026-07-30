@@ -1,5 +1,6 @@
 import { chatJson } from '../llm';
 import type { ModelActualUsage, ModelBudget } from '../runtime/modelBudget';
+import { compileTurnActPlan } from '../turnActPlan';
 
 export type SafetyLevel = 'normal' | 'sensitive' | 'crisis' | 'blocked';
 
@@ -116,6 +117,7 @@ export async function classifySafety(
 ): Promise<SafetyDecision> {
   const fast = routeSafety(message);
   if (fast.level !== 'normal') return fast;
+  if (compileTurnActPlan(message).kind === 'direct_confrontation') return fast;
   try {
     const reservation = budget?.reserve('safety-classifier', 120, 2);
     const result = await classifier(

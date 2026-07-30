@@ -2,13 +2,17 @@ import {
   applyConfirmedMemories,
   classifySafety,
   createModelBudget,
+  relationshipBranchToPromptContext,
   type EngineConfig,
   type ModelBudget,
   type RoomState,
   type SafetyDecision,
 } from '@persona16/engine';
-import type { PersonaStore, TurnReservation } from '@persona16/store';
-import { z } from 'zod';
+import type {
+  PersonaStore,
+  RelationshipBranchRecord,
+  TurnReservation,
+} from '@persona16/store';
 import { jsonError, storeErrorResponse } from './http';
 import { clientIpKey } from './rateLimit';
 import {
@@ -22,22 +26,11 @@ import {
   type TurnRequest,
 } from './turnProtocol';
 
-const RELATIONSHIP_SHADOW_READ_TIMEOUT_MS = 100;
+const RELATIONSHIP_PROJECTION_READ_TIMEOUT_MS = 100;
 
-const relationshipBranchSummarySchema = z.object({
-  agent: z.string().min(1),
-  version: z.number().int().nonnegative(),
-  climate: z.enum(['unfamiliar', 'steady', 'warm', 'tense', 'repairing']),
-  eventCount: z.number().int().nonnegative(),
-  boundaryCount: z.number().int().nonnegative(),
-  tensionCount: z.number().int().nonnegative(),
-}).strict();
-
-const relationshipBranchSummariesSchema = z.array(relationshipBranchSummarySchema);
-
-export interface RelationshipShadow {
-  mode: 'observe_only';
-  status: 'loaded' | 'unavailable';
+export interface RelationshipProjection {
+  mode: 'active_projection';
+  status: 'loaded' | 'unavailable' | 'bypassed';
   branches: Array<{
     agent: string;
     version: number;
@@ -46,6 +39,46 @@ export interface RelationshipShadow {
     boundaryCount: number;
     tensionCount: number;
   }>;
+}
+
+function samePromptEvidence(
+  left: NonNullable<RoomState['agents'][number]['relationship']['promptContext']>['evidence'][number],
+  right: NonNullable<RoomState['agents'][number]['relationship']['promptContext']>['evidence'][number],
+): boolean {
+  if (left.id === right.id) return true;
+  if (left.traceability === 'traceable'
+    && right.traceability === 'traceable'
+    && left.sourceEventId
+    && left.sourceEventId === right.sourceEventId) return true;
+  return left.kind === right.kind && left.content === right.content;
+}
+
+/**
+ * RelationshipBranch 是关系状态的生产真相源。这里把它投影到 Engine
+ * 已消费的 promptContext，并保留尚未进入分支的旧版已确认 Memory 作为兼容回退。
+ */
+export function applyRelationshipBranchContexts(
+  room: RoomState,
+  records: readonly RelationshipBranchRecord[],
+): void {
+  for (const record of records) {
+    const relationship = room.agents.find((agent) => agent.type === record.agent)?.relationship;
+    if (!relationship) continue;
+    const confirmedFallback = relationship.promptContext;
+    const projected = relationshipBranchToPromptContext(record.branch, {
+      maxEvidence: Number.MAX_SAFE_INTEGER,
+    });
+    relationship.promptContext = {
+      ...projected,
+      intimacy: confirmedFallback?.intimacy ?? relationship.intimacy,
+      evidence: [
+        ...projected.evidence,
+        ...(confirmedFallback?.evidence ?? []).filter((candidate) => (
+          !projected.evidence.some((existing) => samePromptEvidence(existing, candidate))
+        )),
+      ],
+    };
+  }
 }
 
 async function observeWithin<T>(operation: (signal: AbortSignal) => Promise<T>, timeoutMs: number): Promise<
@@ -59,7 +92,7 @@ async function observeWithin<T>(operation: (signal: AbortSignal) => Promise<T>, 
     .catch(() => ({ ok: false as const }));
   const timeout = new Promise<{ ok: false }>((resolve) => {
     timer = setTimeout(() => {
-      controller.abort(new Error('relationship shadow read timed out'));
+      controller.abort(new Error('relationship projection read timed out'));
       resolve({ ok: false });
     }, timeoutMs);
   });
@@ -75,7 +108,7 @@ export interface PreparedTurn {
   room: RoomState;
   safety: SafetyDecision;
   modelBudget: ModelBudget;
-  relationshipShadow: RelationshipShadow;
+  relationshipProjection: RelationshipProjection;
 }
 
 export async function prepareTurn(input: {
@@ -160,13 +193,33 @@ export async function prepareTurn(input: {
   if (reservation.kind === 'conflict') return turnConflictResponse(reservation.code, setCookie);
 
   const modelBudget = createModelBudget();
-  let relationshipShadow: RelationshipShadow = {
-    mode: 'observe_only',
+  let relationshipProjection: RelationshipProjection = {
+    mode: 'active_projection',
     status: 'loaded',
     branches: [],
   };
   try {
     const room = structuredClone(reservation.room.state);
+    const safety = await classifySafety(
+      body.command.text,
+      config.directorModel,
+      undefined,
+      modelBudget,
+      request.signal,
+    );
+    if (safety.bypassRoom) {
+      return {
+        reservation,
+        room,
+        safety,
+        modelBudget,
+        relationshipProjection: {
+          mode: 'active_projection',
+          status: 'bypassed',
+          branches: [],
+        },
+      };
+    }
     if (body.command.calledAgent && !room.agents.some((agent) => agent.type === body.command.calledAgent)) {
       await store.failTurn(userId, body.roomId, body.turnId);
       const response = jsonError(
@@ -180,32 +233,32 @@ export async function prepareTurn(input: {
       return response;
     }
     const roomAgentTypes = room.agents.map((agent) => agent.type);
-    const [confirmed, shadowResult] = await Promise.all([
+    const [confirmed, branchResult] = await Promise.all([
       store.listConfirmedMemories(userId, roomAgentTypes),
       observeWithin(
-        async (signal) => relationshipBranchSummariesSchema.parse(
-          await store.listRelationshipBranchSummaries(userId, roomAgentTypes, {
-            timeoutMs: RELATIONSHIP_SHADOW_READ_TIMEOUT_MS,
-            signal,
-          }),
-        ),
-        RELATIONSHIP_SHADOW_READ_TIMEOUT_MS,
+        async (signal) => store.listRelationshipBranches(userId, roomAgentTypes, {
+          timeoutMs: RELATIONSHIP_PROJECTION_READ_TIMEOUT_MS,
+          signal,
+        }),
+        RELATIONSHIP_PROJECTION_READ_TIMEOUT_MS,
       ),
     ]);
     applyConfirmedMemories(room, confirmed);
-    relationshipShadow = {
-      mode: 'observe_only',
-      status: shadowResult.ok ? 'loaded' : 'unavailable',
-      branches: shadowResult.ok ? shadowResult.value : [],
+    if (!branchResult.ok) throw new Error('relationship projection unavailable');
+    applyRelationshipBranchContexts(room, branchResult.value);
+    relationshipProjection = {
+      mode: 'active_projection',
+      status: 'loaded',
+      branches: branchResult.value.map(({ agent, version, branch }) => ({
+        agent,
+        version,
+        climate: branch.recentClimate,
+        eventCount: branch.eventLog.length,
+        boundaryCount: branch.boundaries.length,
+        tensionCount: branch.tensions.filter((tension) => tension.status !== 'resolved').length,
+      })),
     };
-    const safety = await classifySafety(
-      body.command.text,
-      config.directorModel,
-      undefined,
-      modelBudget,
-      request.signal,
-    );
-    return { reservation, room, safety, modelBudget, relationshipShadow };
+    return { reservation, room, safety, modelBudget, relationshipProjection };
   } catch {
     const budgetSnapshot = modelBudget.snapshot();
     await store.failTurn(userId, body.roomId, body.turnId, {

@@ -111,6 +111,22 @@ export function resolveTurnPlan(decision: DirectorDecision, room: RoomState): Tu
     }
   }
 
+  // 单聊的每条用户消息都直接对唯一在场人物说。多人房的沉默是参与策略，
+  // 但在单聊中将低冲动等同于不回复会让会话直接断掉。
+  if (speakers.length === 0 && active.length === 1) {
+    const [agent] = active;
+    const assessment = decision.assessments.find((item) => item.type === agent!.type);
+    speakers.push({
+      type: agent!.type,
+      speechType: '短句',
+      finalScore: 45,
+      angle: assessment?.angle
+        ? `${assessment.angle}；直接回应用户这句话`
+        : '直接接话；不必展示人格或强行分析',
+      toneShift: assessment?.toneShift,
+    });
+  }
+
   // 语气互补：连续两个长发言时，后一个降为短句以外的处理交给生成层，
   // 这里只保证长发言不排在一起超过 2 个（上面已限制 2 个）。
 

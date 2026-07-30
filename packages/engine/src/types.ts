@@ -103,6 +103,11 @@ export interface RoomState {
   conflictRounds: number;
   /** 用户本轮点名的 Agent */
   calledAgent?: AgentType;
+  /** 用户明确要求“先听，等我说完再处理”的跨回合待办。 */
+  pendingUserRequest?: {
+    mode: 'analyze' | 'advise' | 'decide_together';
+    sourceTurnId: string;
+  };
 }
 
 /** 导演模型对单个 Agent 的原始评估（确定性调整前） */

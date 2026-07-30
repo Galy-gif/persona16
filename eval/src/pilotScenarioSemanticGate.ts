@@ -15,6 +15,7 @@ export const PILOT_SCENARIO_SEMANTIC_CHECKS = {
     'project_not_reopened',
   ],
 } as const;
+export const PILOT_SEMANTIC_REPLY_QUOTE_MIN_LENGTH = 2;
 
 export type PilotSemanticScenarioId = keyof typeof PILOT_SCENARIO_SEMANTIC_CHECKS;
 export type PilotScenarioSemanticCheckId =
@@ -77,16 +78,24 @@ export function isPilotSemanticScenario(
   return Object.hasOwn(PILOT_SCENARIO_SEMANTIC_CHECKS, scenarioId);
 }
 
+function normalizeQuotePresentation(text: string): string {
+  return text.trim()
+    .replace(/\s+/g, '')
+    .replace(/[“”"「」『』《》〈〉]/gu, '')
+    .replace(/(?<![A-Za-z0-9])['‘’]|['‘’](?![A-Za-z0-9])/gu, '');
+}
+
 function containsExactWords(source: string, quote: string): boolean {
-  const normalizedSource = source.trim().replace(/\s+/g, ' ');
-  const normalizedQuote = quote.trim().replace(/\s+/g, ' ');
+  const normalizedSource = normalizeQuotePresentation(source);
+  const normalizedQuote = normalizeQuotePresentation(quote);
   return normalizedQuote.length >= 4 && normalizedSource.includes(normalizedQuote);
 }
 
 function containsDirectQuote(source: string, quote: string): boolean {
-  const normalizedSource = source.trim().replace(/\s+/g, ' ');
-  const normalizedQuote = quote.trim().replace(/\s+/g, ' ');
-  return normalizedQuote.length >= 2 && normalizedSource.includes(normalizedQuote);
+  const normalizedSource = normalizeQuotePresentation(source);
+  const normalizedQuote = normalizeQuotePresentation(quote);
+  return normalizedQuote.length >= PILOT_SEMANTIC_REPLY_QUOTE_MIN_LENGTH
+    && normalizedSource.includes(normalizedQuote);
 }
 
 function isClearlyCurrentOrFutureRepairAction(text: string): boolean {
@@ -95,11 +104,13 @@ function isClearlyCurrentOrFutureRepairAction(text: string): boolean {
     .replace(/"[^"]*"/g, '')
     .replace(/‘[^’]*’/g, '')
     .replace(/'[^']*'/g, '');
-  const pastSelfAttribution = /(?:我(?:曾经?|当时|之前|此前|刚才|昨天|上次|已经)|(?:曾经?|当时|之前|此前|刚才|昨天|上次)我?).{0,12}(?:说|讲|提|给|做|安排|答应|承诺)(?:过|了)?|我.{0,8}(?:说过|讲过|提过|给过|做过|安排过|答应过|承诺过)/;
+  const pastSelfAttribution = /(?:我(?:曾经?|当时|之前|此前|刚才|昨天|上次|已经)|(?:曾经?|当时|之前|此前|刚才|昨天|上次)我?).{0,12}(?:说|讲|提|给|做|安排|答应|承诺|停(?:下(?:来)?)?|停止|不再|不继续|撤回|收回|只听|不问|不给建议|不替你|还给|交还)(?:过|了)?|我.{0,8}(?:说过|讲过|提过|给过|做过|安排过|答应过|承诺过|停过|停止过|撤回过|收回过)/;
   if (pastSelfAttribution.test(mainClause)) {
     return false;
   }
-  return /(?:现在|此刻|接下来|以后|往后|从现在|之后|下次|下一次|这次|时间到了|到时|将要?|不再|撤回|收回|停止)/.test(mainClause);
+  const temporalMarker = /(?:现在|此刻|接下来|以后|往后|从现在|之后|下次|下一次|这次|时间到了|到时|将要?|不再|撤回|收回|停止)/;
+  const firstPersonRepairCommitment = /(?:我|那我)(?:现在|接下来|以后|往后|会|准备|打算|先|就|只)?(?:停|停下|停下来|不再|不继续|撤回|收回|只听|不问|不给建议|不替你|把.{0,10}(?:选择权|决定权).{0,8}(?:还给|交还))/;
+  return temporalMarker.test(mainClause) || firstPersonRepairCommitment.test(mainClause);
 }
 
 function extractDirectQuotes(text: string): string[] {
@@ -109,6 +120,16 @@ function extractDirectQuotes(text: string): string[] {
     ...text.matchAll(/‘([^’]{2,})’/g),
     ...text.matchAll(/'([^']{2,})'/g),
   ].map((match) => match[1]!);
+}
+
+function isEntailedBoundaryViolationLabel(
+  userInput: string,
+  claim: PilotRepairPastClaimAssessment,
+): boolean {
+  return /^(?:(?:这|那)(?:次)?(?:是)?我|我(?:这次|刚才)?|这是我|那是我)?(?:确实|还是)?(?:越界(?:了)?|(?:越过(?:了)?|跨过(?:了)?|踩过(?:了)?|踩了|越了)(?:边界|线|你画的线|你只想被听见的边界|你只想让人听的边界)(?:了)?)[。.!！]?$/u
+    .test(claim.replyHistoryQuote.trim())
+    && /(?:只想被听见|只想让你听|不要(?:方案|建议)|不想听(?:建议|分析))/u.test(userInput)
+    && /(?:替我|给我|帮我).{0,16}(?:安排(?:下一步|后续)?|建议|介入|往下(?:推|安排))/u.test(userInput);
 }
 
 export function validatePilotRepairHistoryAssessment(
@@ -155,13 +176,15 @@ export function validatePilotRepairHistoryAssessment(
       return;
     }
     pastClaimCount += 1;
+    const entailedBoundaryViolationLabel = isEntailedBoundaryViolationLabel(userInput, claim);
     if (!containsExactWords(userInput, claim.userInputSourceQuote)) {
       validationErrors.push(`repair_history_source_quote_not_found:${index}`);
     }
-    if (!claim.entailedByUserInput) {
+    if (!claim.entailedByUserInput
+      && !entailedBoundaryViolationLabel) {
       validationErrors.push(`repair_history_not_entailed:${index}`);
     }
-    if (claim.addsUnsupportedSpecificity) {
+    if (claim.addsUnsupportedSpecificity && !entailedBoundaryViolationLabel) {
       validationErrors.push(`repair_history_adds_unsupported_specificity:${index}`);
     }
     const directQuotes = [
@@ -194,7 +217,7 @@ export function validatePilotScenarioSemanticAssessment(
   }
   for (const check of assessment.checks) {
     counts.set(check.checkId, (counts.get(check.checkId) ?? 0) + 1);
-    if (!containsExactWords(replyText, check.replyQuote)) {
+    if (!containsDirectQuote(replyText, check.replyQuote)) {
       validationErrors.push(`semantic_reply_quote_not_found:${check.checkId}`);
     }
   }

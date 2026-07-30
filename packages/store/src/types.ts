@@ -65,10 +65,13 @@ export interface RelationshipBranchSummary {
   tensionCount: number;
 }
 
-export interface RelationshipSummaryReadOptions {
+export interface RelationshipReadOptions {
   timeoutMs?: number;
   signal?: AbortSignal;
 }
+
+/** @deprecated Use RelationshipReadOptions for both full and summary projections. */
+export type RelationshipSummaryReadOptions = RelationshipReadOptions;
 
 export interface FeedbackRecord {
   id: string;
@@ -182,7 +185,11 @@ export interface PersonaStore {
   listConfirmedMemories(userId: string, agents: AgentType[], limitPerAgent?: number): Promise<MemoryRecord[]>;
   listMemories(userId: string, status?: MemoryStatus, roomId?: string): Promise<MemoryRecord[]>;
   listRelationshipEvents(userId: string, agent: AgentType): Promise<RelationshipEventRecord[]>;
-  listRelationshipBranches(userId: string, agents: AgentType[]): Promise<RelationshipBranchRecord[]>;
+  listRelationshipBranches(
+    userId: string,
+    agents: AgentType[],
+    options?: RelationshipReadOptions,
+  ): Promise<RelationshipBranchRecord[]>;
   listRelationshipBranchSummaries(
     userId: string,
     agents: AgentType[],

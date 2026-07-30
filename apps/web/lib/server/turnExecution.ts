@@ -51,7 +51,7 @@ export function executeTurn(input: {
   const {
     body, userId, setCookie, store, config, prepared, signal, turnStartedAt, getRuntime,
   } = input;
-  const { reservation, room, safety, modelBudget, relationshipShadow } = prepared;
+  const { reservation, room, safety, modelBudget, relationshipProjection } = prepared;
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream<Uint8Array>({
@@ -199,7 +199,7 @@ export function executeTurn(input: {
             safety: { level: safety.level, reason: safety.reason, bypassRoom: safety.bypassRoom },
             plan: tracePlan,
             roomActions,
-            relationshipShadow,
+            relationshipProjection,
             observerFailures,
             loop,
           },

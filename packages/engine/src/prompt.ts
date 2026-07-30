@@ -1,7 +1,22 @@
 import { GLOBAL_CONTRACT, SAFETY_LAYER } from './contract';
 import { getPersona } from './personas';
-import { applyToneShift, renderSpeechTypeInstruction, renderToneInstruction } from './tone';
+import {
+  buildPilotCharacterCore,
+  buildPilotSituationLens,
+  getPilotCharacter,
+  type PilotCharacterContextFocus,
+} from './pilot/pilotCharacters';
+import {
+  expressionTendenciesForAgent,
+  renderExpressionEvidenceInstruction,
+} from './expressionHabits';
+import { applyToneShift, renderSpeechTypeInstruction } from './tone';
 import { renderRelationshipPromptContext } from './relationship/relationshipContext';
+import {
+  compileSemanticTurnControl,
+  renderSemanticTurnActPlan,
+  type SemanticTurnControl,
+} from './semanticTurnControl';
 import type {
   AgentType,
   RoomState,
@@ -10,6 +25,7 @@ import type {
   TurnMessage,
 } from './types';
 import type { SafetyLevel } from './safety/safetyRouter';
+import type { RelationshipContextFocus } from './relationship/relationshipContext';
 
 /**
  * 6 层 prompt 组装（spec §1）：
@@ -56,11 +72,19 @@ ${p.forbidden.map((s) => `- ${s}`).join('\n')}
 
 /** 稳定 system 前缀：安全层 + 合约 + persona */
 export function buildSystemBlocks(type: AgentType): { text: string; cache?: boolean }[] {
+  const canonicalCharacter = getPilotCharacter(type);
   return [
     { text: SAFETY_LAYER },
     { text: GLOBAL_CONTRACT },
-    { text: buildPersonaCard(type), cache: true },
+    {
+      text: canonicalCharacter ? buildPilotCharacterCore(type) : buildPersonaCard(type),
+      cache: true,
+    },
   ];
+}
+
+function characterName(type: AgentType): string {
+  return getPilotCharacter(type)?.name ?? getPersona(type).title;
 }
 
 export function renderTranscript(history: TurnMessage[], self: AgentType, limit = 30, maxCharacters = 12_000): string {
@@ -74,7 +98,7 @@ export function renderTranscript(history: TurnMessage[], self: AgentType, limit 
           ? '安全支持'
           : m.speaker === self
             ? '你'
-            : `${getPersona(m.speaker).title}`;
+            : characterName(m.speaker);
       return `${who}：${m.text}`;
     });
   const kept: string[] = [];
@@ -98,6 +122,27 @@ export interface HostContext {
   /** 反模板重生成时附加的提示 */
   antiTemplateNote?: string;
   safetyMode?: SafetyLevel;
+  semanticControl?: SemanticTurnControl;
+}
+
+function pilotFocus(
+  ctx: HostContext,
+  semanticControl: SemanticTurnControl,
+): PilotCharacterContextFocus {
+  if (semanticControl.plan.conversationAct === 'style_repair') return 'repair';
+  if (semanticControl.plan.conversationAct === 'boundary_repair') return 'repair';
+  return relationshipFocusForTurn(ctx.plan, ctx.room);
+}
+
+export function relationshipFocusForTurn(
+  plan: TurnPlan,
+  room: RoomState,
+): RelationshipContextFocus {
+  if (room.agents.filter((agent) => !agent.paused).length > 1) return 'room';
+  if (plan.scene === '决策' || plan.scene === '复盘') return 'decision';
+  if (plan.scene === '陪伴' || plan.scene === '吐槽') return 'support';
+  if (plan.scene === '冲突') return 'conflict';
+  return 'ordinary';
 }
 
 /** 后三层：房间状态 + 主持器指令 + 关系记忆 + 用户消息，渲染成本轮的 user prompt */
@@ -105,10 +150,14 @@ export function buildTurnPrompt(ctx: HostContext): string {
   const { plan, room, speaker, earlierThisTurn, userMessage } = ctx;
   const agentState = room.agents.find((a) => a.type === speaker.type)!;
   const persona = getPersona(speaker.type);
+  const canonicalCharacter = getPilotCharacter(speaker.type);
+  const previousUserMessage = [...room.history.slice(0, -1)]
+    .reverse()
+    .find((message) => message.speaker === 'user')?.text;
   const tone = applyToneShift(persona.toneBaseline, speaker.toneShift);
   const others = room.agents
     .filter((a) => a.type !== speaker.type)
-    .map((a) => `${getPersona(a.type).title}${a.paused ? '（已暂停）' : ''}`)
+    .map((a) => `${characterName(a.type)}${a.paused ? '（已暂停）' : ''}`)
     .join('、');
 
   const rel = agentState.relationship;
@@ -121,9 +170,21 @@ export function buildTurnPrompt(ctx: HostContext): string {
       ...rel.knownBoundaries.map((content, index) => ({ id: `legacy-boundary-${index + 1}`, kind: 'boundary' as const, content, traceability: 'legacy_untraceable' as const })),
     ],
   };
+  const semanticControl = ctx.semanticControl ?? compileSemanticTurnControl({
+    userMessage,
+    relationshipContext,
+    previousUserMessage,
+    safetyMode: ctx.safetyMode === 'sensitive' ? 'sensitive' : 'normal',
+    relationshipFocus: relationshipFocusForTurn(plan, room),
+  });
+  const focus = pilotFocus(ctx, semanticControl);
+  const expressionInstruction = renderExpressionEvidenceInstruction(
+    expressionTendenciesForAgent(speaker.type, tone),
+    { turnAct: semanticControl.plan.conversationAct, focus, turnKey: userMessage },
+  );
 
   const earlier = earlierThisTurn.length
-    ? `\n本轮已有人先说了：\n${earlierThisTurn.map((e) => `${getPersona(e.type).title}：${e.text}`).join('\n')}\n（不要重复他们的观点；如果他们已长篇，你优先换角度或收短。）`
+    ? `\n本轮已有人先说了：\n${earlierThisTurn.map((e) => `${characterName(e.type)}：${e.text}`).join('\n')}\n（不要重复他们的观点；如果他们已长篇，你优先换角度或收短。）`
     : '';
 
   const summaryNote = plan.forceSummary
@@ -136,33 +197,30 @@ export function buildTurnPrompt(ctx: HostContext): string {
   const sections = [
     `【房间状态】
 场景：${plan.scene}｜用户情绪：${plan.userEmotion}${room.roomGoal ? `｜房间目标：${room.roomGoal}` : ''}
-在场：${others ? `${persona.title}（你）、${others}` : `只有你和用户（单聊）`}
+在场：${others ? `${characterName(speaker.type)}（你）、${others}` : `只有你和用户（单聊）`}
 
 【对话记录】
 ${renderTranscript(room.history, speaker.type)}${earlier}`,
 
+    ...(canonicalCharacter ? [buildPilotSituationLens(speaker.type, focus)] : []),
+
+    renderSemanticTurnActPlan(semanticControl),
+
     `【主持器指令】
 ${renderSpeechTypeInstruction(speaker.speechType)}
 你本轮的切入角度：${speaker.angle || '按你的人格自然反应'}${summaryNote}${safetyNote}
-本轮语气参数：
-${renderToneInstruction(tone)}${ctx.antiTemplateNote ? `\n${ctx.antiTemplateNote}` : ''}`,
+${expressionInstruction}${ctx.antiTemplateNote ? `\n${ctx.antiTemplateNote}` : ''}`,
 
     `【关系记忆】
 ${renderRelationshipPromptContext(relationshipContext, {
-  focus: plan.scene === '冲突'
-    ? 'conflict'
-    : plan.scene === '陪伴' || plan.scene === '吐槽'
-      ? 'support'
-      : plan.scene === '决策' || plan.scene === '复盘'
-        ? 'decision'
-        : 'ordinary',
+  focus,
   maxEvidence: 3,
 })}`,
 
     `【用户刚刚说】
 ${userMessage}
 
-现在，作为${persona.title}发言。直接输出内容，不加任何前缀。`,
+现在直接接这句话。只输出对用户说的内容，不加名字、解释或任何前缀。`,
   ];
 
   return sections.join('\n\n');

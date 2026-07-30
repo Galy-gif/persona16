@@ -1,11 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  PILOT_SEMANTIC_REPLY_QUOTE_MIN_LENGTH,
   PILOT_SCENARIO_SEMANTIC_CHECKS,
   validatePilotRepairHistoryAssessment,
   validatePilotScenarioSemanticAssessment,
   type PilotScenarioSemanticAssessment,
 } from '../src/pilotScenarioSemanticGate';
+
+test('the live Judge schema and semantic validator share the short-quote minimum', () => {
+  assert.equal(PILOT_SEMANTIC_REPLY_QUOTE_MIN_LENGTH, 2);
+});
 
 test('targeted scenario semantics require every expected check and exact reply evidence', () => {
   const text = '不想做了，我信。可怎么从项目结束，变成了你没能力？';
@@ -86,6 +91,98 @@ test('semantic evidence remains exact when the Judge collapses paragraph whitesp
   ).passed, true);
 });
 
+test('semantic evidence ignores quote-mark presentation but preserves exact words', () => {
+  const reply = '那个项目结束了。我们只聊一件事——"不想做"和"没能力"这两个结论，你是怎么从上一个跳到下一个的？';
+  const checks = PILOT_SCENARIO_SEMANTIC_CHECKS['self-judgment-after-end'].map((checkId) => ({
+    checkId,
+    passed: true,
+    replyQuote: checkId === 'project_end_accepted' || checkId === 'project_not_reopened'
+      ? '那个项目结束了。'
+      : "我们只聊一件事——'不想做'和'没能力'这两个结论，你是怎么从上一个跳到下一个的？",
+    analysis: '只改变引号展示样式。',
+  }));
+
+  assert.equal(validatePilotScenarioSemanticAssessment(
+    'self-judgment-after-end',
+    reply,
+    { scenarioId: 'self-judgment-after-end', checks },
+  ).passed, true);
+
+  const bookTitleChecks = checks.map((check) => ({
+    ...check,
+    replyQuote: check.replyQuote.replace(/'([^']+)'/gu, '《$1》'),
+  }));
+  assert.equal(validatePilotScenarioSemanticAssessment(
+    'self-judgment-after-end',
+    reply,
+    { scenarioId: 'self-judgment-after-end', checks: bookTitleChecks },
+  ).passed, true);
+
+  checks[1] = {
+    ...checks[1]!,
+    replyQuote: "我们只聊一件事——'不想继续'和'没能力'这两个结论",
+  };
+  assert.equal(validatePilotScenarioSemanticAssessment(
+    'self-judgment-after-end',
+    reply,
+    { scenarioId: 'self-judgment-after-end', checks },
+  ).passed, false);
+
+  const apostropheReply = "Project ends. I don't reopen it.";
+  const droppedApostropheChecks = PILOT_SCENARIO_SEMANTIC_CHECKS['self-judgment-after-end']
+    .map((checkId) => ({
+      checkId,
+      passed: true,
+      replyQuote: 'I dont reopen it.',
+      analysis: '不得把词内 apostrophe 当成展示引号。',
+    }));
+  assert.equal(validatePilotScenarioSemanticAssessment(
+    'self-judgment-after-end',
+    apostropheReply,
+    { scenarioId: 'self-judgment-after-end', checks: droppedApostropheChecks },
+  ).passed, false);
+});
+
+test('short natural semantic evidence remains valid when it is quoted exactly', () => {
+  const reply = '越界了。我现在停。';
+  const assessment: PilotScenarioSemanticAssessment = {
+    scenarioId: 'repair-after-boundary-violation',
+    checks: PILOT_SCENARIO_SEMANTIC_CHECKS['repair-after-boundary-violation']
+      .map((checkId) => ({
+        checkId,
+        passed: true,
+        replyQuote: checkId === 'boundary_violation_named' ? '越界了' : '我现在停',
+        analysis: '回复使用了短而完整的自然证据。',
+      })),
+  };
+  assert.equal(validatePilotScenarioSemanticAssessment(
+    'repair-after-boundary-violation',
+    reply,
+    assessment,
+  ).passed, true);
+});
+
+test('semantic evidence may span paragraphs while remaining word-exact', () => {
+  const reply = '那就结束。\n\n两年，不想做了，这个理由够了。\n\n但这不等于你没能力。';
+  const assessment: PilotScenarioSemanticAssessment = {
+    scenarioId: 'self-judgment-after-end',
+    checks: PILOT_SCENARIO_SEMANTIC_CHECKS['self-judgment-after-end'].map((checkId) => ({
+      checkId,
+      passed: true,
+      replyQuote: checkId === 'project_end_accepted' || checkId === 'project_not_reopened'
+        ? '那就结束。两年，不想做了，这个理由够了。'
+        : '但这不等于你没能力。',
+      analysis: '有跨段但逐字一致的回复原文证据。',
+    })),
+  };
+
+  assert.equal(validatePilotScenarioSemanticAssessment(
+    'self-judgment-after-end',
+    reply,
+    assessment,
+  ).passed, true);
+});
+
 test('repair history claims require a paired source entailment instead of reply self-citation', () => {
   const userInput = '我昨天明明说了只想被听见，你还是一直替我安排下一步。';
   const valid = validatePilotRepairHistoryAssessment(
@@ -105,6 +202,93 @@ test('repair history claims require a paired source entailment instead of reply 
     },
   );
   assert.equal(valid.passed, true);
+
+  const naturalAcknowledgement = validatePilotRepairHistoryAssessment(
+    userInput,
+    '你说了只想被听见，我还在替你安排下一步，这是我越界了。我现在停。',
+    {
+      scenarioId: 'repair-after-boundary-violation',
+      allHistoryClaimsCovered: true,
+      claims: [{
+        claimType: 'past_interaction_claim',
+        replyHistoryQuote: '这是我越界了',
+        userInputSourceQuote: '我昨天明明说了只想被听见，你还是一直替我安排下一步。',
+        entailedByUserInput: false,
+        addsUnsupportedSpecificity: true,
+        analysis: '“越界”是对用户已经给出的行为事实的自然承认。',
+      }, {
+        claimType: 'current_or_future_repair_action',
+        replyHistoryQuote: '我现在停',
+        userInputSourceQuote: null,
+        entailedByUserInput: null,
+        addsUnsupportedSpecificity: null,
+        analysis: '当前停止介入。',
+      }],
+    },
+  );
+  assert.equal(naturalAcknowledgement.passed, true);
+  const explicitListenBoundaryAcknowledgement = validatePilotRepairHistoryAssessment(
+    userInput,
+    '这是我越过了你只想被听见的边界。我现在停。',
+    {
+      scenarioId: 'repair-after-boundary-violation',
+      allHistoryClaimsCovered: true,
+      claims: [{
+        claimType: 'past_interaction_claim',
+        replyHistoryQuote: '这是我越过了你只想被听见的边界',
+        userInputSourceQuote: userInput,
+        entailedByUserInput: false,
+        addsUnsupportedSpecificity: true,
+        analysis: '边界类型严格来自用户给出的只听边界。',
+      }, {
+        claimType: 'current_or_future_repair_action',
+        replyHistoryQuote: '我现在停',
+        userInputSourceQuote: null,
+        entailedByUserInput: null,
+        addsUnsupportedSpecificity: null,
+        analysis: '当前停止介入。',
+      }],
+    },
+  );
+  assert.equal(explicitListenBoundaryAcknowledgement.passed, true);
+  for (const inventedBoundaryClaim of [
+    '这是我越界后又删除了你的文件',
+    '我昨天越界时还把你的消息发给了别人',
+    '这是我踩了保密红线',
+    '这是我越过法律边界了',
+    '这是我跨过转账红线',
+    '我越过你反复强调的边界了',
+    '我越过你画下的红线了',
+    '我踩过你绝不能碰的线了',
+  ]) {
+    const result = validatePilotRepairHistoryAssessment(
+      userInput,
+      `${inventedBoundaryClaim}。我现在停。`,
+      {
+        scenarioId: 'repair-after-boundary-violation',
+        allHistoryClaimsCovered: true,
+        claims: [{
+          claimType: 'past_interaction_claim',
+          replyHistoryQuote: inventedBoundaryClaim,
+          userInputSourceQuote: userInput,
+          entailedByUserInput: false,
+          addsUnsupportedSpecificity: false,
+          analysis: '“越界”后附加了用户没有提供的历史。',
+        }, {
+          claimType: 'current_or_future_repair_action',
+          replyHistoryQuote: '我现在停',
+          userInputSourceQuote: null,
+          entailedByUserInput: null,
+          addsUnsupportedSpecificity: null,
+          analysis: '当前停止介入。',
+        }],
+      },
+    );
+    assert.ok(
+      result.validationErrors.includes('repair_history_not_entailed:0'),
+      inventedBoundaryClaim,
+    );
+  }
 
   const invented = validatePilotRepairHistoryAssessment(
     userInput,
@@ -150,6 +334,9 @@ test('repair history claims require a paired source entailment instead of reply 
   for (const replyText of [
     '你说只想被听见，我却安排了下一步。我只说过“接下来你可以考虑”。',
     '你说只想被听见，我却安排了下一步。我当时说“我会停”。',
+    '你说只想被听见，我却安排了下一步。昨天我停下了。',
+    '你说只想被听见，我却安排了下一步。我上次撤回了建议。',
+    '你说只想被听见，我却安排了下一步。刚才我把选择权还给你了。',
   ]) {
     const falseFutureClaim = validatePilotRepairHistoryAssessment(
       userInput,
@@ -246,4 +433,38 @@ test('repair history claims require a paired source entailment instead of reply 
     },
   );
   assert.equal(currentActionWithPastObject.passed, true);
+
+  for (const action of [
+    '我准备这样处理：先停下来，不再替你安排',
+    '那我先停，不继续往下推',
+    '我会把选择权还给你',
+  ]) {
+    const result = validatePilotRepairHistoryAssessment(
+      userInput,
+      `你说只想被听见，我却安排了下一步。${action}。`,
+      {
+        scenarioId: 'repair-after-boundary-violation',
+        allHistoryClaimsCovered: true,
+        claims: [
+          {
+            claimType: 'past_interaction_claim',
+            replyHistoryQuote: '你说只想被听见，我却安排了下一步',
+            userInputSourceQuote: '说了只想被听见，你还是一直替我安排下一步',
+            entailedByUserInput: true,
+            addsUnsupportedSpecificity: false,
+            analysis: '有输入来源。',
+          },
+          {
+            claimType: 'current_or_future_repair_action',
+            replyHistoryQuote: action,
+            userInputSourceQuote: null,
+            entailedByUserInput: null,
+            addsUnsupportedSpecificity: null,
+            analysis: '这是当前或未来修复动作。',
+          },
+        ],
+      },
+    );
+    assert.equal(result.passed, true, action);
+  }
 });

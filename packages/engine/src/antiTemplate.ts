@@ -6,6 +6,7 @@
 
 import type { RelationshipPromptContext } from './relationship/relationshipContext';
 import { relationshipEvidenceProtectsDecisionAutonomy } from './relationship/relationshipContext';
+import { compileTurnActPlan } from './turnActPlan';
 
 const BANNED_OPENINGS = [
   '我理解你的感受',
@@ -33,8 +34,11 @@ function normalizeOpening(text: string): string {
 export interface AntiTemplateVerdict {
   ok: boolean;
   reason?: string;
-  kind?: 'anti_template' | 'relationship_boundary';
+  kind?: 'anti_template' | 'relationship_boundary' | 'conversation_naturalness';
 }
+
+const UNSOLICITED_SELF_NARRATION = /^(?:我是(?:那|这|一)?种|我是个|我这个人|我这人|我(?:说话|表达|思考|看事情)).{0,80}(?:会先|习惯|通常|一般|倾向|方式|的人)/u;
+const META_DEFENSIVE_EXPLANATION = /^(?:不(?:是|算).{0,10}(?:装|人设)|我(?:不是|没有).{0,10}(?:装|演)|(?:这是|只是|因为|我).{0,40}(?:习惯|性格|人设|设定|思考方式|表达方式|说话方式|反应模式))/u;
 
 function directlyChoosesForUser(text: string): boolean {
   const semanticText = stripTextualToneMarker(text).trim();
@@ -59,9 +63,25 @@ export function checkUtterance(
   text: string,
   recentOpenings: string[],
   relationshipContext?: RelationshipPromptContext,
+  userMessage = '',
 ): AntiTemplateVerdict {
   const trimmed = text.trim();
   const semanticOpening = stripTextualToneMarker(trimmed);
+  const turnActPlan = compileTurnActPlan(userMessage);
+  if (turnActPlan.kind === 'greeting' && UNSOLICITED_SELF_NARRATION.test(semanticOpening)) {
+    return {
+      ok: false,
+      kind: 'conversation_naturalness',
+      reason: '简单问候后主动做自我说明，暴露了人设',
+    };
+  }
+  if (turnActPlan.kind === 'style_repair' && META_DEFENSIVE_EXPLANATION.test(semanticOpening)) {
+    return {
+      ok: false,
+      kind: 'conversation_naturalness',
+      reason: '用户反馈表达刻意后仍在解释人设，没有立即换说法',
+    };
+  }
   if (
     relationshipContext
     && relationshipEvidenceProtectsDecisionAutonomy(relationshipContext.evidence)

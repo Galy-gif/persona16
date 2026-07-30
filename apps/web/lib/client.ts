@@ -68,6 +68,11 @@ export function deleteRoom(id: string): void {
   localStorage.setItem(KEY, JSON.stringify(loadRooms().filter((room) => room.id !== id)));
 }
 
+export function clearRooms(): void {
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem(KEY);
+}
+
 async function apiJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init);
   const payload = await response.json().catch(() => undefined) as { error?: { code?: string; message?: string } } | undefined;

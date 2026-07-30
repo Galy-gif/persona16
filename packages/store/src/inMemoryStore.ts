@@ -317,11 +317,18 @@ export class InMemoryPersonaStore implements PersonaStore {
       .map(cloneRelationshipEvent);
   }
 
-  async listRelationshipBranches(userId: string, agents: AgentType[]): Promise<RelationshipBranchRecord[]> {
+  async listRelationshipBranches(
+    userId: string,
+    agents: AgentType[],
+    options: RelationshipSummaryReadOptions = {},
+  ): Promise<RelationshipBranchRecord[]> {
+    if (options.signal?.aborted) throw options.signal.reason;
     const allowed = new Set(agents);
-    return [...this.relationshipBranches.values()]
+    const branches = [...this.relationshipBranches.values()]
       .filter((record) => record.userId === userId && allowed.has(record.agent))
       .map(cloneRelationshipBranch);
+    if (options.signal?.aborted) throw options.signal.reason;
+    return branches;
   }
 
   async listRelationshipBranchSummaries(
@@ -330,7 +337,7 @@ export class InMemoryPersonaStore implements PersonaStore {
     options: RelationshipSummaryReadOptions = {},
   ): Promise<RelationshipBranchSummary[]> {
     if (options.signal?.aborted) throw options.signal.reason;
-    const branches = await this.listRelationshipBranches(userId, agents);
+    const branches = await this.listRelationshipBranches(userId, agents, options);
     if (options.signal?.aborted) throw options.signal.reason;
     return branches.map(({ agent, version, branch }) => ({
       agent,

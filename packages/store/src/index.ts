@@ -15,6 +15,7 @@ export type {
   MemoryRecord,
   RelationshipBranchRecord,
   RelationshipBranchSummary,
+  RelationshipReadOptions,
   RelationshipSummaryReadOptions,
   RelationshipEventRecord,
   LookupTurnInput,

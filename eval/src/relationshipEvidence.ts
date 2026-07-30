@@ -33,8 +33,36 @@ export interface RelationshipEventEntailmentValidation {
   validationErrors: string[];
 }
 
+function stripMarkdownPresentation(text: string): string {
+  const codeSpans: string[] = [];
+  const protectLiteral = (content: string): string => {
+    const index = codeSpans.push(content) - 1;
+    return `\uE000CODE${index}\uE001`;
+  };
+  let protectedText = text.replace(/(`+)([^`\n]*?)\1/gu, (
+    _match,
+    _fence: string,
+    content: string,
+  ) => protectLiteral(content));
+  protectedText = protectedText.replace(
+    /[A-Za-z0-9_]+(?:\*\*[A-Za-z0-9_]+)+/gu,
+    (content) => protectLiteral(content),
+  );
+  return protectedText
+    .replace(/^\s*[-+*]\s+/gmu, '')
+    .replace(/\*\*([^*\n]+)\*\*/gu, '$1')
+    .replace(/(?<![\p{L}\p{N}_])__([^_\n]+)__(?![\p{L}\p{N}_])/gu, '$1')
+    .replace(/\uE000CODE(\d+)\uE001/gu, (_match, index: string) => (
+      codeSpans[Number(index)] ?? ''
+    ));
+}
+
 function normalizeComparableText(text: string): string {
-  return text.trim().replace(/\s+/g, ' ');
+  return stripMarkdownPresentation(text)
+    .trim()
+    .replace(/\s+/g, '')
+    .replace(/[“”]/gu, '"')
+    .replace(/[‘’]/gu, "'");
 }
 
 function containsExactWords(source: string, quote: string): boolean {

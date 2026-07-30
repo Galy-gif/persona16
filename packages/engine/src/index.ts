@@ -1,11 +1,29 @@
 export * from './types';
 export { PERSONAS, getPersona } from './personas';
 export { SAFETY_LAYER, GLOBAL_CONTRACT } from './contract';
-export { buildPersonaCard, buildSystemBlocks, buildTurnPrompt } from './prompt';
+export {
+  buildPersonaCard,
+  buildSystemBlocks,
+  buildTurnPrompt,
+  relationshipFocusForTurn,
+} from './prompt';
 export { applyToneShift, renderToneInstruction } from './tone';
+export {
+  expressionTendenciesForAgent,
+  renderExpressionEvidenceInstruction,
+  selectExpressionEvidence,
+} from './expressionHabits';
+export type {
+  ExpressionEvidence,
+  ExpressionEvidenceContext,
+  ExpressionTendencies,
+  ExpressionTendency,
+} from './expressionHabits';
 export { resolveTurnPlan, advanceRoomState } from './scoring';
 export { runDirector } from './director';
 export { checkUtterance, recordOpening } from './antiTemplate';
+export { compileTurnActPlan, conversationRepairFallback } from './turnActPlan';
+export type { TurnActContext, TurnActKind, TurnActPlan } from './turnActPlan';
 export { createTracer } from './trace';
 export type { TraceFailure, Tracer } from './trace';
 export { DeliveryCallbackError } from './lifecycleHooks';
@@ -86,6 +104,19 @@ export type {
 } from './runtime/turnEvents';
 export { classifySafety, routeSafety, safetyResponse } from './safety/safetyRouter';
 export type { SafetyClassifier, SafetyDecision, SafetyLevel } from './safety/safetyRouter';
+export {
+  analyzeHistoricalEvidence,
+  isHistoricalClaimSupported,
+} from './historicalEvidence';
+export type {
+  EventTime,
+  HistoricalClaim,
+  HistoricalEvidenceAnalysis,
+  HistoricalEvidencePerspective,
+  HistoricalFactuality,
+  HistoricalParticipant,
+  HistoricalRecipient,
+} from './historicalEvidence';
 export { applyConfirmedMemories, clearInjectedMemories, extractMemoryCandidate } from './memory/memoryPolicy';
 export type {
   InjectableMemory,
@@ -126,6 +157,7 @@ export type {
   PilotCharacterSpec,
   PilotTurnResponseContract,
   PilotNarrativeViolation,
+  PilotNarrativeValidationContext,
   PilotRoomChemistry,
   PilotRoomProtocolViolation,
   PilotRoomTranscriptViolation,

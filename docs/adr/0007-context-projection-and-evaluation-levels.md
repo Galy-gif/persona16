@@ -59,7 +59,7 @@ status: accepted
 
 尚未完成：
 
-- 真实 Turn API 仍使用旧版 16 人 `buildPersonaCard`；四位正典试点人物及其情境镜头尚未接入生产 `buildSystemBlocks`。
+- 四位正典试点人物及其情境镜头已由 [ADR-0014](0014-compile-conversation-acts-and-require-single-chat-response.md) 接入生产 `buildSystemBlocks`；其余 12 个未进入当前前台的类型暂保留旧版 `buildPersonaCard` 作兼容回退。
 - `RelationshipBranch` 已以事件日志和可重建快照在生产 Store 中影子持久化，但尚未成为 Prompt 的正式关系来源。
 - 生产仍按每个人物最近的已确认 Memory 加载，尚未完成相关性检索、冲突替代和过期策略。
 - 试点评测仍需补真实 Turn API 的生产路径与端到端回归，才能验证线上产品表现。

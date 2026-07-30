@@ -125,6 +125,7 @@ test('a completed summary clears the tracked conflict after advancing the room',
 
 test('a requested summary does not clear conflict when no summary completed', () => {
   const room = createRoom(['INTJ']);
+  room.agents[0]!.paused = true;
   room.conflictTopic = '是否辞职';
   room.conflictRounds = 3;
   const plan = resolveTurnPlan(
@@ -147,4 +148,16 @@ test('a requested summary does not clear conflict when no summary completed', ()
 
   assert.equal(room.conflictTopic, '是否辞职');
   assert.equal(room.conflictRounds, 4);
+});
+
+test('a direct message in a single-agent room always gets a response plan', () => {
+  const room = createRoom(['INTJ']);
+  const plan = resolveTurnPlan(
+    decision([{ type: 'INTJ', baseImpulse: 0, suggestedSpeechType: '短句' }]),
+    room,
+  );
+
+  assert.equal(plan.speakers.length, 1);
+  assert.equal(plan.speakers[0]?.type, 'INTJ');
+  assert.match(plan.speakers[0]?.angle ?? '', /回应|接话/);
 });
