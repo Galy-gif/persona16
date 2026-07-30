@@ -3,7 +3,8 @@ packages:
   - apps/*
   - eval
 overrides:
-  postcss: 8.5.10
+  postcss: 8.5.18
+  sharp: 0.35.2
 allowBuilds:
   '@google/genai': false
   esbuild: true
