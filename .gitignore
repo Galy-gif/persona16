@@ -1,6 +1,11 @@
 node_modules/
 dist/
 .next/
+.next-dev/
+.open-next/
+.pnpm-store/
+.sites-worker/
+.wrangler-config/
 .env
 .env.local
 *.log

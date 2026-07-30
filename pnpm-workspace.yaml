@@ -9,5 +9,6 @@ allowBuilds:
   esbuild: true
   protobufjs: false
   sharp: true
+  workerd: true
 minimumReleaseAgeExclude:
   - '@anthropic-ai/sdk@0.111.0'

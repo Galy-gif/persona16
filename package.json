@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build": "npm --prefix apps/web run build:cloudflare && npm --prefix apps/web run bundle:cloudflare && node scripts/prepare-sites-build.mjs",
     "test": "pnpm --filter @persona16/eval unit",
     "typecheck": "pnpm -r typecheck",
     "eval:blindtest": "pnpm --filter @persona16/eval blindtest",

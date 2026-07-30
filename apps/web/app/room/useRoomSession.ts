@@ -6,6 +6,7 @@ import { PERSONAS, getPersona } from '@persona16/engine/personas';
 import type { FailureOutcome, RecoveryAction } from '@persona16/engine/recovery';
 import type { AgentType } from '@persona16/engine/types';
 import type { FeedbackTag } from '@persona16/store';
+import { characterName, PILOT_TYPES } from '../../lib/characters';
 import {
   ApiError,
   addServerAgent,
@@ -148,7 +149,8 @@ export function useRoomSession(id: string) {
 
   const availableToInvite = useMemo(() => {
     const present = new Set(room?.state.agents.map((agent) => agent.type) ?? []);
-    return PERSONAS.filter((persona) => !present.has(persona.type));
+    const pilotTypes = new Set(PILOT_TYPES);
+    return PERSONAS.filter((persona) => pilotTypes.has(persona.type) && !present.has(persona.type));
   }, [room?.state.agents]);
 
   async function send(
@@ -187,9 +189,9 @@ export function useRoomSession(id: string) {
         calledAgent: requestedAgent,
       }, (event) => {
         if (event.type === 'room_action') {
-          if ('agent' in event.action) setStatusText(`${getPersona(event.action.agent).title}准备发言…`);
+          if ('agent' in event.action) setStatusText(`${characterName(event.action.agent)}准备发言…`);
         } else if (event.type === 'speaker_start') {
-          setStatusText(`${getPersona(event.agent).title}正在发言`);
+          setStatusText(`${characterName(event.agent)}正在发言`);
           setLive((previous) => [...previous, { agent: event.agent, speechType: event.speechType, text: '', done: false }]);
         } else if (event.type === 'delta') {
           setLive((previous) => previous.map((message, index) => (
@@ -356,7 +358,7 @@ export function useRoomSession(id: string) {
   }
 
   async function removeAgent(type: AgentType) {
-    const confirmed = window.confirm(`确定要将 ${getPersona(type).title} 移出房间吗？`);
+    const confirmed = window.confirm(`确定要将 ${characterName(type)} 移出房间吗？`);
     if (!confirmed) return;
     await applyRoomChange((currentRoom) => removeServerAgent(currentRoom.id, currentRoom.version, type, true));
     if (called === type) setCalled(undefined);

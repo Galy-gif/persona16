@@ -10,6 +10,7 @@
 2. **DeepSeek 对 HTTP 402 的官方定义是“账号余额不足”。** 官方给出的处理方法是确认账号余额并充值；它不是并发、RPM/TPM 或 API Key 限额错误。请求过快或超过并发上限对应 HTTP 429。[错误码](https://api-docs.deepseek.com/zh-cn/quick_start/error_codes/)、[限速与隔离](https://api-docs.deepseek.com/zh-cn/quick_start/rate_limit/)
 3. **公开资料显示余额和主要限速都按账号管理，而不是按 Key 建独立钱包。** 官方协议写明 API Key 是“通过账号创建”的调用凭证，付费服务则要求账号预充值并保持余额充足。余额接口用 Bearer API Key 鉴权，但查询对象明确写作“账号余额”；限速文档还明确说并发限制以账号粒度计算、与 API Key 无关。FAQ 提供的是“按 Key 查看用量”，没有按 Key 充值或单独余额的说明。[开放平台服务协议](https://cdn.deepseek.com/policies/zh-CN/deepseek-open-platform-terms-of-service.html)、[查询余额](https://api-docs.deepseek.com/zh-cn/api/get-user-balance/)、[限速与隔离](https://api-docs.deepseek.com/zh-cn/quick_start/rate_limit/)、[常见问题](https://api-docs.deepseek.com/zh-cn/faq/)
 4. **因此，没有一个可依据该接口文档“去掉”的官方 1 元限额。** 如果开放平台页面显示仍有 20 多元，而使用某个 Key 调用官方 API 得到 402，优先怀疑该 Key 所属账号与看到充值余额的登录账号不是同一个，或调用实际没有到官方 `api.deepseek.com`。应先用同一个 Key 调官方余额接口验证，而不是继续盲目充值。
+5. **官方公开资料没有给出“消费限额”的开关或管理路径。** 公开平台入口只明确涉及充值、账单、用量信息和 API Key；并发限额另有扩容工单，但那会触发 429，不是可消费金额。因而不能在文档里替用户“关闭 1 元限额”；若登录后的控制台确实出现自定义金额上限，需要以该页面截图或官方工单为准，不能把价格表里的 1 元当成这个设置。
 
 ## 一、官方资料分别说明了什么
 
@@ -26,7 +27,18 @@
 
 这张表没有“单次调用最多 1 元”“每天最多 1 元”或“每 Key 1 元”的字段。`1 元`只出现在 `deepseek-v4-flash` 缓存未命中输入的计量价格中。
 
-### 2. 402 与限速是两类错误
+### 2. 一次或一批调用为什么仍可能花到约 1 元
+
+按官方单价，某次请求或一批请求的理论费用可以写成：
+
+- `deepseek-v4-flash`：`0.02 × 缓存命中输入百万 tokens + 1 × 缓存未命中输入百万 tokens + 2 × 输出百万 tokens`；
+- `deepseek-v4-pro`：`0.025 × 缓存命中输入百万 tokens + 3 × 缓存未命中输入百万 tokens + 6 × 输出百万 tokens`。
+
+例如，`deepseek-v4-pro` 一批累计 20 万缓存未命中输入 tokens 和约 6.67 万输出 tokens，费用约为 `0.6 + 0.4 = 1 元`。这不是触发了限额，而是正常按量扣费。官方当前给两个模型的上下文长度都是 1M、最大输出长度是 384K；长上下文、长输出、重试、生成后再调用 Judge/仲裁器，都会累计 token 用量。[模型与价格](https://api-docs.deepseek.com/zh-cn/quick_start/pricing/)、[对话补全](https://api-docs.deepseek.com/zh-cn/api/create-chat-completion/)
+
+上下文缓存对所有用户默认开启，但只对完整重复的前缀计为命中，而且官方明确说缓存是“尽力而为”，不保证每次命中。应从响应 `usage.prompt_cache_hit_tokens`、`usage.prompt_cache_miss_tokens` 和 `usage.completion_tokens` 核算，而不能仅凭肉眼看到的文本长度估计。思考模式的 `reasoning_tokens` 还会出现在 `completion_tokens_details` 中，因此可见答案很短也不代表输出用量一定很小。[上下文硬盘缓存](https://api-docs.deepseek.com/zh-cn/guides/kv_cache/)、[Token 用量计算](https://api-docs.deepseek.com/zh-cn/quick_start/token_usage/)、[对话补全](https://api-docs.deepseek.com/zh-cn/api/create-chat-completion/)
+
+### 3. 402 与限速是两类错误
 
 DeepSeek 的官方错误码表将两者分开：
 
@@ -37,7 +49,7 @@ DeepSeek 的官方错误码表将两者分开：
 
 所以，增加并发额度或调整请求速率不能解释、也不能解除 402；若原始响应确实来自 DeepSeek 官方 API，402 指向的是该 Key 所认证账号在服务端被判定为没有可用余额。
 
-### 3. 余额由账号持有，Key 用于鉴权和用量归因
+### 4. 余额由账号持有，Key 用于鉴权和用量归因
 
 《DeepSeek 开放平台服务协议》第 2.4 条说明，API Key 是用户通过账号创建的调用凭证；第 6.1 条说明付费服务采用预充值，余额充足时正常使用，余额不足时平台可停止服务；第 6.3 条特别要求充值时确认账号。[开放平台服务协议](https://cdn.deepseek.com/policies/zh-CN/deepseek-open-platform-terms-of-service.html)
 
@@ -65,6 +77,19 @@ Authorization: Bearer <TOKEN>
 - 官方公开模型是**账号余额 + 多个鉴权 Key + 分 Key 用量统计**；
 - 公开文档没有 Key 独立充值余额、默认 1 元 Key 配额或 Key 消费上限设置；
 - “所有 Key 一定不存在任何未公开风控或登录后自设项”无法仅凭公开文档证明；本报告能确认的是，公开资料没有默认 1 元 Key 限额，而且价格页上的 1 元不是限额。
+
+### 5. 官方公开资料能管理什么、不能证明什么
+
+官方 FAQ 和服务协议明确提到的财务管理入口是：
+
+- “充值”页面：给账号预充值；
+- “账单”页面：查充值结果、赠送余额有效期、发票和退款；
+- “用量信息”页面：按月导出用量，并在 `amount` CSV 中查看分 Key 明细；
+- `/user/balance`：查询该 Key 所认证账号的总余额、赠送余额和充值余额。
+
+官方并发文档另提供“账号扩容申请工单”，管理的是并发量；超过并发上限返回 429。[常见问题](https://api-docs.deepseek.com/zh-cn/faq/)、[开放平台服务协议](https://cdn.deepseek.com/policies/zh-CN/deepseek-open-platform-terms-of-service.html)、[查询余额](https://api-docs.deepseek.com/zh-cn/api/get-user-balance/)、[限速与隔离](https://api-docs.deepseek.com/zh-cn/quick_start/rate_limit/)
+
+截至本次核查，官方公开文档和 FAQ 没有“消费限额”“预算上限”“每 Key 金额封顶”的产品说明，也没有相应关闭路径。未登录的公开资料不能证明登录后台永远不存在实验性或未公开设置；但在没有控制台证据前，**没有可执行的官方步骤可以把所谓 1 元限额去掉**。
 
 ## 二、为什么“我明明充了 20 元”仍可能收到 402
 
