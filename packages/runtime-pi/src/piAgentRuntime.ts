@@ -1,5 +1,6 @@
 import { Agent, type AgentMessage, type AgentTool, type StreamFn } from '@earendil-works/pi-agent-core';
 import { createModels, type Api, type AssistantMessage, type Model, type Models, type TSchema, type Usage } from '@earendil-works/pi-ai';
+import { anthropicProvider } from '@earendil-works/pi-ai/providers/anthropic';
 import { deepseekProvider } from '@earendil-works/pi-ai/providers/deepseek';
 import type {
   AgentRuntime,
@@ -10,6 +11,7 @@ import type {
   RuntimeStopReason,
   RuntimeTool,
 } from '@persona16/engine';
+import { aihubmixProvider } from './aihubmixProvider';
 
 export interface PiAgentRuntimeOptions {
   models?: Models;
@@ -143,6 +145,8 @@ function defaultResolveModel(ref: RuntimeModelRef, models: Models): Model<Api> |
 
 function defaultModels(): Models {
   const models = createModels();
+  models.setProvider(aihubmixProvider());
+  models.setProvider(anthropicProvider());
   models.setProvider(deepseekProvider());
   return models;
 }
@@ -199,14 +203,16 @@ export class PiAgentRuntime implements AgentRuntime {
       this.models.streamSimple(activeModel, context, {
         ...options,
         maxTokens: request.limits.maxTokens,
-        temperature: request.temperature,
+        ...(request.thinkingLevel === 'off' && request.temperature !== undefined
+          ? { temperature: request.temperature }
+          : {}),
       });
 
     const agent = new Agent({
       initialState: {
         systemPrompt: request.system.map((block) => block.text).join('\n\n'),
         model,
-        thinkingLevel: 'off',
+        thinkingLevel: request.thinkingLevel ?? 'high',
         tools: (request.tools ?? []).map(toPiTool),
         messages: request.messages.map((message) => toAgentMessage(message, model)),
       },

@@ -7,9 +7,12 @@ import {
   buildPilotCharacterCard,
   buildPilotCharacterCore,
   buildPilotCharacterContext,
+  buildPilotCharacterPresence,
+  buildPilotDirectorProfile,
   buildPilotRelationshipContext,
   buildPilotRoomContext,
   buildPilotSituationLens,
+  buildPilotTurnPresence,
   createRelationshipBranch,
   findPilotNarrativeViolations,
   findPilotRoomProtocolViolations,
@@ -95,6 +98,34 @@ test('generation context keeps the stable core but activates only the current le
   assert.doesNotMatch(repair, /幕后形成依据/);
   assert.match(support, /由本轮关系上下文决定/);
   assert.doesNotMatch(support, /陌生关系方式：/);
+});
+
+test('production presence keeps topical dispositions dormant until one approved projection is supplied', () => {
+  const presence = buildPilotCharacterPresence('INTJ');
+  const directorProfile = buildPilotDirectorProfile('INTJ')!;
+  const dormantTurn = buildPilotTurnPresence('INTJ', { focus: 'ordinary' });
+  const activeTurn = buildPilotTurnPresence('INTJ', {
+    focus: 'decision',
+    activeDispositionId: 'lin-heng:choice-room',
+  });
+  const foreignDisposition = buildPilotTurnPresence('INTJ', {
+    focus: 'decision',
+    activeDispositionId: 'xia-xu:stated-desire',
+  });
+
+  assert.match(presence, /正典人物存在：林衡/);
+  assert.match(presence, /不需要在每次回应里证明自己是什么样的人/);
+  assert.doesNotMatch(presence, /不可逆后果|隐藏依赖|无人负责的变量/);
+
+  assert.match(directorProfile, /潜在倾向默认全部休眠/);
+  assert.match(directorProfile, /lin-heng:choice-room/);
+  assert.match(directorProfile, /lin-heng:unowned-consequence/);
+  assert.match(directorProfile, /lin-heng:tentative-judgment/);
+
+  assert.doesNotMatch(dormantTurn, /本轮可调用的人物倾向/);
+  assert.match(activeTurn, /本轮可调用的人物倾向｜选择余地/);
+  assert.equal((activeTurn.match(/本轮可调用的人物倾向/g) ?? []).length, 1);
+  assert.doesNotMatch(foreignDisposition, /本轮可调用的人物倾向/);
 });
 
 test('turn response contract renders trusted dynamic state as a separate prompt section', () => {

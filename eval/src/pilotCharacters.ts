@@ -12,10 +12,11 @@ import {
   SAFETY_LAYER,
   applyRelationshipEvent,
   buildPilotCharacterCard,
-  buildPilotCharacterCore,
+  buildPilotCharacterPresence,
+  buildPilotDirectorProfile,
   buildPilotRelationshipContext,
   buildPilotRoomContext,
-  buildPilotSituationLens,
+  buildPilotTurnPresence,
   createRelationshipBranch,
   defaultConfig,
   findPilotNarrativeViolations,
@@ -1359,7 +1360,7 @@ async function assessRoomParticipation(
     maxTokens: 700,
     temperature: candidateJsonTemperature(),
     thinkingMode: CANDIDATE_THINKING_MODE,
-    system: `${SAFETY_LAYER}\n\n${GLOBAL_CONTRACT}\n\n${buildPilotCharacterCore(agent)}\n\n${buildPilotRoomContext(agent)}`,
+    system: `${SAFETY_LAYER}\n\n${GLOBAL_CONTRACT}\n\n${buildPilotCharacterPresence(agent)}\n\n${buildPilotDirectorProfile(agent)}\n\n${buildPilotRoomContext(agent)}`,
     prompt: `这是不会展示给用户或其他人物的参与判断，不要生成正式回复，也不要给自己打分。
 
 【用户 / ${roomCase.userEvidence.id}】
@@ -1466,7 +1467,7 @@ async function roomReply(
   const config = defaultConfig();
   const character = getPilotCharacter(agent)!;
   const nextMessageId = `room-${transcript.length + 1}`;
-  const basePrompt = `${buildPilotSituationLens(agent, 'room')}
+  const basePrompt = `${buildPilotTurnPresence(agent, { focus: 'room' })}
 
 ${renderPilotTurnResponseContract(roomCase.responseContract)}
 
@@ -1528,7 +1529,7 @@ ${roomCase.responsibilityBoundary.claimsAllowed
         maxTokens: 1200,
         temperature: candidateJsonTemperature(),
         thinkingMode: CANDIDATE_THINKING_MODE,
-        system: `${SAFETY_LAYER}\n\n${GLOBAL_CONTRACT}\n\n${buildPilotCharacterCore(agent)}\n\n${buildPilotRoomContext(agent)}`,
+        system: `${SAFETY_LAYER}\n\n${GLOBAL_CONTRACT}\n\n${buildPilotCharacterPresence(agent)}\n\n${buildPilotRoomContext(agent)}`,
         prompt,
         schema: roomReplySchema(transcript, nextMessageId, roomCase),
       }));

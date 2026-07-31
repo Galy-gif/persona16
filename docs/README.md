@@ -38,6 +38,10 @@
 - [生成前本轮语义控制与交付验证](adr/0016-compile-semantic-turn-control-before-generation.md)
 - [正向关系动作与反事实房间](adr/0017-compile-positive-relationship-moves-and-counterfactual-room-cases.md)
 - [最终交付发布门与模型健康](adr/0018-gate-on-final-delivery-and-observe-model-health.md)
+- [人物倾向默认休眠与按需显影](adr/0019-keep-character-dispositions-latent-until-relevant.md)
+- [生产对话默认启用 DeepSeek 思考模式](adr/0020-enable-deepseek-thinking-for-production-conversation.md)
+- [通过配置切换 Pi Runtime 供应商](adr/0021-configure-pi-runtime-providers.md)
+- [按信任任务路由 AIHubMix 模型与单聊控制链](adr/0022-route-aihubmix-models-for-trust-and-efficiency.md)
 
 ADR 记录决策当时的背景。新结论若改变既有决策，应新增 ADR，而不是改写旧文档。
 

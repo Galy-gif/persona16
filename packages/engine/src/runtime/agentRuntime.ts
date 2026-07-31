@@ -38,6 +38,15 @@ export interface RuntimeLimits {
   timeoutMs: number;
 }
 
+export type RuntimeThinkingLevel =
+  | 'off'
+  | 'minimal'
+  | 'low'
+  | 'medium'
+  | 'high'
+  | 'xhigh'
+  | 'max';
+
 export interface RuntimeRequest {
   runId: string;
   model: RuntimeModelRef;
@@ -45,6 +54,7 @@ export interface RuntimeRequest {
   messages: RuntimeMessage[];
   tools?: RuntimeTool[];
   temperature?: number;
+  thinkingLevel?: RuntimeThinkingLevel;
   limits: RuntimeLimits;
   metadata: {
     roomId: string;

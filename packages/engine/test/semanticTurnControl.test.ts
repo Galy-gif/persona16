@@ -2581,6 +2581,159 @@ test('unsupported shared history is blocked for every conversation act, includin
   );
 });
 
+test('a recall question cannot be turned into an unsupported claim that the user mentioned it before', () => {
+  const control = compileSemanticTurnControl({
+    userMessage: '你还记得我之前跟你说过我和前同事的事吗？',
+  });
+
+  assert.ok(
+    validateUtteranceAgainstTurnPlan(
+      '记不清细节了，但你有提过。怎么了？',
+      control.plan,
+    ).some(({ code }) => code === 'unsupported_shared_history'),
+  );
+  assert.equal(
+    validateUtteranceAgainstTurnPlan(
+      '我这边没有那段对话记录，所以不能说记得。',
+      control.plan,
+    ).some(({ code }) => code === 'unsupported_shared_history'),
+    false,
+  );
+});
+
+test('privacy questions reject guarantees that are not grounded in product policy', () => {
+  const control = compileSemanticTurnControl({
+    userMessage: '我跟你说的这些，会被拿去训练模型或者给别人看吗？',
+  });
+
+  assert.ok(
+    validateUtteranceAgainstTurnPlan(
+      '放心，这里完全保密，不会用于训练，也绝不会有人查看。',
+      control.plan,
+    ).some(({ code }) => code === 'unsupported_privacy_claim'),
+  );
+  assert.ok(
+    validateUtteranceAgainstTurnPlan(
+      '这些内容不会拿去训练，也不会交给任何人看。',
+      control.plan,
+    ).some(({ code }) => code === 'unsupported_privacy_claim'),
+  );
+  assert.ok(
+    validateUtteranceAgainstTurnPlan(
+      '只有我们能看到你的对话。',
+      control.plan,
+    ).some(({ code }) => code === 'unsupported_privacy_claim'),
+  );
+  assert.equal(
+    validateUtteranceAgainstTurnPlan(
+      '我无法确认这个产品是否会将对话用于训练或允许人工查看，具体要以官方隐私政策为准。',
+      control.plan,
+    ).some(({ code }) => code === 'unsupported_privacy_claim'),
+    false,
+  );
+  assert.equal(
+    validateUtteranceAgainstTurnPlan(
+      '我不知道会不会用于训练，也不能保证不会给别人看。',
+      control.plan,
+    ).some(({ code }) => code === 'unsupported_privacy_claim'),
+    false,
+  );
+  assert.ok(
+    validateUtteranceAgainstTurnPlan(
+      '我不知道会不会用于训练，但我保证不会给别人看。',
+      control.plan,
+    ).some(({ code }) => code === 'unsupported_privacy_claim'),
+  );
+  assert.ok(
+    validateUtteranceAgainstTurnPlan(
+      '我不知道会不会用于训练但我保证不会给别人看。',
+      control.plan,
+    ).some(({ code }) => code === 'unsupported_privacy_claim'),
+  );
+});
+
+test('analysis cannot turn a hypothesis into a hidden preference attributed to the user', () => {
+  const control = compileSemanticTurnControl({
+    userMessage: '请分析 A 和 B，但别替我选。',
+  });
+
+  assert.ok(
+    validateUtteranceAgainstTurnPlan(
+      '如果还犹豫，多半不是信息不够，是 B 比你愿意承认的更有吸引力。',
+      control.plan,
+    ).some(({ code }) => code === 'unsupported_user_inference'),
+  );
+});
+
+test('analysis rejects arithmetic that directly combines incompatible units', () => {
+  const control = compileSemanticTurnControl({
+    userMessage: '请分析 A 和 B，给我一个十分钟能完成的方法。',
+  });
+
+  assert.ok(
+    validateUtteranceAgainstTurnPlan(
+      '先写下你愿意每月少挣 2000 元。然后把 B 的时薪加上这个数，再和 A 的时薪比较。',
+      control.plan,
+    ).some(({ code }) => code === 'unit_mismatch'),
+  );
+});
+
+test('ordinary analysis must stay compact unless the user explicitly asks for detail', () => {
+  const compact = compileSemanticTurnControl({
+    userMessage: '请分析 A 和 B，但别替我选。',
+  });
+  const detailed = compileSemanticTurnControl({
+    userMessage: '请详细展开分析 A 和 B，我需要完整比较。',
+  });
+  const overlong = '这是分析。'.repeat(110);
+
+  assert.ok(
+    validateUtteranceAgainstTurnPlan(overlong, compact.plan)
+      .some(({ code }) => code === 'response_too_long'),
+  );
+  const delivery = validateSemanticTurnDelivery(overlong, compact.plan);
+  assert.equal(
+    delivery.blockingViolations.some(({ code }) => code === 'response_too_long'),
+    false,
+  );
+  assert.ok(
+    delivery.qualityObservations.some(({ code }) => code === 'response_not_concise'),
+  );
+  assert.equal(
+    validateUtteranceAgainstTurnPlan(overlong, detailed.plan)
+      .some(({ code }) => code === 'response_too_long'),
+    false,
+  );
+});
+
+test('a failed comparative analysis has a compact unit-safe fallback', () => {
+  const control = compileSemanticTurnControl({
+    userMessage: '我在 A 和 B 两个工作机会之间纠结，请分析但别替我选。',
+  });
+  const fallback = semanticTurnFallback(control, { turnKey: 'comparison-fallback' });
+
+  assert.equal(fallback?.variantId, 'neutral-comparison-v1');
+  assert.equal(
+    validateSemanticTurnDelivery(fallback?.text ?? '', control.plan)
+      .blockingViolations.length,
+    0,
+  );
+});
+
+test('a direct complaint about unwanted analysis compiles as boundary repair and must stop', () => {
+  const control = compileSemanticTurnControl({
+    userMessage: '你刚才又开始分析我了。我只想被听见，不要再给建议。',
+  });
+
+  assert.equal(control.plan.conversationAct, 'boundary_repair');
+  assert.ok(
+    validateUtteranceAgainstTurnPlan(
+      '抱歉，刚才我越界了。现在我不分析了。我陪你安静坐会儿，你说了算。',
+      control.plan,
+    ).some(({ code }) => code === 'required_semantic_move_missing'),
+  );
+});
+
 test('the current user request for listening overrides persona intervention without memory', () => {
   const control = compileSemanticTurnControl({
     userMessage: '我现在不想听建议，也不想被分析，你就听我说一会儿。',

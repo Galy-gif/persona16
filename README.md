@@ -8,9 +8,10 @@ persona16 是一个移动端优先的原创人物对话产品。所有用户遇�
 
 ## 当前状态
 
-- **工程 MVP 已打通**：单聊、有限多人房、流式输出、成员控制、服务端状态、确认式记忆、安全旁路、反馈和评测均有实现。
-- **产品正在校准原创人物**：首批四位人物为林衡、夏栩、周禾和许野，当前以固定场景和人工 rubric 验证自然感、人物感与关系差异。
-- **新关系模型尚未迁入生产链路**：事件驱动的关系分支仍处于隔离 pilot；当前 Web、Prompt 和数据库继续使用既有房间状态。
+- **工程内测候选已打通**：单聊、有限多人房、流式输出、成员控制、服务端状态、确认式记忆、安全旁路、反馈、移动端完整流程和 Sites 部署均有实现。
+- **四位正典人物已进入生产链路**：林衡、夏栩、周禾和许野已接入正式 Prompt 与人物前台；16 型只保留为内部创作先验。
+- **关系分支已参与生成与交付门**：已确认记忆会投影为可重建的关系事件和 Branch；active 边界、未解决张力及单个相关正向关系动作会进入本轮语义裁决。
+- **协议 0.8 已实现但尚未完成发布验证**：发布门以用户最终收到的回复为准；仍需在当前干净 SHA 上完成三批付费模型复测和隐藏来源的人工盲审。
 
 当前产品结论以[产品需求文档](docs/PRD.md)为准，文档入口见[文档导航](docs/README.md)。
 
@@ -43,7 +44,7 @@ persona16 是一个移动端优先的原创人物对话产品。所有用户遇�
 - 人数、暂停、权限、预算和停止条件由代码控制，模型只能提出建议。
 - 只有用户确认且来源 Turn 已完成的记忆才能进入后续 Prompt。
 - `crisis` 和 `blocked` 内容绕过人格房间，使用独立安全响应。
-- 评测先于体验扩展；人物、关系和房间质量未通过阶段门前，不扩展正式 UI。
+- 评测先于继续扩展体验；现有移动端原型可用于内测，但人物、关系和房间质量通过阶段门前不宣称正式发布。
 
 ## 本地开发
 
@@ -64,7 +65,17 @@ GitHub CI 会启动 PostgreSQL，强制执行数据库集成测试、类型检�
 pnpm --filter @persona16/store db:migrate
 ```
 
-默认模型提供商为 DeepSeek。也可以通过 `.env` 切换 Anthropic；完整变量见 `.env.example`。
+人物发言由 Pi Runtime 执行，可只改配置切换 AIHubMix、DeepSeek 或 Anthropic。当前经过信任/延迟/成本小样本验证的 AIHubMix 配置为：
+
+```dotenv
+PERSONA16_PROVIDER=aihubmix
+AIHUBMIX_API_KEY=...
+PERSONA16_AGENT_MODEL=gpt-5.6-luna
+PERSONA16_ANALYSIS_MODEL=gpt-5.6-luna
+PERSONA16_DIRECTOR_MODEL=deepseek-v4-flash
+```
+
+AIHubMix、DeepSeek 与 Anthropic 的人物生成都走同一个 Pi Runtime 边界；Director 和 Judge 的结构化调用继续复用引擎模型适配层。普通单聊按本轮任务决定是否使用思考与模型 Director，多 Agent 房仍保留模型调度。模型覆盖、legacy 回滚等完整变量见 `.env.example`。
 
 ## 常用评测
 
@@ -72,6 +83,8 @@ pnpm --filter @persona16/store db:migrate
 pnpm eval:blindtest
 pnpm eval:dynamics
 pnpm eval:pilot-characters
+pnpm eval:trust-balance
+pnpm eval:trust-suite
 pnpm eval:rooms
 pnpm eval:safety
 pnpm eval:report

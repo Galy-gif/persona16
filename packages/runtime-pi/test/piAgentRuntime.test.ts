@@ -50,6 +50,57 @@ test('maps Pi lifecycle and text streaming into runtime events', async () => {
   }
 });
 
+test('uses high thinking by default for a reasoning-capable model', async () => {
+  let observedReasoning: string | undefined;
+  let observedTemperature: number | undefined;
+  const faux = fauxProvider({ models: [{ id: 'persona-thinker', reasoning: true }] });
+  faux.setResponses([
+    (_context, options) => {
+      observedReasoning = options?.reasoning;
+      observedTemperature = options?.temperature;
+      return fauxAssistantMessage('想过之后，我会这样回应。');
+    },
+  ]);
+  const models = createModels();
+  models.setProvider(faux.provider);
+  const runtime = new PiAgentRuntime({ models });
+  const input = request(faux.provider.id, 'persona-thinker');
+  input.temperature = 0.8;
+
+  await collect(runtime, input);
+
+  assert.deepEqual(
+    { reasoning: observedReasoning, temperature: observedTemperature },
+    { reasoning: 'high', temperature: undefined },
+  );
+});
+
+test('honors an explicit per-turn thinking level', async () => {
+  let observedReasoning: string | undefined;
+  let observedTemperature: number | undefined;
+  const faux = fauxProvider({ models: [{ id: 'persona-thinker', reasoning: true }] });
+  faux.setResponses([
+    (_context, options) => {
+      observedReasoning = options?.reasoning;
+      observedTemperature = options?.temperature;
+      return fauxAssistantMessage('这轮不需要额外推理。');
+    },
+  ]);
+  const models = createModels();
+  models.setProvider(faux.provider);
+  const runtime = new PiAgentRuntime({ models });
+  const input = request(faux.provider.id, 'persona-thinker');
+  input.thinkingLevel = 'off';
+  input.temperature = 0.8;
+
+  await collect(runtime, input);
+
+  assert.deepEqual(
+    { reasoning: observedReasoning, temperature: observedTemperature },
+    { reasoning: undefined, temperature: 0.8 },
+  );
+});
+
 test('returns a typed error when the model cannot be resolved', async () => {
   const models = createModels();
   const runtime = new PiAgentRuntime({ models });
@@ -76,6 +127,36 @@ test('rejects transcripts that do not end with a user message', async () => {
 
   assert.equal(events[0]?.type, 'run_error');
   assert.equal(events[0]?.type === 'run_error' ? events[0].code : '', 'invalid_messages');
+});
+
+test('resolves Anthropic models from the default provider registry', async () => {
+  const runtime = new PiAgentRuntime();
+  const input = request('anthropic', 'claude-sonnet-5');
+  input.messages = [{ role: 'assistant', content: '旧回复' }];
+
+  const events = await collect(runtime, input);
+
+  assert.deepEqual(events, [{
+    type: 'run_error',
+    code: 'invalid_messages',
+    message: 'runtime messages must end with a user message',
+    recoverable: false,
+  }]);
+});
+
+test('resolves curated AIHubMix models from the default provider registry', async () => {
+  const runtime = new PiAgentRuntime();
+  const input = request('aihubmix', 'claude-haiku-4-5');
+  input.messages = [{ role: 'assistant', content: '旧回复' }];
+
+  const events = await collect(runtime, input);
+
+  assert.deepEqual(events, [{
+    type: 'run_error',
+    code: 'invalid_messages',
+    message: 'runtime messages must end with a user message',
+    recoverable: false,
+  }]);
 });
 
 test('supports external cancellation', async () => {

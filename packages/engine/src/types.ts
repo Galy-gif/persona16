@@ -117,6 +117,8 @@ export interface DirectorAgentAssessment {
   baseImpulse: number;
   /** 想说什么角度，一句话 */
   angle: string;
+  /** 正典人物本轮可选的 0–1 项潜在倾向；未知值会被丢弃。 */
+  activeDispositionId?: string;
   suggestedSpeechType: SpeechType;
   /** 相对基线的语气偏移，最多 2 个维度 */
   toneShift?: Partial<ToneDims>;
@@ -138,6 +140,7 @@ export interface SpeakerPlan {
   speechType: SpeechType;
   finalScore: number;
   angle: string;
+  activeDispositionId?: string;
   toneShift?: Partial<ToneDims>;
 }
 
@@ -164,9 +167,11 @@ export interface TurnResult {
 }
 
 export interface EngineConfig {
-  provider: 'anthropic' | 'deepseek';
+  provider: 'aihubmix' | 'anthropic' | 'deepseek';
   runtime: 'legacy' | 'pi';
   agentModel: string;
+  /** 明确分析任务可使用独立模型；未配置时回退到 agentModel。 */
+  analysisModel?: string;
   directorModel: string;
   /** JSONL trace 文件路径，不设则不落盘 */
   traceFile?: string;

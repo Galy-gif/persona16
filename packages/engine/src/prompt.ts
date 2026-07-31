@@ -1,8 +1,9 @@
 import { GLOBAL_CONTRACT, SAFETY_LAYER } from './contract';
 import { getPersona } from './personas';
 import {
-  buildPilotCharacterCore,
-  buildPilotSituationLens,
+  buildPilotCharacterPresence,
+  buildPilotTurnPresence,
+  getPilotLatentDisposition,
   getPilotCharacter,
   type PilotCharacterContextFocus,
 } from './pilot/pilotCharacters';
@@ -29,7 +30,7 @@ import type { RelationshipContextFocus } from './relationship/relationshipContex
 
 /**
  * 6 层 prompt 组装（spec §1）：
- *   产品安全层 → 全局人格合约 → 当前 Agent persona spec
+ *   产品安全层 → 全局人格合约 → 当前正典人物的轻量社交存在
  *   → 房间状态和主持器指令 → 用户确认过的关系记忆 → 用户当前消息
  *
  * 前三层是稳定前缀（按 Agent 缓存），后三层随轮次变化放进 user message。
@@ -70,14 +71,14 @@ ${p.forbidden.map((s) => `- ${s}`).join('\n')}
 默认语气触发变化：${p.toneTriggerNote}`;
 }
 
-/** 稳定 system 前缀：安全层 + 合约 + persona */
+/** 稳定 system 前缀：安全层 + 合约 + 轻量人物存在。 */
 export function buildSystemBlocks(type: AgentType): { text: string; cache?: boolean }[] {
   const canonicalCharacter = getPilotCharacter(type);
   return [
     { text: SAFETY_LAYER },
     { text: GLOBAL_CONTRACT },
     {
-      text: canonicalCharacter ? buildPilotCharacterCore(type) : buildPersonaCard(type),
+      text: canonicalCharacter ? buildPilotCharacterPresence(type) : buildPersonaCard(type),
       cache: true,
     },
   ];
@@ -178,10 +179,50 @@ export function buildTurnPrompt(ctx: HostContext): string {
     relationshipFocus: relationshipFocusForTurn(plan, room),
   });
   const focus = pilotFocus(ctx, semanticControl);
-  const expressionInstruction = renderExpressionEvidenceInstruction(
-    expressionTendenciesForAgent(speaker.type, tone),
-    { turnAct: semanticControl.plan.conversationAct, focus, turnKey: userMessage },
+  const previousSpeakerTurns = room.history
+    .slice(0, -1)
+    .filter((message) => message.speaker === speaker.type)
+    .length;
+  const hasTrustedRelationshipEvidence = relationshipContext.evidence.some(
+    (evidence) => evidence.traceability === 'traceable',
   );
+  const hasRelationshipLicense = previousSpeakerTurns >= 3 || hasTrustedRelationshipEvidence;
+  const hasExplicitAnalysisPermission = semanticControl.frame.requestedMode === 'analyze'
+    || semanticControl.frame.requestedMode === 'advise'
+    || semanticControl.frame.requestedMode === 'decide_together';
+  const dispositionCandidate = getPilotLatentDisposition(
+    speaker.type,
+    speaker.activeDispositionId,
+  );
+  const dispositionMaySurface = semanticControl.plan.conversationAct === 'respond'
+    && semanticControl.plan.interactionMode !== 'listen'
+    && semanticControl.plan.interactionMode !== 'repair'
+    && semanticControl.plan.interactionMode !== 'close'
+    && focus !== 'explicit_end'
+    && (
+      focus === 'room'
+      || hasExplicitAnalysisPermission
+      || (hasRelationshipLicense && (
+        focus === 'decision'
+        || focus === 'conflict'
+      ))
+    );
+  const activeDispositionId = dispositionCandidate && dispositionMaySurface
+    ? dispositionCandidate.id
+    : undefined;
+  const expressionInstruction = activeDispositionId || previousSpeakerTurns > 0
+    ? renderExpressionEvidenceInstruction(
+      expressionTendenciesForAgent(speaker.type, tone),
+      { turnAct: semanticControl.plan.conversationAct, focus, turnKey: userMessage },
+    )
+    : '';
+  const directorAngleMaySurface = Boolean(activeDispositionId)
+    || semanticControl.plan.interactionMode === 'analyze'
+    || focus === 'room'
+    || plan.forceSummary;
+  const directorAngle = directorAngleMaySurface && speaker.angle
+    ? speaker.angle
+    : '直接接用户这句话，不必展示人物倾向或强行分析';
 
   const earlier = earlierThisTurn.length
     ? `\n本轮已有人先说了：\n${earlierThisTurn.map((e) => `${characterName(e.type)}：${e.text}`).join('\n')}\n（不要重复他们的观点；如果他们已长篇，你优先换角度或收短。）`
@@ -193,6 +234,11 @@ export function buildTurnPrompt(ctx: HostContext): string {
   const safetyNote = ctx.safetyMode === 'sensitive'
     ? '\n安全模式：用户正处于明显痛苦或创伤语境。保留你的人格核心，但降低刺感和刺激，不争辩、不起哄、不制造依赖；先稳定回应，再给一个很小的现实下一步。'
     : '';
+  const detailedAnalysisRequested = /(?:详细|展开|全面|完整|逐项|深度)/u.test(userMessage);
+  const analysisScopeNote = semanticControl.plan.interactionMode === 'analyze'
+    && !detailedAnalysisRequested
+    ? '\n分析节奏：先给最小可用版本，最多 3 个步骤、约 300 字；不铺完整教程或表格。用户继续追问时再展开。'
+    : '';
 
   const sections = [
     `【房间状态】
@@ -202,14 +248,17 @@ export function buildTurnPrompt(ctx: HostContext): string {
 【对话记录】
 ${renderTranscript(room.history, speaker.type)}${earlier}`,
 
-    ...(canonicalCharacter ? [buildPilotSituationLens(speaker.type, focus)] : []),
+    ...(canonicalCharacter ? [buildPilotTurnPresence(speaker.type, {
+      focus,
+      ...(activeDispositionId ? { activeDispositionId } : {}),
+    })] : []),
 
     renderSemanticTurnActPlan(semanticControl),
 
     `【主持器指令】
 ${renderSpeechTypeInstruction(speaker.speechType)}
-你本轮的切入角度：${speaker.angle || '按你的人格自然反应'}${summaryNote}${safetyNote}
-${expressionInstruction}${ctx.antiTemplateNote ? `\n${ctx.antiTemplateNote}` : ''}`,
+你本轮的切入角度：${directorAngle}${summaryNote}${safetyNote}${analysisScopeNote}
+${expressionInstruction ? `${expressionInstruction}\n` : ''}${ctx.antiTemplateNote ?? ''}`,
 
     `【关系记忆】
 ${renderRelationshipPromptContext(relationshipContext, {

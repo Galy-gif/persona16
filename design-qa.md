@@ -1,5 +1,33 @@
 # persona16 前端 Design QA
 
+## 2026-07-30 当前主干移动端复核
+
+### 验证范围
+
+- commit：`9c4593d`
+- implementation URL：`http://localhost:3016/`
+- viewport：`390 × 844` CSS px
+- 页面：首页默认态、首页切换夏栩、夏栩详情页顶部与最大滚动位置、夏栩单聊空房间
+- 资产尺寸：首页选择器 58px、首页主角约 195px、详情主角约 170px、房间成员 34px、房间空态约 133px
+- 交互：首页人物切换、进入详情、创建单聊、详情滚动和固定 CTA
+
+### 结论
+
+- 通过真实浏览器渲染复核；此前“本地地址无法刷新、缺少实现截图”的阻塞条件已解除。
+- 首页、详情和房间均无横向溢出；四只人物小头像可辨认，选中态与主人物同步。
+- 详情页可滚到 `scrollY=103.5`；两条开场话题完整位于固定 CTA 上方，CTA 的 54px 高度完整落在视口内。
+- 空房间恰好占满 390 × 844 视口；34px 成员头像、133px 空态人物和输入区均完整显示。
+- 首页、详情直达和房间控制台复核为 `0 error / 0 warning`。跨页导航期间曾出现一次 Next.js 开发模式 LCP 提示；直接加载同一详情页时主图已有 preload 且提示不再出现，因此不作为生产缺陷。
+- `pnpm test`、`pnpm typecheck` 与 Next.js 生产构建均通过；当前没有仍需处理的 P0、P1 或 P2 视觉问题。
+
+### 剩余边界
+
+- 本轮验证的是当前内测原型，不替代至少 5 位形成性用户的人物入口与视觉辨识测试。
+- 开发模式的 Next.js Dev Tools 浮层不进入生产构建。
+- 2026-07-23 与 2026-07-25 小节保留为历史阻塞记录；它们的“等待手动刷新”结论已由本节取代。
+
+---
+
 ## 2026-07-25 银白柔雾编辑式重设计
 
 ### 对比目标
@@ -9,7 +37,7 @@
 - target viewport: `390 × 844`
 - state: 首页默认选中林衡；单聊房空状态；浅色模式。
 - visual direction: 参考图第一行中间与第二行中间的融合——银白留白、局部粉紫柔雾、编辑式大字、轻量工具图标、双层悬浮输入岛。
-- implementation screenshot path: unavailable。内置浏览器的本地 URL 策略拒绝刷新 `http://localhost:3016/`，因此没有把重设计后的页面截图与参考图放入同一视觉比较输入。
+- implementation screenshot path: 当轮不可用；该环境阻塞已在 2026-07-30 当前主干移动端复核中解除。
 
 ### 已完成的实现
 
@@ -24,8 +52,8 @@
 
 - 工程检查：Web TypeScript、Next.js 生产构建与 `git diff --check` 通过。
 - 开发预览：`http://localhost:3016/` 返回 HTTP 200，开发与生产缓存仍然隔离。
-- [P1 / blocked] 缺少实现截图，不能完成参考图与实际页面的同视口可见差异检查；在取得页面截图前，不把字体落地、首屏折叠、角色裁切和玻璃层叠记为视觉通过。
-- 下一步：用户在内置浏览器中手动刷新本地页面后，补首页与空聊天房 390 × 844 截图、控制台检查和同图视觉比较。
+- [P1 / resolved 2026-07-30] 当轮没有实现截图，未完成参考图与实际页面的同视口检查；当前主干复核已补首页、详情和空聊天房的 390 × 844 实际渲染、控制台与几何检查。
+- 后续只剩真实用户侧的视觉辨识验证，不再等待本地页面手动刷新。
 
 ---
 
@@ -40,7 +68,7 @@
 - 工程验证：Web TypeScript、Next.js 生产构建与 `git diff --check` 通过；开发地址返回 HTTP 200。
 - 视觉证据限制：开发服务重启后，已打开的 localhost 标签落入断线页，内置浏览器 URL 策略阻止自动刷新；需要用户手动刷新完成最后一次页面视觉确认。
 
-follow-up visual status: pending manual refresh
+follow-up visual status: resolved by the 2026-07-30 main-branch review
 
 ---
 
@@ -122,19 +150,19 @@ follow-up visual status: pending manual refresh
 
 - source visual truth path: `/Users/gouzi/.codex/generated_images/019f8528-46d4-7692-a29d-bf0ce451519d/exec-f7ef2242-e60a-420f-b837-0e69e26b0650.png`
 - implementation URL: `http://localhost:3016/`
-- implementation screenshot path: unavailable；Codex 内置浏览器的 URL 安全策略阻止了本地地址刷新，不能取得可信的浏览器渲染截图。
-- viewport: 目标 `390 × 844`；本轮未取得浏览器截图，因此没有进行密度归一化。
+- implementation screenshot path: 当轮不可用；2026-07-30 当前主干复核已取得可信的浏览器渲染。
+- viewport: 当轮目标为 `390 × 844`；同尺寸复核已于 2026-07-30 完成。
 - state: 首页、林衡选中、浅色模式、默认静止状态。
-- full-view comparison evidence: blocked；没有实现截图，未把参考图与页面渲染放入同一比较输入。
+- full-view comparison evidence: 当轮 blocked；当前主干已完成页面渲染与几何复核，历史参考图不再作为当前 UI 的逐像素基线。
 - focused region comparison evidence: 已逐张检查四个 512 × 512 生产位图，但这不能替代页面内小尺寸渲染对比。
 
 ### Findings
 
-- [P1] 缺少浏览器渲染证据
+- [P1 / resolved 2026-07-30] 当轮缺少浏览器渲染证据
   - Location: 首页人物选择器、190px 主角色、房间页 34–122px 头像。
   - Evidence: 四张新资源已经生成并由 `characters.ts` 引用，开发服务也能以 HTTP 200 返回资源；但内置浏览器拒绝刷新 `http://localhost:3016/`，没有可比较的实现截图。
   - Impact: 无法确认白底位图在真实页面中的边缘融合、小头像辨识度、裁切比例和视觉重量。
-  - Fix: 用户在现有内置浏览器中手动刷新本地页面后，再补同视口截图、控制台检查和参考/实现合并对比。
+  - Resolution: 2026-07-30 已补同视口实际渲染、控制台检查、小头像与主图尺寸检查。
 
 ### 已完成的资产级检查
 
@@ -159,9 +187,9 @@ follow-up visual status: pending manual refresh
 - [x] 为四个现有姿态生成独立生产位图。
 - [x] 接入现有角色数据源，不改页面结构和交互。
 - [x] 通过 TypeScript、生产构建和静态资源 HTTP 检查。
-- [ ] 取得 390 × 844 浏览器渲染截图。
-- [ ] 合并参考图与实现截图并完成页面级 Design QA。
-- [ ] 检查控制台错误和小尺寸头像辨识度。
+- [x] 取得 390 × 844 浏览器渲染。
+- [x] 完成页面级 Design QA；当前银白柔雾 UI 已替代历史参考图作为实现基线。
+- [x] 检查控制台错误和小尺寸头像辨识度。
 
 ---
 
