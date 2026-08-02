@@ -4,7 +4,6 @@ import { Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   ArrowLeft,
-  CheckCircle,
   DotsThree,
   PaperPlaneTilt,
   Pause,
@@ -114,6 +113,7 @@ function RoomView() {
 
   return (
     <div className="room-shell" style={characterStyle(firstType)}>
+      <a className="skip-link" href="#room-messages">跳到对话</a>
       <header className="room-head">
         <button className="icon-button" onClick={() => router.push('/conversations')} aria-label="返回对话列表">
           <ArrowLeft size={21} weight="light" aria-hidden />
@@ -121,41 +121,43 @@ function RoomView() {
         <div className="room-title-block">
           <span className="room-title-avatars" aria-hidden>
             {state.agents.slice(0, 3).map((agent, index) => (
-              <CharacterAvatar key={agent.type} type={agent.type} size={34} className={`stack-${index}`} />
+              <CharacterAvatar key={agent.type} type={agent.type} size={34} priority={index === 0} className={`stack-${index}`} />
             ))}
           </span>
-          <span><strong>{title}</strong><small>{multi ? `${state.agents.filter((agent) => !agent.paused).length} 人在线` : '单聊'}</small></span>
+          <span><strong>{title}</strong><small>{multi ? `${state.agents.filter((agent) => !agent.paused).length} 人在这里` : '此刻在这里'}</small></span>
         </div>
-        <button className="head-action" onClick={() => setMembersOpen(true)} aria-label="管理房间成员">
+        <button className="head-action" onClick={() => setMembersOpen(true)} aria-label="房间成员与邀请">
           <UsersThree size={18} weight="light" aria-hidden /><span>{state.agents.length}</span>
         </button>
       </header>
 
-      <section className="room-roster" aria-label="房间成员">
-        {state.agents.map((agent) => {
-          const active = called === agent.type;
-          return (
-            <button
-              key={agent.type}
-              className={`roster-chip${active ? ' called' : ''}${agent.paused ? ' paused' : ''}`}
-              style={characterStyle(agent.type)}
-              aria-pressed={active}
-              disabled={agent.paused || busy}
-              onClick={() => setCalled((value) => value === agent.type ? undefined : agent.type)}
-            >
-              <CharacterAvatar type={agent.type} size={34} />
-              <span><strong>{characterName(agent.type)}</strong><small>{agent.paused ? '已暂停' : active ? '已点名' : '可以点名'}</small></span>
+      {multi && (
+        <section className="room-roster" aria-label="房间成员">
+          {state.agents.map((agent) => {
+            const active = called === agent.type;
+            return (
+              <button
+                key={agent.type}
+                className={`roster-chip${active ? ' called' : ''}${agent.paused ? ' paused' : ''}`}
+                style={characterStyle(agent.type)}
+                aria-pressed={active}
+                disabled={agent.paused || busy}
+                onClick={() => setCalled((value) => value === agent.type ? undefined : agent.type)}
+              >
+                <CharacterAvatar type={agent.type} size={34} />
+                <span><strong>{characterName(agent.type)}</strong><small>{agent.paused ? '已暂停' : active ? '正在点名' : '点名提问'}</small></span>
+              </button>
+            );
+          })}
+          {state.agents.length < 3 && (
+            <button className="invite-chip" onClick={() => { setMembersOpen(true); setInviteOpen(true); }}>
+              <UserPlus size={18} aria-hidden /><span>邀请</span>
             </button>
-          );
-        })}
-        {state.agents.length < 3 && (
-          <button className="invite-chip" onClick={() => { setMembersOpen(true); setInviteOpen(true); }}>
-            <UserPlus size={18} aria-hidden /><span>邀请</span>
-          </button>
-        )}
-      </section>
+          )}
+        </section>
+      )}
 
-      <main className="messages" aria-label="对话消息" aria-live="polite" tabIndex={0}>
+      <main id="room-messages" className="messages" aria-label="对话消息" aria-live="polite" tabIndex={0}>
         {state.history.length === 0 && !pendingUser && (
           <section className="empty-room" style={characterStyle(firstType)}>
             <span className="empty-room-kicker">A quiet conversation</span>
@@ -176,7 +178,7 @@ function RoomView() {
           <article key={message.id ?? index} className="persona-message" style={characterStyle(message.speaker)}>
             <header>
               <CharacterAvatar type={message.speaker} size={38} />
-              <span><strong>{characterName(message.speaker)}</strong>{message.speechType && message.speechType !== '长发言' && <small>{message.speechType}</small>}</span>
+              <span><strong>{characterName(message.speaker)}</strong></span>
               <button className="message-more" onClick={() => setMessageMenu({ messageId: message.id, agent: message.speaker as AgentType })} aria-label="更多消息操作"><DotsThree size={22} weight="bold" aria-hidden /></button>
             </header>
             <p>{message.id && readablePersonaText(message.text).length > 240 && !expandedMessages.has(message.id) ? `${readablePersonaText(message.text).slice(0, 240)}…` : readablePersonaText(message.text)}</p>
@@ -187,12 +189,6 @@ function RoomView() {
                 return next;
               })}>{expandedMessages.has(message.id) ? '收起全文' : '展开全文'}</button>
             )}
-            {message.id && (
-              <div className="feedback-row" aria-label="评价这条回复">
-                <button className={feedback[message.id]?.rating === 'positive' ? 'selected' : ''} aria-pressed={feedback[message.id]?.rating === 'positive'} onClick={() => void submitFeedback(message.id!, 'positive')}><ThumbsUp size={17} aria-hidden />有帮助</button>
-                <button className={feedback[message.id]?.rating === 'negative' ? 'selected' : ''} aria-pressed={feedback[message.id]?.rating === 'negative'} onClick={() => { setNegativeTarget(message.id!); setNegativeTags(feedback[message.id!]?.tags ?? []); }}><ThumbsDown size={17} aria-hidden />不太对</button>
-              </div>
-            )}
           </article>
         ))}
 
@@ -200,7 +196,7 @@ function RoomView() {
         {safetyLive && <article className="safety-message"><strong>安全支持</strong><p>{safetyLive}</p></article>}
         {live.map((message, index) => (
           <article key={`live-${index}`} className="persona-message live" style={characterStyle(message.agent)}>
-            <header><CharacterAvatar type={message.agent} size={38} /><span><strong>{characterName(message.agent)}</strong><small>正在说</small></span></header>
+            <header><CharacterAvatar type={message.agent} size={38} /><span><strong>{characterName(message.agent)}</strong><small>正在回应</small></span></header>
             <p>{message.text}<span className="cursor" /></p>
           </article>
         ))}
@@ -231,13 +227,17 @@ function RoomView() {
       </main>
 
       <footer className="composer">
-        {(busy || (replied > 0 && !failedAttempt)) && (
+        {busy && (
           <div className="turn-status" role="status">
-            <span className={busy ? 'status-pulse' : 'status-check'}>{busy ? '生成中' : <CheckCircle size={19} weight="fill" aria-hidden />}</span>
+            <span className="status-pulse" aria-hidden><i /></span>
             <strong>{statusText}</strong>
-            {!busy && multi && <span>{replied}/{state.agents.length} 位已回复</span>}
-            {busy ? <button onClick={stop}><StopCircle size={18} aria-hidden />停止</button> : multi ? <button onClick={() => void send('总结一下你们的分歧，并给出我现在最值得做的一步。')} disabled={busy || hasUnknownTurn}>总结分歧</button> : null}
+            <button onClick={stop}><StopCircle size={18} aria-hidden />停止</button>
           </div>
+        )}
+        {!busy && multi && replied > 1 && !failedAttempt && (
+          <button className="turn-followup" onClick={() => void send('总结一下你们的分歧，并给出我现在最值得做的一步。')} disabled={hasUnknownTurn}>
+            把刚才的分歧收成一步
+          </button>
         )}
         {called && <div className="called-banner">正在问 {characterName(called)}<button onClick={() => setCalled(undefined)} aria-label="取消点名"><X size={16} aria-hidden /></button></div>}
         <div className="composer-row">
@@ -246,7 +246,7 @@ function RoomView() {
             disabled={hasUnknownTurn}
             rows={1}
             maxLength={2_000}
-            placeholder={called ? `问问 ${characterName(called)}…` : multi ? '和他们说点什么…' : `和${title}说点什么…`}
+            placeholder={called ? `想问 ${characterName(called)} 什么？` : multi ? '想和他们聊什么？' : `想和${title}聊什么？`}
             onChange={(event) => setInput(event.target.value)}
             onInput={(event) => {
               const element = event.currentTarget;
@@ -262,7 +262,10 @@ function RoomView() {
           />
           <button className="send" disabled={busy || hasUnknownTurn || !input.trim()} onClick={() => void send(input)} aria-label="发送消息"><PaperPlaneTilt size={19} weight="fill" aria-hidden /></button>
         </div>
-        <div className="composer-meta"><span>{multi ? '点上方人物可定向提问' : 'Enter 发送，Shift + Enter 换行'}</span><span>{input.length}/2000</span></div>
+        <div className="composer-meta">
+          <span>{multi ? '点人物可定向提问' : 'Enter 发送，Shift + Enter 换行'}</span>
+          {input.length > 0 && <span>{input.length}/2000</span>}
+        </div>
       </footer>
 
       {membersOpen && (
@@ -320,8 +323,8 @@ function RoomView() {
           <section className="sheet message-sheet" role="dialog" aria-modal="true" aria-labelledby="message-actions-title" onMouseDown={(event) => event.stopPropagation()}>
             <header><div><h2 id="message-actions-title">{characterName(messageMenu.agent)}</h2><span>这条回复</span></div><button autoFocus className="icon-button" onClick={() => setMessageMenu(null)} aria-label="关闭"><X size={22} aria-hidden /></button></header>
             <button onClick={() => { setCalled(messageMenu.agent); setMessageMenu(null); }}><UsersThree size={19} aria-hidden />点名继续追问</button>
-            {messageMenu.messageId && <button onClick={() => { void submitFeedback(messageMenu.messageId!, 'positive'); setMessageMenu(null); }}><ThumbsUp size={19} aria-hidden />标记为有帮助</button>}
-            {messageMenu.messageId && <button onClick={() => { setNegativeTarget(messageMenu.messageId!); setNegativeTags(feedback[messageMenu.messageId!]?.tags ?? []); setMessageMenu(null); }}><ThumbsDown size={19} aria-hidden />告诉我们哪里不对</button>}
+            {messageMenu.messageId && <button className={feedback[messageMenu.messageId]?.rating === 'positive' ? 'selected' : ''} aria-pressed={feedback[messageMenu.messageId]?.rating === 'positive'} onClick={() => { void submitFeedback(messageMenu.messageId!, 'positive'); setMessageMenu(null); }}><ThumbsUp size={19} aria-hidden />{feedback[messageMenu.messageId]?.rating === 'positive' ? '已标记为有帮助' : '标记为有帮助'}</button>}
+            {messageMenu.messageId && <button className={feedback[messageMenu.messageId]?.rating === 'negative' ? 'selected' : ''} aria-pressed={feedback[messageMenu.messageId]?.rating === 'negative'} onClick={() => { setNegativeTarget(messageMenu.messageId!); setNegativeTags(feedback[messageMenu.messageId!]?.tags ?? []); setMessageMenu(null); }}><ThumbsDown size={19} aria-hidden />告诉我们哪里不对</button>}
           </section>
         </div>
       )}
