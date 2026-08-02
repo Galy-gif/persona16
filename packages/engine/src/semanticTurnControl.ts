@@ -129,6 +129,10 @@ export type SemanticTurnViolationCode =
   | 'required_semantic_move_missing'
   | 'relationship_move_not_observable'
   | 'unsupported_shared_history'
+  | 'unsupported_privacy_claim'
+  | 'unsupported_user_inference'
+  | 'unit_mismatch'
+  | 'response_too_long'
   | 'responsibility_owner_unconfirmed';
 
 export interface SemanticTurnViolation {
@@ -1912,7 +1916,7 @@ function findDisallowedBoundaryRepairUnit(text: string): string | undefined {
       if (isBoundaryRepairAcknowledgementUnit(unit, pastBoundaryAnchored)) {
         return false;
       }
-      return /(?:等你|等到你|一直等你|以后|之后|下次|随时|有需要|需要的时候|再来找我|准备好|还会在|我还在|我们再|再继续|重新开始|希望你|别难过|由你决定|你来决定)/u
+      return /(?:等你|等到你|一直等你|以后|之后|下次|随时|有需要|需要的时候|再来找我|准备好|还会在|我还在|我陪你|我们再|再继续|重新开始|希望你|别难过|由你决定|你来决定|你说了算|想说什么就说|不想说也没关系)/u
         .test(unit);
     }
     const stopEnd = (stop.index ?? 0) + stop[0].length;
@@ -2594,6 +2598,77 @@ export function validateUtteranceAgainstTurnPlan(
   plan: SemanticTurnActPlan,
 ): SemanticTurnViolation[] {
   const violations: SemanticTurnViolation[] = [];
+  const asksAboutPrivacyPolicy = plan.currentEvidenceSpans.some((span) => (
+    /(?:训练模型|用于训练|保存多久|保存对话|人工查看|给别人看|保密|隐私|泄露)/u.test(span)
+  ));
+  const unsupportedPrivacyClaim = asksAboutPrivacyPolicy
+    ? sentences(text)
+      .flatMap((sentence) => sentence.split(/(?:[，,；;]|但|不过|然而|可是)/u))
+      .find((unit) => {
+        const expressesUncertainty =
+          /(?:不知道|不清楚|无法确认|不能确认|不确定|是否|会不会|能不能|不能保证|无法保证|以.{0,12}(?:政策|设置)为准)/u
+            .test(unit);
+        if (expressesUncertainty) return false;
+        return (
+          /(?:完全|绝对)保密/u.test(unit)
+          || /不会.{0,12}(?:(?:被)?拿去|用于|用来)?(?:训练|保存)/u.test(unit)
+          || /不会.{0,16}(?:交给|给|让).{0,8}(?:任何人|别人).{0,6}(?:看|查看|访问)/u.test(unit)
+          || /不会.{0,10}(?:有人|人工|别人|任何人).{0,6}(?:看|查看|访问)/u.test(unit)
+          || /不会.{0,12}(?:泄露|外传)/u.test(unit)
+          || /只有.{0,12}(?:能|可以).{0,6}(?:看|查看|访问)/u.test(unit)
+          || /(?:一定|肯定|必然).{0,16}(?:用于训练|被保存|人工查看|有人查看)/u.test(unit)
+        );
+      })
+    : undefined;
+  if (unsupportedPrivacyClaim) {
+    violations.push({
+      code: 'unsupported_privacy_claim',
+      evidenceSpan: unsupportedPrivacyClaim,
+      repairInstruction: '删除没有产品政策依据的保密、训练、保存或人工访问断言；只说明当前能确认和不能确认的内容，并指向正式隐私政策。',
+    });
+  }
+  const hiddenPreferenceInference = sentences(text).find((sentence) => (
+    /(?:比你愿意承认|你(?:其实|已经|早就).{0,12}(?:知道|明白|想要)|你只是不(?:愿|想)承认|多半不是[^。！？!?]{0,24}是[^。！？!?]{0,24}(?:你|方向|选择))/u
+      .test(sentence)
+  ));
+  const userExplicitlyOwnedInference = plan.currentEvidenceSpans.some((span) => (
+    /我(?:其实|已经|早就).{0,12}(?:知道|明白|想要)|我只是不(?:愿|想)承认/u.test(span)
+  ));
+  if (hiddenPreferenceInference && !userExplicitlyOwnedInference) {
+    violations.push({
+      code: 'unsupported_user_inference',
+      evidenceSpan: hiddenPreferenceInference,
+      repairInstruction: '删除替用户宣布隐藏偏好或内心结论的句子；把它改成证据有限的假设、比较变量，或直接留给用户判断。',
+    });
+  }
+  const mixesMonthlyAndHourly = /(?:每月|月薪|月度)/u.test(text)
+    && /时薪/u.test(text);
+  const incompatibleArithmetic = mixesMonthlyAndHourly
+    ? sentences(text).find((sentence) => (
+        /(?:相加|加上|加起来|总和)/u.test(sentence)
+      ))
+    : undefined;
+  if (incompatibleArithmetic) {
+    violations.push({
+      code: 'unit_mismatch',
+      evidenceSpan: incompatibleArithmetic,
+      repairInstruction: '不要直接相加或比较月度金额与时薪；先换算为同一时间单位，或改用无量纲评分。',
+    });
+  }
+  const explicitlyDetailed = plan.currentEvidenceSpans.some((span) => (
+    /(?:详细|展开|全面|完整|逐项|深度)/u.test(span)
+  ));
+  if (
+    plan.interactionMode === 'analyze'
+    && !explicitlyDetailed
+    && [...text].length > 500
+  ) {
+    violations.push({
+      code: 'response_too_long',
+      evidenceSpan: text.slice(0, 80),
+      repairInstruction: '把分析压到 500 字以内；只保留一个方法和最多 3 个关键步骤，删除教程式展开与重复解释。',
+    });
+  }
   const hasSpecificBoundaryAcknowledgement = plan.conversationAct === 'boundary_repair'
     && hasSpecificBoundaryRepairAcknowledgement(text);
   if (plan.directionalQuestionBudget === 0) {
@@ -2748,6 +2823,23 @@ export function validateUtteranceAgainstTurnPlan(
       code: 'unsupported_shared_history',
       evidenceSpan: unsupportedQuote[0],
       repairInstruction: '删除没有来源的过去原话；只能复述当前用户消息或已选关系证据明确提供的历史。',
+    });
+  }
+  const asksForRecall = plan.currentEvidenceSpans.some((span) => (
+    /(?:还)?记得.{0,40}(?:吗|么|不)|记不记得/u.test(span)
+  ));
+  const hasSelectedRelationshipEvidence = plan.allowedEvidenceIds.some(
+    (id) => !id.startsWith('current:'),
+  );
+  const unsupportedRecallAffirmation = asksForRecall && !hasSelectedRelationshipEvidence
+    ? text.match(/(?:我(?:还)?记得|我有印象|你(?:之前|以前)?(?:有|曾)?提过|你(?:之前|以前)?说过)/u)
+    : null;
+  if (unsupportedRecallAffirmation
+    && !violations.some(({ code }) => code === 'unsupported_shared_history')) {
+    violations.push({
+      code: 'unsupported_shared_history',
+      evidenceSpan: unsupportedRecallAffirmation[0],
+      repairInstruction: '没有选中的关系证据可证明这段历史；明确说当前看不到或不能确认，不得用“你提过”“我有印象”补写记忆。',
     });
   }
   const requiredCashConstraint = plan.mustAddress.find((item) => CASH_CONSTRAINT.test(item));
@@ -2923,9 +3015,12 @@ export function validateSemanticTurnDelivery(
   const blockingViolations: SemanticTurnBlockingViolation[] = [];
   const qualityObservations: SemanticTurnQualityObservation[] = [];
   for (const finding of findings) {
-    if (finding.code === 'relationship_move_not_observable') {
+    if (finding.code === 'relationship_move_not_observable'
+      || finding.code === 'response_too_long') {
       qualityObservations.push({
-        code: qualityObservationCodeForPlan(plan),
+        code: finding.code === 'response_too_long'
+          ? 'response_not_concise'
+          : qualityObservationCodeForPlan(plan),
         ...(finding.evidenceSpan ? { evidenceSpan: finding.evidenceSpan } : {}),
         ...(finding.effectId ? { effectId: finding.effectId } : {}),
         observation: finding.repairInstruction,
@@ -2955,6 +3050,9 @@ export function renderSemanticTurnActPlan(control: SemanticTurnControl): string 
     `基础动作指令：${plan.conversationInstruction}`,
     `安全模式：${plan.safetyMode}`,
     `互动模式：${plan.interactionMode}`,
+    ...(plan.interactionMode === 'analyze'
+      ? ['表达预算：默认只给一个方法或 3—5 个关键步骤；除非用户明确要求详尽，不扩成完整教程。']
+      : []),
     `随后明确请求：${frame.deferredRequestedMode
       ?? (frame.consumedPendingRequest ? undefined : frame.pendingRequestedMode)
       ?? '无'}`,
@@ -3241,6 +3339,18 @@ export function semanticTurnFallback(
         'neutral-fatigue-v1',
       );
     }
+  }
+  const currentEvidence = control.plan.currentEvidenceSpans.join('\n');
+  if (
+    control.plan.interactionMode === 'analyze'
+    && /(?:A|B|两个|两份|选项|方案)/iu.test(currentEvidence)
+    && /(?:比较|对比|纠结|选择|选)/u.test(currentEvidence)
+  ) {
+    return neutralFallback(
+      '把选项写成两列，只评四项：实际收入、可支配时间、方向匹配、两年后的选择余地。你先给四项分配总计 100% 的权重，再分别打 1—5 分，乘权重后相加。任何不能拿其他优势抵消的条件单列为红线；分数负责暴露取舍，红线负责排除，最后决定仍由你来做。',
+      'neutral',
+      'neutral-comparison-v1',
+    );
   }
   return undefined;
 }

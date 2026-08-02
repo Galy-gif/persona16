@@ -1,7 +1,9 @@
 # 首批人物评测协议 v0.8：最终交付质量与模型健康
 
 > 协议版本：`pilot-character-scenarios-v0.8`
-> Prompt 组装版本：`pilot-runtime-prompt-v0.8`
+> 当前 Prompt 组装版本：`pilot-runtime-prompt-v0.9`
+>
+> 2026-07-31：人物生产投影改为“轻量社交存在 + 默认休眠的潜在倾向”。协议 0.8 的交付门与模型健康定义不变，但旧 `pilot-runtime-prompt-v0.8` artifact 不能作为当前 Prompt 的完整通过证据；详见 [ADR-0019](../adr/0019-keep-character-dispositions-latent-until-relevant.md)。
 > 房间协议版本：`pilot-room-participation-v0.2`
 > 架构决策：[ADR-0018](../adr/0018-gate-on-final-delivery-and-observe-model-health.md)
 > 历史基线：[协议 0.7 三批冻结复测](pilot-character-retest-v0.7-aggregate-2026-07-25.md)

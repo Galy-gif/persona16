@@ -1,6 +1,10 @@
 import { checkUtterance, recordOpening } from './antiTemplate';
 import { randomUUID } from 'node:crypto';
 import { runDirector } from './director';
+import {
+  createSingleAgentDecision,
+  shouldUseModelDirector,
+} from './singleAgentDirector';
 import { chatText, defaultConfig } from './llm';
 import {
   buildSystemBlocks,
@@ -12,6 +16,10 @@ import { runRoomLoop } from './room/roomLoop';
 import type { RoomAction, RoomController, RoomLoopBudget } from './room/types';
 import { runRuntimeText } from './runtime/runRuntimeText';
 import { RuntimeExecutionError } from './runtime/recoveryPolicy';
+import {
+  selectAgentModel,
+  selectAgentThinkingLevel,
+} from './reasoningPolicy';
 import { advanceRoomState, resolveTurnPlan } from './scoring';
 import { createTracer, type Tracer } from './trace';
 import type {
@@ -137,8 +145,53 @@ async function generateUtterance(
     pendingRequestedMode: room.pendingUserRequest?.mode,
     relationshipFocus: relationshipFocusForTurn(plan, room),
   });
+  if (semanticControl.plan.conversationAct === 'boundary_repair') {
+    const policyResponse = semanticTurnFallback(semanticControl, {
+      agentType: speaker.type,
+      turnKey: turnId,
+      recentOpenings: agentState.recentOpenings,
+    });
+    const policyValidation = policyResponse
+      ? validateSemanticTurnDelivery(policyResponse.text, semanticControl.plan)
+      : undefined;
+    const policyVerdict = policyResponse
+      ? checkUtterance(
+          policyResponse.text,
+          agentState.recentOpenings,
+          relationshipContext,
+          userMessage,
+        )
+      : undefined;
+    if (
+      policyResponse
+      && policyVerdict?.ok
+      && policyValidation?.blockingViolations.length === 0
+    ) {
+      tracer.emit('semantic_turn_policy_response', {
+        agent: speaker.type,
+        actionType: semanticControl.plan.conversationAct,
+        fallbackKind: policyResponse.fallbackKind,
+        variantId: policyResponse.variantId,
+      });
+      invokeDelivery('delta', opts.onDelta, [speaker.type, policyResponse.text]);
+      agentState.recentOpenings = recordOpening(
+        policyResponse.text,
+        agentState.recentOpenings,
+      );
+      return {
+        type: speaker.type,
+        speechType: speaker.speechType,
+        text: policyResponse.text,
+        regenerated: false,
+      };
+    }
+  }
   const system = buildSystemBlocks(speaker.type);
   const requestedTokens = speaker.speechType === '长发言' ? 1200 : 400;
+  const agentModel = selectAgentModel(
+    config,
+    semanticControl.plan.interactionMode,
+  );
 
   let antiTemplateNote: string | undefined;
   let regenerated = false;
@@ -161,6 +214,7 @@ async function generateUtterance(
     tracer.emit('agent_prompt', {
       agent: speaker.type,
       attempt,
+      model: agentModel,
       temperature,
       retryPolicyVersion: SEMANTIC_TURN_GENERATION_POLICY.retryPolicyVersion,
       prompt,
@@ -168,15 +222,21 @@ async function generateUtterance(
 
     const isFinalAttempt = attempt === SEMANTIC_TURN_GENERATION_POLICY.attempts - 1;
     const reservation = modelBudget.reserve(`persona:${speaker.type}:attempt:${attempt}`, requestedTokens);
+    const thinkingLevel = selectAgentThinkingLevel({
+      interactionMode: semanticControl.plan.interactionMode,
+      model: agentModel,
+      maxTokens: reservation.maxTokens,
+    });
     // 人物文本必须先完成最终动作校验；provider delta 不能绕过 delivery gate。
     const onDelta = undefined;
     const text = runtime
       ? await runRuntimeText(runtime, {
           runId: `${turnId}:${speaker.type}:${attempt}:${randomUUID()}`,
-          model: { provider: config.provider, id: config.agentModel },
+          model: { provider: config.provider, id: agentModel },
           system,
           messages: [{ role: 'user', content: prompt }],
           temperature,
+          thinkingLevel,
           limits: { maxTurns: 1, maxTokens: reservation.maxTokens, timeoutMs: 60_000 },
           metadata: {
             roomId: opts.roomId ?? 'ephemeral-room',
@@ -203,9 +263,10 @@ async function generateUtterance(
           },
         })
       : await chatText({
-          model: config.agentModel,
+          model: agentModel,
           maxTokens: reservation.maxTokens,
           temperature,
+          thinkingMode: thinkingLevel === 'off' ? 'disabled' : 'enabled',
           system,
           prompt,
           onDelta,
@@ -347,14 +408,27 @@ export async function runTurn(
   room.calledAgent = opts.calledAgent;
   room.history.push({ speaker: 'user', text: userMessage });
 
-  const decideTurn = dependencies.director ?? runDirector;
-  const decision = await decideTurn(
-    config.directorModel,
-    room,
-    userMessage,
-    { budget: modelBudget, signal: opts.signal },
-  );
-  tracer.emit('director_decision', { decision });
+  const usesInjectedDirector = dependencies.director !== undefined;
+  const usesModelDirector = usesInjectedDirector || shouldUseModelDirector(room, userMessage);
+  const decision = usesInjectedDirector
+    ? await dependencies.director!(
+        config.directorModel,
+        room,
+        userMessage,
+        { budget: modelBudget, signal: opts.signal },
+      )
+    : usesModelDirector
+      ? await runDirector(
+          config.directorModel,
+          room,
+          userMessage,
+          { budget: modelBudget, signal: opts.signal },
+        )
+      : createSingleAgentDecision(room, userMessage, opts.safetyMode);
+  tracer.emit('director_decision', {
+    decision,
+    source: usesInjectedDirector ? 'injected' : usesModelDirector ? 'model' : 'deterministic_single_agent',
+  });
 
   const plan = resolveTurnPlan(decision, room);
   tracer.emit('turn_plan', {

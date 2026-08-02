@@ -21,6 +21,10 @@ export type {
 } from './expressionHabits';
 export { resolveTurnPlan, advanceRoomState } from './scoring';
 export { runDirector } from './director';
+export {
+  createSingleAgentDecision,
+  shouldUseModelDirector,
+} from './singleAgentDirector';
 export { checkUtterance, recordOpening } from './antiTemplate';
 export { compileTurnActPlan, conversationRepairFallback } from './turnActPlan';
 export type { TurnActContext, TurnActKind, TurnActPlan } from './turnActPlan';
@@ -29,7 +33,7 @@ export type { TraceFailure, Tracer } from './trace';
 export { DeliveryCallbackError } from './lifecycleHooks';
 export type { ObserverErrorHandler, ObserverFailure } from './lifecycleHooks';
 export { defaultConfig, defaultJudgeModel, currentProvider, chatText, chatJson } from './llm';
-export type { Provider, SystemBlock, ChatTextOpts, ChatJsonOpts } from './llm';
+export type { Provider, ThinkingMode, SystemBlock, ChatTextOpts, ChatJsonOpts } from './llm';
 export { createRoom, addAgent, removeAgent, setPaused, runTurn } from './engine';
 export type { RunTurnOptions } from './engine';
 export type { EngineDependencies } from './engine';
@@ -42,9 +46,15 @@ export type {
   RuntimeRequest,
   RuntimeStopReason,
   RuntimeSystemBlock,
+  RuntimeThinkingLevel,
   RuntimeTool,
   RuntimeToolResult,
 } from './runtime/agentRuntime';
+export {
+  selectAgentModel,
+  selectAgentThinkingLevel,
+} from './reasoningPolicy';
+export type { SelectAgentThinkingLevelInput } from './reasoningPolicy';
 export {
   TURN_EVENT_VERSION,
 } from './runtime/turnEvents';
@@ -141,13 +151,17 @@ export {
   buildPilotCharacterCard,
   buildPilotCharacterCore,
   buildPilotCharacterContext,
+  buildPilotCharacterPresence,
+  buildPilotDirectorProfile,
   buildPilotRelationshipContext,
   buildPilotRoomContext,
   buildPilotSituationLens,
+  buildPilotTurnPresence,
   findPilotNarrativeViolations,
   findPilotRoomProtocolViolations,
   findPilotRoomTranscriptViolations,
   getPilotCharacter,
+  getPilotLatentDisposition,
   renderPilotTurnResponseContract,
 } from './pilot/pilotCharacters';
 export type {
@@ -155,6 +169,9 @@ export type {
   PilotCharacterContextFocus,
   PilotCharacterContextOptions,
   PilotCharacterSpec,
+  PilotLatentDisposition,
+  PilotLatentDispositionId,
+  PilotTurnPresenceOptions,
   PilotTurnResponseContract,
   PilotNarrativeViolation,
   PilotNarrativeValidationContext,

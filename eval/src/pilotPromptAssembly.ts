@@ -1,12 +1,13 @@
 import {
   GLOBAL_CONTRACT,
   SAFETY_LAYER,
-  buildPilotCharacterCore,
-  buildPilotSituationLens,
+  buildPilotCharacterPresence,
+  buildPilotTurnPresence,
   getPilotCharacter,
   renderPilotTurnResponseContract,
   type AgentType,
   type PilotCharacterContextFocus,
+  type PilotLatentDispositionId,
   type PilotTurnResponseContract,
 } from '@persona16/engine';
 import {
@@ -16,6 +17,7 @@ import {
 
 export interface PilotPromptScenarioInput {
   contextFocus: PilotCharacterContextFocus;
+  activeDispositionIds?: Partial<Record<AgentType, PilotLatentDispositionId>>;
   responseContract: PilotTurnResponseContract;
   prompt: string;
 }
@@ -112,9 +114,12 @@ export function assemblePilotScenarioPrompt(
     system: [
       { text: SAFETY_LAYER },
       { text: GLOBAL_CONTRACT },
-      { text: buildPilotCharacterCore(agent), cache: true },
+      { text: buildPilotCharacterPresence(agent), cache: true },
     ],
-    prompt: `${buildPilotSituationLens(agent, scenario.contextFocus)}
+    prompt: `${buildPilotTurnPresence(agent, {
+      focus: scenario.contextFocus,
+      activeDispositionId: scenario.activeDispositionIds?.[agent],
+    })}
 
 ${renderPilotTurnResponseContract(scenario.responseContract)}
 

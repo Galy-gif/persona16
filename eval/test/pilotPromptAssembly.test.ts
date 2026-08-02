@@ -7,7 +7,7 @@ import {
 } from '../src/pilotPromptAssembly';
 import { compileSemanticTurnControl } from '../../packages/engine/src/semanticTurnControl';
 
-test('pilot prompt keeps stable character core separate from dynamic turn sections', () => {
+test('pilot prompt keeps stable character presence separate from dynamic turn sections', () => {
   const scenario = PILOT_CHARACTER_SCENARIOS.find(({ id }) => id === 'self-judgment-after-end')!;
   const assembled = assemblePilotScenarioPrompt(
     'ENFP',
@@ -21,12 +21,14 @@ test('pilot prompt keeps stable character core separate from dynamic turn sectio
   const stable = assembled.system.map(({ text }) => text).join('\n');
 
   assert.equal(assembled.system[2]?.cache, true);
-  assert.match(stable, /正典人物核心：夏栩/);
-  assert.doesNotMatch(stable, /当前情境镜头/);
+  assert.match(stable, /正典人物存在：夏栩/);
+  assert.doesNotMatch(stable, /当前对话姿态/);
+  assert.doesNotMatch(stable, /做不到与不想要|真实意愿|开放可能/);
   assert.doesNotMatch(stable, /本轮回应合同/);
   assert.doesNotMatch(stable, /这个项目我想了两年/);
 
-  assert.match(assembled.prompt, /当前情境镜头：承托/);
+  assert.match(assembled.prompt, /当前对话姿态：承接/);
+  assert.match(assembled.prompt, /本轮可调用的人物倾向｜当事人说出的意愿/);
   assert.match(assembled.prompt, /本轮回应合同/);
   assert.match(assembled.prompt, /本轮已批准动作计划/);
   assert.match(assembled.prompt, /方向性问题预算：1/);
@@ -36,7 +38,7 @@ test('pilot prompt keeps stable character core separate from dynamic turn sectio
   assert.match(assembled.prompt, /这个项目我想了两年/);
   assert.match(assembled.prompt, /语气用措辞、句式和标点呈现/);
   assert.doesNotMatch(assembled.prompt, /“（小声）”等文字语气标记.*可以使用/);
-  assert.doesNotMatch(assembled.prompt, /正典人物核心：夏栩/);
+  assert.doesNotMatch(assembled.prompt, /正典人物存在：夏栩/);
 });
 
 test('pilot retry uses the trusted contract and Engine repair instructions without leaking codes or gold lines', () => {

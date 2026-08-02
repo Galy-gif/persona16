@@ -4,7 +4,12 @@ import { advanceRoomState, createRoom, resolveTurnPlan } from '../src';
 import type { AgentType, DirectorDecision } from '../src/types';
 
 function decision(
-  assessments: Array<{ type: AgentType; baseImpulse: number; suggestedSpeechType?: '长发言' | '短句' }>,
+  assessments: Array<{
+    type: AgentType;
+    baseImpulse: number;
+    suggestedSpeechType?: '长发言' | '短句';
+    activeDispositionId?: string;
+  }>,
 ): DirectorDecision {
   return {
     scene: '决策',
@@ -15,10 +20,25 @@ function decision(
       type: item.type,
       baseImpulse: item.baseImpulse,
       angle: `${item.type} 的角度`,
+      activeDispositionId: item.activeDispositionId,
       suggestedSpeechType: item.suggestedSpeechType ?? '长发言',
     })),
   };
 }
+
+test('the turn plan preserves one director-selected latent disposition for prompt authorization', () => {
+  const room = createRoom(['INTJ']);
+  const plan = resolveTurnPlan(
+    decision([{
+      type: 'INTJ',
+      baseImpulse: 80,
+      activeDispositionId: 'lin-heng:choice-room',
+    }]),
+    room,
+  );
+
+  assert.equal(plan.speakers[0]?.activeDispositionId, 'lin-heng:choice-room');
+});
 
 test('a called active agent receives +40 and speaks first', () => {
   const room = createRoom(['INTJ', 'ENFP']);

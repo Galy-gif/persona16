@@ -598,7 +598,7 @@ function completeArtifact(scenarioIds: readonly string[] = EXPECTED_IDS) {
 test('pilot character protocol has exactly nine unique ordered scenarios', () => {
   const ids = PILOT_CHARACTER_SCENARIOS.map((scenario) => scenario.id);
   assert.equal(PILOT_CHARACTER_EVAL_PROTOCOL_VERSION, '0.8');
-  assert.equal(PILOT_PROMPT_ASSEMBLY_VERSION, 'pilot-runtime-prompt-v0.8');
+  assert.equal(PILOT_PROMPT_ASSEMBLY_VERSION, 'pilot-runtime-prompt-v0.9');
   assert.equal(PILOT_ROOM_PARTICIPATION_VERSION, 'pilot-room-participation-v0.2');
   assert.deepEqual(ids, EXPECTED_IDS);
   assert.equal(new Set(ids).size, 9);

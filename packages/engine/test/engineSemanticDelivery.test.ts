@@ -119,3 +119,15 @@ test('production safely stops with zero delta when no valid fallback exists', as
   );
   assert.deepEqual(deltas, []);
 });
+
+test('boundary repair uses a validated policy response without another model call', async () => {
+  const repair = await runSingleTurn(
+    '你刚才又开始分析我了。我只想被听见，不要再给建议。',
+    [],
+  );
+
+  assert.equal(repair.deltas.length, 1);
+  assert.match(repair.deltas[0] ?? '', /越界/u);
+  assert.match(repair.deltas[0] ?? '', /停|收手/u);
+  assert.equal(repair.result.utterances[0]?.regenerated, false);
+});

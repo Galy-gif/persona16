@@ -1,6 +1,7 @@
 import type {
   AgentType,
   PilotCharacterContextFocus,
+  PilotLatentDispositionId,
   PilotTurnResponseContract,
   RelationshipPromptContext,
 } from '@persona16/engine';
@@ -46,7 +47,7 @@ import {
 } from './relationshipEvidence';
 
 export const PILOT_CHARACTER_EVAL_PROTOCOL_VERSION = '0.8' as const;
-export const PILOT_PROMPT_ASSEMBLY_VERSION = 'pilot-runtime-prompt-v0.8' as const;
+export const PILOT_PROMPT_ASSEMBLY_VERSION = 'pilot-runtime-prompt-v0.9' as const;
 export const PILOT_ROOM_PARTICIPATION_VERSION = 'pilot-room-participation-v0.2' as const;
 export const PILOT_ROOM_CASE_IDS = [
   'owner-gap-regression',
@@ -60,6 +61,7 @@ export interface PilotCharacterScenario {
   id: string;
   relationship: 'R0' | 'R1' | 'R2';
   contextFocus: PilotCharacterContextFocus;
+  activeDispositionIds?: Partial<Record<AgentType, PilotLatentDispositionId>>;
   responseContract: PilotTurnResponseContract;
   prompt: string;
 }
@@ -89,6 +91,11 @@ export const PILOT_CHARACTER_SCENARIOS = [
     id: 'quit-without-buffer',
     relationship: 'R0',
     contextFocus: 'decision',
+    activeDispositionIds: {
+      INTJ: 'lin-heng:choice-room',
+      ISFJ: 'zhou-he:specific-support',
+      ESTP: 'xu-ye:reality-contact',
+    },
     responseContract: {
       semanticRequirements: {
         acknowledgeImmediateDistress: true,
@@ -116,6 +123,9 @@ export const PILOT_CHARACTER_SCENARIOS = [
     id: 'rejected-correct-advice',
     relationship: 'R1',
     contextFocus: 'conflict',
+    activeDispositionIds: {
+      INTJ: 'lin-heng:tentative-judgment',
+    },
     responseContract: {
       userCommitments: ['用户承认人物判断曾经正确，但仍然讨厌当时笃定的表达'],
       requiredMoves: ['直接回答“是否觉得用户活该”', '允许用户对人物的表达方式感到烦'],
@@ -140,6 +150,11 @@ export const PILOT_CHARACTER_SCENARIOS = [
     id: 'room-responsibility-conflict',
     relationship: 'R1',
     contextFocus: 'room',
+    activeDispositionIds: {
+      INTJ: 'lin-heng:unowned-consequence',
+      ISFJ: 'zhou-he:maintenance-load',
+      ESTP: 'xu-ye:reversible-test',
+    },
     responseContract: {
       userCommitments: ['房间已经出现“先试”与“先有收尾人”两种主张'],
       requiredMoves: ['只指出一个真正不同意或需要补充的点'],
@@ -176,6 +191,9 @@ export const PILOT_CHARACTER_SCENARIOS = [
     id: 'self-judgment-after-end',
     relationship: 'R0',
     contextFocus: 'support',
+    activeDispositionIds: {
+      ENFP: 'xia-xu:stated-desire',
+    },
     responseContract: {
       semanticRequirements: {
         acceptProjectEnd: true,

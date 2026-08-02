@@ -1,5 +1,9 @@
 import { chatJson } from './llm';
 import { getPersona } from './personas';
+import {
+  buildPilotDirectorProfile,
+  getPilotLatentDisposition,
+} from './pilot/pilotCharacters';
 import type {
   AgentType,
   DirectorDecision,
@@ -42,6 +46,10 @@ function decisionSchema(agentsInRoom: AgentType[]) {
                 '0-85：话题相关性(0-30)+独特洞察(0-20)+与上一位分歧(0-15)+用户需求匹配(0-20) 的合计，再按人格主动性微调',
             },
             angle: { type: 'string', description: '它这轮想切入的角度，一句话' },
+            activeDispositionId: {
+              anyOf: [{ type: 'string' }, { type: 'null' }],
+              description: '默认 null。只有当前内容相关、用户或关系允许、且能增加独特价值时，才从该人物目录选择一个完整 id。',
+            },
             suggestedSpeechType: { type: 'string', enum: [...SPEECH_TYPES] },
             toneShift: {
               anyOf: [
@@ -64,7 +72,7 @@ function decisionSchema(agentsInRoom: AgentType[]) {
               description: '仅在上下文触发偏移时给出，最多改 2 个维度，1-5',
             },
           },
-          required: ['type', 'baseImpulse', 'angle', 'suggestedSpeechType', 'toneShift'],
+          required: ['type', 'baseImpulse', 'angle', 'activeDispositionId', 'suggestedSpeechType', 'toneShift'],
           additionalProperties: false,
         },
       },
@@ -77,6 +85,15 @@ function decisionSchema(agentsInRoom: AgentType[]) {
 function renderRoomForDirector(room: RoomState, userMessage: string): string {
   const roster = room.agents
     .map((a) => {
+      const canonicalProfile = buildPilotDirectorProfile(a.type);
+      if (canonicalProfile) {
+        return `- ${a.type}
+${canonicalProfile}
+当前关系许可：${room.history.filter((message) => message.speaker === a.type).length >= 3
+    || a.relationship.promptContext?.evidence.some((evidence) => evidence.traceability === 'traceable')
+    ? '已有多轮或可信关系证据；仍须内容相关且有新增价值'
+    : '尚浅；除非用户明确邀请判断，否则保持潜在倾向休眠'}${a.paused ? '｜【已被用户暂停】' : ''}`;
+      }
       const p = getPersona(a.type);
       return `- ${a.type} ${p.title}：${p.coreIdentity}
   发言触发：${p.speakWhen.join('；')}｜沉默条件：${p.silentWhen.join('；')}${a.paused ? '｜【已被用户暂停】' : ''}`;
@@ -107,13 +124,14 @@ const DIRECTOR_SYSTEM = `你是一个多人格对话房间的调度器（主持�
 
 评估原则：
 1. 不是每个 Agent 都要回答。同一轮里观点重复的 Agent 应给低分（重复观点是扣分项，直接压低它的 baseImpulse）。
-2. 用它的人格判断它"想不想说"：话题撞上它的注意力过滤器和发言触发器才给高分；撞上它的沉默条件就压到 40 以下。
-3. 用户情绪脆弱或低落时，压低挑衅/刺激型切入的分数，或在 toneShift 里降 bite、升 warmth。
-4. suggestedSpeechType 要制造真实对话感：有人主讲、有人短句补充、有人追问或反驳、有人沉默。避免所有人都长发言。
-5. 上一位如果适合长篇，下一位优先短句/反问/旁白。
-6. 如果同一争论已持续 3 轮以上，设 forceSummary=true。
-7. 单聊（只有一个 Agent）时它通常应该发言，除非它的人格此刻有充分理由沉默。
-8. baseImpulse 是 0-85 的整数。不要考虑点名加分、暂停、新入场、最近发言惩罚——这些由系统另行计算。`;
+2. 先判断人物是否真的有新增价值，不要因为它拥有某种性格倾向就替当前话题寻找触发点。正典人物的潜在倾向默认休眠：轻松分享、普通问候、只想被听见或没有内容相关性时，activeDispositionId 必须为 null。
+3. 只有同时满足内容相关、用户或关系允许、相对已有发言有新增价值时，才从该人物目录选择一个 activeDispositionId；每人至多一项。angle 必须描述当前话题的新增角度，不能复述人物设定。
+4. 用户情绪脆弱或低落时，压低挑衅/刺激型切入的分数，或在 toneShift 里降 bite、升 warmth。
+5. suggestedSpeechType 要制造真实对话感：有人主讲、有人短句补充、有人追问或反驳、有人沉默。避免所有人都长发言。
+6. 上一位如果适合长篇，下一位优先短句/反问/旁白。
+7. 如果同一争论已持续 3 轮以上，设 forceSummary=true。
+8. 单聊（只有一个 Agent）时它通常应该发言；发言不等于必须激活人物倾向。
+9. baseImpulse 是 0-85 的整数。不要考虑点名加分、暂停、新入场、最近发言惩罚——这些由系统另行计算。`;
 
 export async function runDirector(
   model: string,
@@ -152,6 +170,10 @@ export async function runDirector(
         type: a.type,
         baseImpulse: Math.max(0, Math.min(85, Math.round(a.baseImpulse))),
         angle: a.angle,
+        activeDispositionId: getPilotLatentDisposition(
+          a.type,
+          typeof a.activeDispositionId === 'string' ? a.activeDispositionId : undefined,
+        )?.id,
         suggestedSpeechType: a.suggestedSpeechType,
         toneShift: toneShift as DirectorDecision['assessments'][number]['toneShift'],
       };

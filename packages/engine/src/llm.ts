@@ -1,19 +1,24 @@
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
+import { getAiHubMixModelProfile } from './modelCatalog';
 import type { EngineConfig } from './types';
 import type { ModelActualUsage } from './runtime/modelBudget';
 
 /**
  * 模型调用层：提供商可切换。
- * - deepseek（默认，设了 DEEPSEEK_API_KEY 即启用）：V4 Pro 非思考模式，
+ * - deepseek（默认，设了 DEEPSEEK_API_KEY 即启用）：V4 Pro 思考模式，
  *   通过 OpenAI 兼容 API 调用；结构化输出走 json_object 模式 + schema 注入 prompt + 解析重试。
  * - anthropic：原生 structured outputs 与 prompt cache。
  */
 
-export type Provider = 'anthropic' | 'deepseek';
+export type Provider = 'aihubmix' | 'anthropic' | 'deepseek';
+export type ThinkingMode = 'provider_default' | 'enabled' | 'disabled';
 
 const DEEPSEEK_DEFAULT_MODEL = 'deepseek-v4-pro';
-const DEEPSEEK_NON_THINKING = { thinking: { type: 'disabled' } } as const;
+const AIHUBMIX_DEFAULT_AGENT_MODEL = 'gpt-5.6-luna';
+const AIHUBMIX_DEFAULT_ANALYSIS_MODEL = 'gpt-5.6-luna';
+const AIHUBMIX_DEFAULT_CONTROL_MODEL = 'deepseek-v4-flash';
+const SUPPORTED_PROVIDERS = ['aihubmix', 'anthropic', 'deepseek'] as const satisfies readonly Provider[];
 
 export interface SystemBlock {
   text: string;
@@ -22,6 +27,7 @@ export interface SystemBlock {
 }
 
 let anthropicClient: Anthropic | null = null;
+let aihubmixClient: OpenAI | null = null;
 let deepseekClient: OpenAI | null = null;
 
 function getAnthropic(): Anthropic {
@@ -39,9 +45,24 @@ function getDeepseek(): OpenAI {
   return deepseekClient;
 }
 
+function getAiHubMix(): OpenAI {
+  if (!aihubmixClient) {
+    aihubmixClient = new OpenAI({
+      apiKey: process.env.AIHUBMIX_API_KEY,
+      baseURL: process.env.AIHUBMIX_BASE_URL || 'https://aihubmix.com/v1',
+    });
+  }
+  return aihubmixClient;
+}
+
 export function currentProvider(): Provider {
-  const explicit = process.env.PERSONA16_PROVIDER as Provider | undefined;
-  if (explicit === 'anthropic' || explicit === 'deepseek') return explicit;
+  const explicit = process.env.PERSONA16_PROVIDER?.trim();
+  if (explicit === 'aihubmix' || explicit === 'anthropic' || explicit === 'deepseek') return explicit;
+  if (explicit) {
+    throw new Error(
+      `Unsupported PERSONA16_PROVIDER "${explicit}". Supported providers: ${SUPPORTED_PROVIDERS.join(', ')}`,
+    );
+  }
   return process.env.DEEPSEEK_API_KEY ? 'deepseek' : 'anthropic';
 }
 
@@ -50,13 +71,15 @@ export function defaultConfig(): EngineConfig {
   const requestedRuntime = process.env.PERSONA16_RUNTIME;
   const dft = provider === 'deepseek'
     ? { agent: DEEPSEEK_DEFAULT_MODEL, director: DEEPSEEK_DEFAULT_MODEL }
-    : { agent: 'claude-sonnet-5', director: 'claude-haiku-4-5' };
+    : provider === 'aihubmix'
+      ? { agent: AIHUBMIX_DEFAULT_AGENT_MODEL, director: AIHUBMIX_DEFAULT_CONTROL_MODEL }
+      : { agent: 'claude-sonnet-5', director: 'claude-haiku-4-5' };
   return {
     provider,
-    runtime: requestedRuntime === 'legacy' || (requestedRuntime !== 'pi' && provider === 'anthropic')
-      ? 'legacy'
-      : 'pi',
+    runtime: requestedRuntime === 'legacy' ? 'legacy' : 'pi',
     agentModel: process.env.PERSONA16_AGENT_MODEL || dft.agent,
+    analysisModel: process.env.PERSONA16_ANALYSIS_MODEL
+      || (provider === 'aihubmix' ? AIHUBMIX_DEFAULT_ANALYSIS_MODEL : undefined),
     directorModel: process.env.PERSONA16_DIRECTOR_MODEL || dft.director,
     traceFile: process.env.PERSONA16_TRACE_FILE,
   };
@@ -65,7 +88,7 @@ export function defaultConfig(): EngineConfig {
 export function defaultJudgeModel(): string {
   return (
     process.env.PERSONA16_JUDGE_MODEL ||
-    (currentProvider() === 'deepseek' ? DEEPSEEK_DEFAULT_MODEL : 'claude-sonnet-5')
+    (currentProvider() === 'anthropic' ? 'claude-sonnet-5' : DEEPSEEK_DEFAULT_MODEL)
   );
 }
 
@@ -81,8 +104,8 @@ export interface ChatTextOpts {
    * Claude Sonnet 5 that reject non-default sampling parameters.
    */
   temperature?: number | null;
-  /** Allows a fair non-thinking comparison without changing production defaults. */
-  thinkingMode?: 'provider_default' | 'disabled';
+  /** Allows callers to use the provider default or explicitly disable thinking. */
+  thinkingMode?: ThinkingMode;
   onDelta?: (delta: string) => void;
   signal?: AbortSignal;
   onUsage?: (usage: Omit<ModelActualUsage, 'calls'>) => void;
@@ -96,12 +119,72 @@ function deepseekCacheUsage(usage: unknown): { cacheReadTokens: number; cacheWri
   const value = (usage ?? {}) as {
     prompt_cache_hit_tokens?: number;
     prompt_cache_miss_tokens?: number;
-    prompt_tokens_details?: { cached_tokens?: number };
+    cache_read_input_tokens?: number;
+    cache_creation_input_tokens?: number;
+    prompt_tokens_details?: {
+      cached_tokens?: number;
+      cache_write_tokens?: number;
+    };
+    claude_cache_tokens_details?: {
+      cache_read_input_tokens?: number;
+      cache_creation_input_tokens?: number;
+    };
   };
   return {
-    cacheReadTokens: zeroSafe(value.prompt_cache_hit_tokens ?? value.prompt_tokens_details?.cached_tokens),
-    cacheWriteTokens: zeroSafe(value.prompt_cache_miss_tokens),
+    cacheReadTokens: zeroSafe(
+      value.prompt_cache_hit_tokens ??
+      value.cache_read_input_tokens ??
+      value.claude_cache_tokens_details?.cache_read_input_tokens ??
+      value.prompt_tokens_details?.cached_tokens,
+    ),
+    cacheWriteTokens: zeroSafe(
+      value.cache_creation_input_tokens ??
+      value.claude_cache_tokens_details?.cache_creation_input_tokens ??
+      value.prompt_tokens_details?.cache_write_tokens,
+    ),
   };
+}
+
+function aihubmixEstimatedCost(
+  model: string,
+  inputTokens: number,
+  outputTokens: number,
+  cacheReadTokens: number,
+  cacheWriteTokens: number,
+): number | undefined {
+  const profile = getAiHubMixModelProfile(model);
+  if (!profile) return undefined;
+  const uncachedInputTokens = Math.max(0, inputTokens - cacheReadTokens - cacheWriteTokens);
+  return (
+    uncachedInputTokens * profile.cost.input +
+    outputTokens * profile.cost.output +
+    cacheReadTokens * profile.cost.cacheRead +
+    cacheWriteTokens * profile.cost.cacheWrite
+  ) / 1_000_000;
+}
+
+function deepseekGenerationOptions(
+  thinkingMode: ThinkingMode | undefined,
+  temperature: number | null | undefined,
+  defaultTemperature: number,
+) {
+  const resolvedThinkingMode = thinkingMode ?? 'enabled';
+  return {
+    ...(resolvedThinkingMode === 'provider_default'
+      ? {}
+      : { thinking: { type: resolvedThinkingMode } }),
+    ...(resolvedThinkingMode === 'disabled' && temperature !== null
+      ? { temperature: temperature ?? defaultTemperature }
+      : {}),
+  };
+}
+
+function aihubmixReasoningEffort(
+  thinkingMode: ThinkingMode | undefined,
+): 'none' | 'high' | undefined {
+  const resolvedThinkingMode = thinkingMode ?? 'enabled';
+  if (resolvedThinkingMode === 'provider_default') return undefined;
+  return resolvedThinkingMode === 'disabled' ? 'none' : 'high';
 }
 
 /** 流式文本生成，返回完整文本 */
@@ -111,10 +194,7 @@ export async function chatText(opts: ChatTextOpts): Promise<string> {
     const stream = await getDeepseek().chat.completions.create({
       model: opts.model,
       max_tokens: opts.maxTokens,
-      ...(opts.temperature === null
-        ? {}
-        : { temperature: opts.temperature ?? 1.25 }),
-      ...DEEPSEEK_NON_THINKING,
+      ...deepseekGenerationOptions(opts.thinkingMode, opts.temperature, 1.25),
       stream: true,
       stream_options: { include_usage: true },
       messages: [
@@ -135,6 +215,47 @@ export async function chatText(opts: ChatTextOpts): Promise<string> {
           inputTokens: zeroSafe(chunk.usage.prompt_tokens),
           outputTokens: zeroSafe(chunk.usage.completion_tokens),
           ...cache,
+        });
+      }
+    }
+    return text.trim();
+  }
+
+  if (provider === 'aihubmix') {
+    const reasoningEffort = aihubmixReasoningEffort(opts.thinkingMode);
+    const stream = await getAiHubMix().chat.completions.create({
+      model: opts.model,
+      max_tokens: opts.maxTokens,
+      ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
+      stream: true,
+      stream_options: { include_usage: true },
+      messages: [
+        { role: 'system', content: opts.system.map((block) => block.text).join('\n\n') },
+        { role: 'user', content: opts.prompt },
+      ],
+    }, { signal: opts.signal });
+    let text = '';
+    for await (const chunk of stream) {
+      const delta = chunk.choices[0]?.delta?.content ?? '';
+      if (delta) {
+        text += delta;
+        opts.onDelta?.(delta);
+      }
+      if (chunk.usage) {
+        const cache = deepseekCacheUsage(chunk.usage);
+        const inputTokens = zeroSafe(chunk.usage.prompt_tokens);
+        const outputTokens = zeroSafe(chunk.usage.completion_tokens);
+        opts.onUsage?.({
+          inputTokens,
+          outputTokens,
+          ...cache,
+          estimatedCostUsd: aihubmixEstimatedCost(
+            opts.model,
+            inputTokens,
+            outputTokens,
+            cache.cacheReadTokens,
+            cache.cacheWriteTokens,
+          ),
         });
       }
     }
@@ -184,11 +305,11 @@ export interface ChatJsonOpts {
   schema: Record<string, unknown>;
   maxTokens: number;
   /**
-   * DeepSeek keeps the historical deterministic default when omitted.
-   * `null` explicitly uses the provider default for cross-provider sampling.
+   * DeepSeek only applies temperature when thinking is explicitly disabled.
+   * `null` omits the sampling override.
    */
   temperature?: number | null;
-  thinkingMode?: 'provider_default' | 'disabled';
+  thinkingMode?: ThinkingMode;
   signal?: AbortSignal;
   onUsage?: (usage: Omit<ModelActualUsage, 'calls'>) => void;
 }
@@ -206,20 +327,20 @@ function extractJson(text: string): string {
 /** 结构化 JSON 生成，deepseek 路径带一次解析重试 */
 export async function chatJson<T>(opts: ChatJsonOpts): Promise<T> {
   const provider = opts.provider ?? currentProvider();
-  if (provider === 'deepseek') {
+  if (provider === 'deepseek' || provider === 'aihubmix') {
     const system = `${opts.system}
 
 你必须输出一个 JSON 对象（不要 markdown 代码块、不要解释文字），严格符合以下 JSON Schema：
 ${JSON.stringify(opts.schema)}`;
     let lastError = '';
     for (let attempt = 0; attempt < 2; attempt++) {
-      const response = await getDeepseek().chat.completions.create({
+      const client = provider === 'deepseek' ? getDeepseek() : getAiHubMix();
+      const response = await client.chat.completions.create({
         model: opts.model,
         max_tokens: opts.maxTokens,
-        ...(opts.temperature === null
-          ? {}
-          : { temperature: opts.temperature ?? 0 }),
-        ...DEEPSEEK_NON_THINKING,
+        ...(provider === 'deepseek'
+          ? deepseekGenerationOptions(opts.thinkingMode, opts.temperature, 0)
+          : { reasoning_effort: 'none' as const }),
         response_format: { type: 'json_object' },
         messages: [
           { role: 'system', content: system },
@@ -233,10 +354,23 @@ ${JSON.stringify(opts.schema)}`;
       }, { signal: opts.signal });
       const raw = response.choices[0]?.message?.content ?? '';
       const cache = deepseekCacheUsage(response.usage);
+      const inputTokens = zeroSafe(response.usage?.prompt_tokens);
+      const outputTokens = zeroSafe(response.usage?.completion_tokens);
       opts.onUsage?.({
-        inputTokens: zeroSafe(response.usage?.prompt_tokens),
-        outputTokens: zeroSafe(response.usage?.completion_tokens),
+        inputTokens,
+        outputTokens,
         ...cache,
+        ...(provider === 'aihubmix'
+          ? {
+            estimatedCostUsd: aihubmixEstimatedCost(
+              opts.model,
+              inputTokens,
+              outputTokens,
+              cache.cacheReadTokens,
+              cache.cacheWriteTokens,
+            ),
+          }
+          : {}),
       });
       try {
         return JSON.parse(extractJson(raw)) as T;
@@ -244,7 +378,7 @@ ${JSON.stringify(opts.schema)}`;
         lastError = e instanceof Error ? e.message : String(e);
       }
     }
-    throw new Error(`deepseek JSON 输出解析失败：${lastError}`);
+    throw new Error(`${provider} JSON 输出解析失败：${lastError}`);
   }
 
   const response = await getAnthropic().messages.create({

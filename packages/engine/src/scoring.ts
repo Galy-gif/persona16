@@ -71,6 +71,7 @@ export function resolveTurnPlan(decision: DirectorDecision, room: RoomState): Tu
       speechType,
       finalScore: score,
       angle: assessment?.angle ?? '',
+      activeDispositionId: assessment?.activeDispositionId,
       toneShift: assessment?.toneShift,
     });
   }
@@ -104,6 +105,7 @@ export function resolveTurnPlan(decision: DirectorDecision, room: RoomState): Tu
           speechType: '长发言',
           finalScore: 60,
           angle: assessment?.angle ?? '用户点名要求回应',
+          activeDispositionId: assessment?.activeDispositionId,
           toneShift: assessment?.toneShift,
         });
         if (speakers.length > 3) speakers.pop();
@@ -123,6 +125,7 @@ export function resolveTurnPlan(decision: DirectorDecision, room: RoomState): Tu
       angle: assessment?.angle
         ? `${assessment.angle}；直接回应用户这句话`
         : '直接接话；不必展示人格或强行分析',
+      activeDispositionId: assessment?.activeDispositionId,
       toneShift: assessment?.toneShift,
     });
   }
