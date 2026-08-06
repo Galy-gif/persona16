@@ -227,6 +227,44 @@ test('production preflight projects the persisted relationship branch into the e
   ]);
 });
 
+test('relationship projection enriches matching branch evidence with memory message and time provenance', () => {
+  const room = createRoomState(['INTJ']);
+  room.agents[0]!.relationship.promptContext = {
+    memoryEnabled: true,
+    evidence: [{
+      id: 'memory-preference-1',
+      kind: 'preference',
+      content: '用户希望先看到真实例子',
+      traceability: 'traceable',
+      sourceTurnId: 'turn-source',
+      sourceMessageId: 'message-source',
+      recordedAt: '2026-08-07T00:00:00.000Z',
+    }],
+  };
+  const branch = applyRelationshipEvent(createRelationshipBranch('legacy-intj'), {
+    id: 'memory:preference-1',
+    sourceTurnId: 'turn-source',
+    type: 'preference_stated',
+    content: '用户希望先看到真实例子',
+  });
+
+  applyRelationshipBranchContexts(room, [{
+    userId: 'user-a',
+    agent: 'INTJ',
+    characterId: 'legacy-intj',
+    branch,
+    version: 1,
+    updatedAt: new Date(0),
+  }]);
+
+  const [evidence] = room.agents[0]!.relationship.promptContext?.evidence ?? [];
+  assert.equal(evidence?.traceability, 'traceable');
+  if (evidence?.traceability === 'traceable') {
+    assert.equal(evidence.sourceMessageId, 'message-source');
+    assert.equal(evidence.recordedAt, '2026-08-07T00:00:00.000Z');
+  }
+});
+
 test('production projection keeps active boundaries even behind more than fifty ordinary events', () => {
   const room = createRoomState(['INTJ']);
   let branch = createRelationshipBranch('legacy-intj');

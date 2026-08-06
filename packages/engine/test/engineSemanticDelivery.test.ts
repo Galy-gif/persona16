@@ -131,3 +131,113 @@ test('boundary repair uses a validated policy response without another model cal
   assert.match(repair.deltas[0] ?? '', /停|收手/u);
   assert.equal(repair.result.utterances[0]?.regenerated, false);
 });
+
+test('relational production delivery emits a validated mutter before reply and persists it on the utterance', async () => {
+  const events: string[] = [];
+  const room = createRoom(['INTJ']);
+  const result = await runTurn(
+    room,
+    '今天发生了一件挺难开口的事。',
+    {
+      turnId: 'relational-mutter-delivery',
+      promptVersion: 'web-relational-v10',
+      onSpeakerStart: () => events.push('speaker_start'),
+      onMutter: (_agent, mutter) => events.push(`mutter:${mutter}`),
+      onDelta: (_agent, delta) => events.push(`delta:${delta}`),
+      onSpeakerEnd: () => events.push('speaker_end'),
+    },
+    config,
+    {
+      runtime: queuedRuntime([
+        '{"mutter":"这句话像是压了很久。","reply":"不用急着讲完整，我在听。"}',
+      ]),
+      director: async () => directorDecision,
+    },
+  );
+
+  assert.deepEqual(events, [
+    'speaker_start',
+    'mutter:这句话像是压了很久。',
+    'delta:不用急着讲完整，我在听。',
+    'speaker_end',
+  ]);
+  assert.equal(result.utterances[0]?.mutter, '这句话像是压了很久。');
+  assert.equal(room.history.at(-1)?.mutter, '这句话像是压了很久。');
+  assert.equal(room.history.at(-1)?.text, '不用急着讲完整，我在听。');
+});
+
+test('relational delivery drops mutter for a direct technical task while preserving the validated reply', async () => {
+  const mutters: string[] = [];
+  const deltas: string[] = [];
+  await runTurn(
+    createRoom(['INTJ']),
+    '这个 TypeScript 报错怎么修？',
+    {
+      turnId: 'relational-mutter-suppressed',
+      promptVersion: 'web-relational-v10',
+      onMutter: (_agent, mutter) => mutters.push(mutter),
+      onDelta: (_agent, delta) => deltas.push(delta),
+    },
+    config,
+    {
+      runtime: queuedRuntime([
+        '{"mutter":"这个报错点有点隐蔽。","reply":"把完整错误栈和相关代码贴出来，我先定位第一处失败。"}',
+      ]),
+      director: async () => directorDecision,
+    },
+  );
+
+  assert.deepEqual(mutters, []);
+  assert.deepEqual(deltas, ['把完整错误栈和相关代码贴出来，我先定位第一处失败。']);
+});
+
+test('relational delivery retries a missing structured envelope before publishing any text', async () => {
+  const deltas: string[] = [];
+  const result = await runTurn(
+    createRoom(['INTJ']),
+    '今天发生了一件挺难开口的事。',
+    {
+      turnId: 'relational-protocol-retry',
+      promptVersion: 'web-relational-v10',
+      onDelta: (_agent, delta) => deltas.push(delta),
+    },
+    config,
+    {
+      runtime: queuedRuntime([
+        '不用急着讲完整，我在听。',
+        '{"mutter":null,"reply":"不用急着讲完整，我在听。"}',
+      ]),
+      director: async () => directorDecision,
+    },
+  );
+
+  assert.deepEqual(deltas, ['不用急着讲完整，我在听。']);
+  assert.equal(result.utterances[0]?.regenerated, true);
+});
+
+test('relational delivery retries a missing default mutter and publishes only the repaired draft', async () => {
+  const mutters: string[] = [];
+  const deltas: string[] = [];
+  const result = await runTurn(
+    createRoom(['INTJ']),
+    '今天发生了一件挺难开口的事。',
+    {
+      turnId: 'relational-mutter-retry',
+      promptVersion: 'web-relational-v10',
+      onMutter: (_agent, mutter) => mutters.push(mutter),
+      onDelta: (_agent, delta) => deltas.push(delta),
+    },
+    config,
+    {
+      runtime: queuedRuntime([
+        '{"mutter":null,"reply":"不用急着讲完整，我在听。"}',
+        '{"mutter":"这句话像是压了很久。","reply":"不用急着讲完整，我在听。"}',
+      ]),
+      director: async () => directorDecision,
+    },
+  );
+
+  assert.deepEqual(mutters, ['这句话像是压了很久。']);
+  assert.deepEqual(deltas, ['不用急着讲完整，我在听。']);
+  assert.equal(result.utterances[0]?.regenerated, true);
+});

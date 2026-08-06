@@ -11,6 +11,12 @@ import {
   buildTurnPrompt,
   relationshipFocusForTurn,
 } from './prompt';
+import { promptVariantForVersion } from './relational/sharedSystemPrompt';
+import { buildDynamicContextPacket } from './relational/dynamicContext';
+import {
+  parseRelationalReplyDraft,
+  sanitizeRelationalReplyDraft,
+} from './relational/relationalReply';
 import { createLlmRoomController } from './room/roomController';
 import { runRoomLoop } from './room/roomLoop';
 import type { RoomAction, RoomController, RoomLoopBudget } from './room/types';
@@ -55,6 +61,8 @@ export interface RunTurnOptions {
   calledAgent?: AgentType;
   /** 以下回调是 streaming Delivery Sink；失败会显式终止投递，不按 Observer 吞错。 */
   onDelta?: (speaker: AgentType, delta: string) => void;
+  /** 用户可见的公开短反应；只在通过独立校验后、正文前投递。 */
+  onMutter?: (speaker: AgentType, mutter: string) => void;
   onSpeakerStart?: (speaker: AgentType, plan: SpeakerPlan) => void;
   onSpeakerEnd?: (utterance: AgentUtterance, messageId: string) => void;
   onRoomAction?: (action: RoomAction) => void;
@@ -67,6 +75,8 @@ export interface RunTurnOptions {
   signal?: AbortSignal;
   /** 预处理安全级别；sensitive 会降低刺激但保留人格核心。crisis/blocked 应在调用引擎前旁路。 */
   safetyMode?: SafetyLevel;
+  /** 用户可关闭碎碎念；不影响正文生成和关系记忆。 */
+  mutterEnabled?: boolean;
 }
 
 export interface EngineDependencies {
@@ -145,6 +155,19 @@ async function generateUtterance(
     pendingRequestedMode: room.pendingUserRequest?.mode,
     relationshipFocus: relationshipFocusForTurn(plan, room),
   });
+  const promptVariant = promptVariantForVersion(opts.promptVersion);
+  const relationalPacket = promptVariant === 'relational'
+    ? buildDynamicContextPacket({
+        room,
+        plan,
+        speaker: speaker.type,
+        userMessage,
+        semanticControl,
+        relationshipFocus: relationshipFocusForTurn(plan, room),
+        safetyMode: opts.safetyMode,
+        mutterEnabled: opts.mutterEnabled,
+      })
+    : undefined;
   if (semanticControl.plan.conversationAct === 'boundary_repair') {
     const policyResponse = semanticTurnFallback(semanticControl, {
       agentType: speaker.type,
@@ -186,7 +209,7 @@ async function generateUtterance(
       };
     }
   }
-  const system = buildSystemBlocks(speaker.type);
+  const system = buildSystemBlocks(speaker.type, { variant: promptVariant });
   const requestedTokens = speaker.speechType === '长发言' ? 1200 : 400;
   const agentModel = selectAgentModel(
     config,
@@ -210,6 +233,9 @@ async function generateUtterance(
       antiTemplateNote,
       safetyMode: opts.safetyMode,
       semanticControl,
+      promptVariant,
+      generatedAt: relationalPacket?.generatedAt,
+      mutterEnabled: opts.mutterEnabled,
     });
     tracer.emit('agent_prompt', {
       agent: speaker.type,
@@ -273,8 +299,48 @@ async function generateUtterance(
           signal: reservation.signal(opts.signal),
           onUsage: reservation.recordUsage,
         });
-    const boundedText = text.slice(0, maxCharacters);
-    tracer.emit('agent_output', { agent: speaker.type, attempt, text: boundedText });
+    const parsedDraft = promptVariant === 'relational'
+      ? parseRelationalReplyDraft(text)
+      : { mutter: null, reply: text, structured: false };
+    if (promptVariant === 'relational' && !parsedDraft.structured && !isFinalAttempt) {
+      regenerated = true;
+      antiTemplateNote = '\n【输出协议修复】上一版没有返回约定 JSON。保留内容意图，严格改为 {"mutter": string|null, "reply": string}。';
+      tracer.emit('relational_output_protocol_retry', {
+        agent: speaker.type,
+        attemptCount: attempt + 1,
+        reason: 'structured_output_missing',
+      });
+      continue;
+    }
+    if (promptVariant === 'relational'
+      && relationalPacket?.mutterPolicy === 'default'
+      && !parsedDraft.mutter
+      && !isFinalAttempt) {
+      regenerated = true;
+      antiTemplateNote = '\n【碎碎念协议修复】本轮策略为 default。先给一条 8—24 字、用户可见且不复述正文的 mutter，再给 reply；仍只输出约定 JSON。';
+      tracer.emit('relational_output_protocol_retry', {
+        agent: speaker.type,
+        attemptCount: attempt + 1,
+        reason: 'default_mutter_missing',
+      });
+      continue;
+    }
+    const relationalDraft = promptVariant === 'relational'
+      ? sanitizeRelationalReplyDraft(
+          parsedDraft,
+          relationalPacket?.mutterPolicy ?? 'suppress',
+          { allowedEvidenceSpans: semanticControl.plan.allowedEvidenceSpans },
+        )
+      : { mutter: null, reply: parsedDraft.reply };
+    const boundedText = relationalDraft.reply.slice(0, maxCharacters);
+    const mutter = relationalDraft.mutter ?? undefined;
+    tracer.emit('agent_output', {
+      agent: speaker.type,
+      attempt,
+      text: boundedText,
+      mutter,
+      structured: parsedDraft.structured,
+    });
 
     const verdict = checkUtterance(
       boundedText,
@@ -304,9 +370,16 @@ async function generateUtterance(
       || verdict.kind === 'conversation_naturalness'
       || (isFinalAttempt && verdict.kind !== 'relationship_boundary');
     if (existingGatePassed && semanticViolations.length === 0) {
+      if (mutter) invokeDelivery('mutter', opts.onMutter, [speaker.type, mutter]);
       invokeDelivery('delta', opts.onDelta, [speaker.type, boundedText]);
       agentState.recentOpenings = recordOpening(boundedText, agentState.recentOpenings);
-      return { type: speaker.type, speechType: speaker.speechType, text: boundedText, regenerated };
+      return {
+        type: speaker.type,
+        speechType: speaker.speechType,
+        text: boundedText,
+        ...(mutter ? { mutter } : {}),
+        regenerated,
+      };
     }
     if (isFinalAttempt && semanticViolations.length > 0) {
       const fallback = semanticTurnFallback(semanticControl, {
@@ -406,7 +479,13 @@ export async function runTurn(
   const turnId = opts.turnId ?? randomUUID();
   const modelBudget = dependencies.modelBudget ?? createModelBudget();
   room.calledAgent = opts.calledAgent;
-  room.history.push({ speaker: 'user', text: userMessage });
+  room.history.push({
+    id: randomUUID(),
+    createdAt: new Date().toISOString(),
+    turnId,
+    speaker: 'user',
+    text: userMessage,
+  });
 
   const usesInjectedDirector = dependencies.director !== undefined;
   const usesModelDirector = usesInjectedDirector || shouldUseModelDirector(room, userMessage);
@@ -461,7 +540,15 @@ export async function runTurn(
       );
       earlierThisTurn.push({ type: utterance.type, text: utterance.text });
       const messageId = randomUUID();
-      room.history.push({ id: messageId, speaker: utterance.type, text: utterance.text, speechType: utterance.speechType });
+      room.history.push({
+        id: messageId,
+        createdAt: new Date().toISOString(),
+        turnId,
+        speaker: utterance.type,
+        text: utterance.text,
+        speechType: utterance.speechType,
+        ...(utterance.mutter ? { mutter: utterance.mutter } : {}),
+      });
       invokeDelivery('speaker_end', opts.onSpeakerEnd, [utterance, messageId]);
       tracer.emit('room_action_done', { turnId, action, utterance: { type: utterance.type, speechType: utterance.speechType } });
       return utterance;

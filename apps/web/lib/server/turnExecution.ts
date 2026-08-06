@@ -26,8 +26,9 @@ function safetyBypass(
   level: 'crisis' | 'blocked',
   responseText: string,
 ): { events: PersistedTurnEvent[]; stopReason: TurnStopReason } {
-  room.history.push({ id: randomUUID(), speaker: 'user', text });
-  room.history.push({ id: randomUUID(), speaker: 'safety', text: responseText });
+  const recordedAt = new Date().toISOString();
+  room.history.push({ id: randomUUID(), createdAt: recordedAt, turnId, speaker: 'user', text });
+  room.history.push({ id: randomUUID(), createdAt: recordedAt, turnId, speaker: 'safety', text: responseText });
   return {
     stopReason: 'safety_redirect',
     events: [
@@ -61,6 +62,7 @@ export function executeTurn(input: {
       const observerFailures: Array<{ hook: string; errorType: string }> = [];
       let sentEventCount = 0;
       let firstTokenAt: number | undefined;
+      let mutterCount = 0;
       let closed = false;
       let completionAttempted = false;
       const send = (event: PersistedTurnEvent, persist = true) => {
@@ -100,6 +102,7 @@ export function executeTurn(input: {
             turnId: body.turnId,
             promptVersion: TURN_PROMPT_VERSION,
             safetyMode: safety.level,
+            mutterEnabled: body.command.mutterEnabled,
             signal,
             onObserverError: ({ hook, error }) => {
               observerFailures.push({
@@ -118,6 +121,11 @@ export function executeTurn(input: {
               agent,
               speechType: plan.speechType,
             }),
+            onMutter: (agent, text) => {
+              firstTokenAt ??= Date.now();
+              mutterCount += 1;
+              send({ v: TURN_EVENT_VERSION, turnId: body.turnId, type: 'mutter', agent, text });
+            },
             onDelta: (agent, delta) => {
               firstTokenAt ??= Date.now();
               send({ v: TURN_EVENT_VERSION, turnId: body.turnId, type: 'delta', agent, delta });
@@ -131,6 +139,7 @@ export function executeTurn(input: {
                 agent: utterance.type,
                 speechType: utterance.speechType,
                 text: utterance.text,
+                ...(utterance.mutter ? { mutter: utterance.mutter } : {}),
               });
             },
           }, config, {
@@ -202,6 +211,11 @@ export function executeTurn(input: {
             relationshipProjection,
             observerFailures,
             loop,
+            prompt: {
+              version: TURN_PROMPT_VERSION,
+              mutterEnabled: body.command.mutterEnabled !== false,
+              mutterCount,
+            },
           },
         };
         events.push({

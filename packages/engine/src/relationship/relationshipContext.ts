@@ -23,6 +23,8 @@ export type RelationshipContextEvidence = RelationshipContextEvidenceBase & (
   | {
       traceability: 'traceable';
       sourceTurnId: string;
+      sourceMessageId?: string;
+      recordedAt?: string;
       sourceEventId?: string;
       sourceEventType?: RelationshipEvent['type'];
     }

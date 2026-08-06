@@ -1,6 +1,51 @@
 export * from './types';
 export { PERSONAS, getPersona } from './personas';
-export { SAFETY_LAYER, GLOBAL_CONTRACT } from './contract';
+export { SAFETY_LAYER, GLOBAL_CONTRACT, GLOBAL_CONTRACT_CORE } from './contract';
+export {
+  LEGACY_PROMPT_VERSION,
+  RELATIONAL_PROMPT_VERSION,
+  buildRelationalSystemPrompt,
+  promptVariantForVersion,
+} from './relational/sharedSystemPrompt';
+export type { PromptVariant } from './relational/sharedSystemPrompt';
+export {
+  CULTURAL_RELATIONAL_LENS_KEYS,
+  RELATIONAL_CHARACTER_VERSION,
+  getRelationalCharacterProfile,
+  renderRelationalCharacterPrompt,
+} from './relational/relationalCharacter';
+export type {
+  CulturalRelationalLensFacet,
+  CulturalRelationalLensKey,
+  InterpersonalAct,
+  InterpersonalPolicy,
+  InterpersonalSituation,
+  InterpersonalTransitionRule,
+  RelationalCharacterProfile,
+  RelationalSalience,
+} from './relational/relationalCharacter';
+export {
+  buildDynamicContextPacket,
+  renderDynamicContextPacket,
+} from './relational/dynamicContext';
+export type {
+  BuildDynamicContextPacketInput,
+  DynamicContextEvidence,
+  DynamicContextPacket,
+  KnownOrUnknown,
+  MutterPolicy,
+  TurnInterpersonalIntent,
+} from './relational/dynamicContext';
+export {
+  parseRelationalReplyDraft,
+  sanitizeRelationalReplyDraft,
+  validateMutter,
+} from './relational/relationalReply';
+export type {
+  MutterValidation,
+  ParsedRelationalReplyDraft,
+  RelationalReplyDraft,
+} from './relational/relationalReply';
 export {
   buildPersonaCard,
   buildSystemBlocks,
@@ -28,6 +73,15 @@ export {
 export { checkUtterance, recordOpening } from './antiTemplate';
 export { compileTurnActPlan, conversationRepairFallback } from './turnActPlan';
 export type { TurnActContext, TurnActKind, TurnActPlan } from './turnActPlan';
+export {
+  compileSemanticTurnControl,
+  renderSemanticTurnActPlan,
+} from './semanticTurnControl';
+export type {
+  SemanticTurnActPlan,
+  SemanticTurnControl,
+  TurnFrame,
+} from './semanticTurnControl';
 export { createTracer } from './trace';
 export type { TraceFailure, Tracer } from './trace';
 export { DeliveryCallbackError } from './lifecycleHooks';

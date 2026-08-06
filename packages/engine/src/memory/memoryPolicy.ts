@@ -13,6 +13,8 @@ export interface InjectableMemory extends MemoryCandidateDraft {
   status: MemoryStatus;
   id?: string;
   sourceTurnId?: string;
+  sourceMessageId?: string;
+  createdAt?: Date | string;
 }
 
 const SENSITIVE_DATA = [
@@ -60,7 +62,14 @@ export function applyConfirmedMemories(room: RoomState, memories: InjectableMemo
         kind: memory.kind,
         content: memory.content,
         ...(memory.sourceTurnId
-          ? { traceability: 'traceable' as const, sourceTurnId: memory.sourceTurnId }
+          ? {
+              traceability: 'traceable' as const,
+              sourceTurnId: memory.sourceTurnId,
+              ...(memory.sourceMessageId ? { sourceMessageId: memory.sourceMessageId } : {}),
+              ...(memory.createdAt
+                ? { recordedAt: memory.createdAt instanceof Date ? memory.createdAt.toISOString() : memory.createdAt }
+                : {}),
+            }
           : { traceability: 'legacy_untraceable' as const }),
       });
     }

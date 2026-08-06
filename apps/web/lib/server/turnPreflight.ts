@@ -68,13 +68,26 @@ export function applyRelationshipBranchContexts(
     const projected = relationshipBranchToPromptContext(record.branch, {
       maxEvidence: Number.MAX_SAFE_INTEGER,
     });
+    const enrichedProjectedEvidence = projected.evidence.map((existing) => {
+      const fallback = confirmedFallback?.evidence.find((candidate) => (
+        samePromptEvidence(existing, candidate)
+      ));
+      if (existing.traceability !== 'traceable' || fallback?.traceability !== 'traceable') {
+        return existing;
+      }
+      return {
+        ...existing,
+        sourceMessageId: existing.sourceMessageId ?? fallback.sourceMessageId,
+        recordedAt: existing.recordedAt ?? fallback.recordedAt,
+      };
+    });
     relationship.promptContext = {
       ...projected,
       intimacy: confirmedFallback?.intimacy ?? relationship.intimacy,
       evidence: [
-        ...projected.evidence,
+        ...enrichedProjectedEvidence,
         ...(confirmedFallback?.evidence ?? []).filter((candidate) => (
-          !projected.evidence.some((existing) => samePromptEvidence(existing, candidate))
+          !enrichedProjectedEvidence.some((existing) => samePromptEvidence(existing, candidate))
         )),
       ],
     };

@@ -147,8 +147,9 @@ export type TurnEvent =
   | { v: 1; turnId: string; type: 'turn_start' }
   | { v: 1; turnId: string; type: 'room_action'; action: RoomAction }
   | { v: 1; turnId: string; type: 'speaker_start'; agent: AgentType; speechType: string }
+  | { v: 1; turnId: string; type: 'mutter'; agent: AgentType; text: string }
   | { v: 1; turnId: string; type: 'delta'; agent: AgentType; delta: string }
-  | { v: 1; turnId: string; type: 'speaker_end'; messageId: string; agent: AgentType; speechType: string; text: string }
+  | { v: 1; turnId: string; type: 'speaker_end'; messageId: string; agent: AgentType; speechType: string; text: string; mutter?: string }
   | { v: 1; turnId: string; type: 'safety_notice'; level: 'crisis' | 'blocked'; text: string }
   | { v: 1; turnId: string; type: 'memory_candidate'; candidate: MemoryCandidate }
   | { v: 1; turnId: string; type: 'turn_end'; stopReason: TurnStopReason; roomVersion: number }
@@ -191,7 +192,7 @@ function retryAfterMilliseconds(response: Response): number | undefined {
 }
 
 export async function streamTurn(
-  body: { roomId: string; turnId: string; roomVersion: number; text: string; calledAgent?: AgentType },
+  body: { roomId: string; turnId: string; roomVersion: number; text: string; calledAgent?: AgentType; mutterEnabled?: boolean },
   onEvent: (event: TurnEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
@@ -202,7 +203,12 @@ export async function streamTurn(
       roomId: body.roomId,
       turnId: body.turnId,
       roomVersion: body.roomVersion,
-      command: { type: 'message', text: body.text, calledAgent: body.calledAgent },
+      command: {
+        type: 'message',
+        text: body.text,
+        calledAgent: body.calledAgent,
+        mutterEnabled: body.mutterEnabled,
+      },
     }),
     signal,
   });

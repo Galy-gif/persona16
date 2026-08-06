@@ -13,6 +13,8 @@
 | [自然口语与人物感 Rubric](evals/naturalness-personhood-rubric-v0.1.md) | 当前人工评测尺度和硬门 |
 | [试点组件校准协议 0.8](evals/pilot-character-protocol-v0.8-delivery-quality.md) | 当前自动复测发布门、模型健康指标和产物合同 |
 | [v0.8 候选模型盲对照协议](evals/pilot-model-comparison-protocol-v0.8.md) | 同 SHA 三批对照、固定 Judge/仲裁器、成本延迟和隐藏来源盲审 |
+| [三模板 Prompt 说明](prompts/relational-shared-system-v1.md) | Shared System、四人物 Character Prompt 与 Dynamic Context 的当前结构 |
+| [三模板迁移评测](evals/relational-prompt-migration-v1-2026-08-07.md) | A/B/C、20 场景、三批放行门与当前运行状态 |
 
 出现产品冲突时，以 PRD 中标记为“已确认”的结论为准；领域术语以根目录 `CONTEXT.md` 为准。
 
@@ -42,6 +44,7 @@
 - [生产对话默认启用 DeepSeek 思考模式](adr/0020-enable-deepseek-thinking-for-production-conversation.md)
 - [通过配置切换 Pi Runtime 供应商](adr/0021-configure-pi-runtime-providers.md)
 - [按信任任务路由 AIHubMix 模型与单聊控制链](adr/0022-route-aihubmix-models-for-trust-and-efficiency.md)
+- [编译三层关系型 Prompt 与公开碎碎念](adr/0023-compile-relational-prompts-and-public-mutter.md)
 
 ADR 记录决策当时的背景。新结论若改变既有决策，应新增 ADR，而不是改写旧文档。
 

@@ -1,4 +1,4 @@
-import { GLOBAL_CONTRACT, SAFETY_LAYER } from './contract';
+import { GLOBAL_CONTRACT, GLOBAL_CONTRACT_CORE, SAFETY_LAYER } from './contract';
 import { getPersona } from './personas';
 import {
   buildPilotCharacterPresence,
@@ -27,6 +27,15 @@ import type {
 } from './types';
 import type { SafetyLevel } from './safety/safetyRouter';
 import type { RelationshipContextFocus } from './relationship/relationshipContext';
+import {
+  buildRelationalSystemPrompt,
+  type PromptVariant,
+} from './relational/sharedSystemPrompt';
+import { renderRelationalCharacterPrompt } from './relational/relationalCharacter';
+import {
+  buildDynamicContextPacket,
+  renderDynamicContextPacket,
+} from './relational/dynamicContext';
 
 /**
  * 6 层 prompt 组装（spec §1）：
@@ -72,8 +81,19 @@ ${p.forbidden.map((s) => `- ${s}`).join('\n')}
 }
 
 /** 稳定 system 前缀：安全层 + 合约 + 轻量人物存在。 */
-export function buildSystemBlocks(type: AgentType): { text: string; cache?: boolean }[] {
+export function buildSystemBlocks(
+  type: AgentType,
+  options: { variant?: PromptVariant } = {},
+): { text: string; cache?: boolean }[] {
   const canonicalCharacter = getPilotCharacter(type);
+  if (options.variant === 'relational' && canonicalCharacter) {
+    return [
+      { text: SAFETY_LAYER },
+      { text: GLOBAL_CONTRACT_CORE },
+      { text: buildRelationalSystemPrompt(), cache: true },
+      { text: renderRelationalCharacterPrompt(type), cache: true },
+    ];
+  }
   return [
     { text: SAFETY_LAYER },
     { text: GLOBAL_CONTRACT },
@@ -124,6 +144,9 @@ export interface HostContext {
   antiTemplateNote?: string;
   safetyMode?: SafetyLevel;
   semanticControl?: SemanticTurnControl;
+  promptVariant?: PromptVariant;
+  generatedAt?: string;
+  mutterEnabled?: boolean;
 }
 
 function pilotFocus(
@@ -237,8 +260,36 @@ export function buildTurnPrompt(ctx: HostContext): string {
   const detailedAnalysisRequested = /(?:详细|展开|全面|完整|逐项|深度)/u.test(userMessage);
   const analysisScopeNote = semanticControl.plan.interactionMode === 'analyze'
     && !detailedAnalysisRequested
-    ? '\n分析节奏：先给最小可用版本，最多 3 个步骤、约 300 字；不铺完整教程或表格。用户继续追问时再展开。'
-    : '';
+      ? '\n分析节奏：先给最小可用版本，最多 3 个步骤、约 300 字；不铺完整教程或表格。用户继续追问时再展开。'
+      : '';
+
+  if (ctx.promptVariant === 'relational' && canonicalCharacter) {
+    const dynamicPacket = buildDynamicContextPacket({
+      generatedAt: ctx.generatedAt,
+      room,
+      plan,
+      speaker: speaker.type,
+      userMessage,
+      semanticControl,
+      relationshipFocus: focus,
+      safetyMode: ctx.safetyMode,
+      mutterEnabled: ctx.mutterEnabled,
+    });
+    return [
+      renderDynamicContextPacket(dynamicPacket),
+      ...(activeDispositionId ? [buildPilotTurnPresence(speaker.type, {
+        focus,
+        activeDispositionId,
+      })] : []),
+      renderSemanticTurnActPlan(semanticControl),
+      `【本轮表达编译】
+${renderSpeechTypeInstruction(speaker.speechType)}
+本轮切入：${directorAngle}${summaryNote}${safetyNote}${analysisScopeNote}
+${expressionInstruction ? `${expressionInstruction}\n` : ''}${ctx.antiTemplateNote ?? ''}
+
+只输出共同系统规则指定的 JSON 对象。mutter 必须服从动态上下文中的碎碎念策略；reply 直接接用户当前这句话。`,
+    ].join('\n\n');
+  }
 
   const sections = [
     `【房间状态】

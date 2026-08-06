@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
 import {
   AGENT_TYPES,
+  LEGACY_PROMPT_VERSION,
+  RELATIONAL_PROMPT_VERSION,
   decideRecoveryAction,
   type FailureOutcome,
   type RecoveryAction,
@@ -9,7 +11,14 @@ import type { PersistedTurnEvent } from '@persona16/store';
 import { z } from 'zod';
 import { jsonError, withSessionCookie } from './http';
 
-export const TURN_PROMPT_VERSION = 'web-mvp-v9';
+/** 只有三批评测通过后才显式切 relational；未配置和未知值都安全回退旧版。 */
+export function turnPromptVersionForVariant(value: string | undefined): string {
+  return value === 'relational' ? RELATIONAL_PROMPT_VERSION : LEGACY_PROMPT_VERSION;
+}
+
+export const TURN_PROMPT_VERSION = turnPromptVersionForVariant(
+  process.env.PERSONA16_PROMPT_VARIANT,
+);
 export const TURN_BUILD_VERSION = (
   process.env.PERSONA16_BUILD_VERSION
   ?? process.env.VERCEL_GIT_COMMIT_SHA
@@ -21,10 +30,11 @@ export const turnRequestSchema = z.object({
   turnId: z.string().uuid(),
   roomVersion: z.number().int().positive(),
   command: z.object({
-    type: z.literal('message'),
-    text: z.string().trim().min(1).max(2_000),
-    calledAgent: z.enum(AGENT_TYPES).optional(),
-  }),
+      type: z.literal('message'),
+      text: z.string().trim().min(1).max(2_000),
+      calledAgent: z.enum(AGENT_TYPES).optional(),
+      mutterEnabled: z.boolean().optional(),
+    }),
 });
 
 export type TurnRequest = z.infer<typeof turnRequestSchema>;

@@ -76,9 +76,15 @@ export interface RelationshipMemory {
 export interface TurnMessage {
   /** 服务端消息标识；旧房间迁移数据可能暂时没有。 */
   id?: string;
+  /** ISO 8601 时间；旧房间缺失时必须按 unknown 处理，不能推测。 */
+  createdAt?: string;
+  /** 产生这条消息的服务端轮次；旧数据缺失时不得由相邻消息猜测。 */
+  turnId?: string;
   speaker: 'user' | 'safety' | AgentType;
   text: string;
   speechType?: SpeechType;
+  /** 用户可见、正文之前展示的公开短反应。 */
+  mutter?: string;
 }
 
 export interface RoomAgentState {
@@ -157,6 +163,7 @@ export interface AgentUtterance {
   type: AgentType;
   speechType: SpeechType;
   text: string;
+  mutter?: string;
   regenerated: boolean;
 }
 

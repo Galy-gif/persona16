@@ -21,6 +21,7 @@
     "runtime:compare": "tsx src/runtimeRegression.ts",
     "trust:balance": "tsx src/trustBalanceProbe.ts",
     "trust:suite": "tsx src/trustScenarioSuite.ts",
+    "relational:migration": "tsx src/relationalPromptMigration.ts",
     "unit": "tsx --test test/*.test.ts ../packages/engine/test/*.test.ts ../packages/runtime-pi/test/*.test.ts ../packages/store/test/*.test.ts ../apps/web/test/*.test.ts"
   },
   "dependencies": {

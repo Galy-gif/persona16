@@ -17,6 +17,7 @@
     "eval:runtime": "pnpm --filter @persona16/eval runtime:compare",
     "eval:trust-balance": "pnpm --filter @persona16/eval trust:balance",
     "eval:trust-suite": "pnpm --filter @persona16/eval trust:suite",
+    "eval:relational-migration": "pnpm --filter @persona16/eval relational:migration",
     "eval:report": "pnpm --filter @persona16/eval report"
   },
   "packageManager": "pnpm@11.11.0"

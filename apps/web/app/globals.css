@@ -1124,6 +1124,16 @@ input:focus-visible {
   text-wrap: pretty;
 }
 
+.persona-message > .mutter {
+  margin-top: 5px;
+  margin-bottom: -1px;
+  color: color-mix(in srgb, var(--character-accent) 58%, var(--ink-2));
+  font-size: 10px;
+  font-style: italic;
+  line-height: 1.55;
+  opacity: 0.82;
+}
+
 .persona-message.live {
   padding: 10px 12px 13px;
   border-radius: var(--room-radius-md);

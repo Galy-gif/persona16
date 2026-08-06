@@ -32,8 +32,11 @@ interface LiveMsg {
   agent: AgentType;
   speechType: string;
   text: string;
+  mutter?: string;
   done: boolean;
 }
+
+const MUTTER_PREFERENCE_KEY = 'persona16.mutter-enabled.v1';
 
 interface FailedAttempt {
   turnId: string;
@@ -77,6 +80,7 @@ export function useRoomSession(id: string) {
   const [feedback, setFeedback] = useState<Record<string, MessageFeedback>>({});
   const [messageMenu, setMessageMenu] = useState<{ messageId?: string; agent: AgentType } | null>(null);
   const [expandedMessages, setExpandedMessages] = useState<Set<string>>(new Set());
+  const [mutterEnabled, setMutterEnabled] = useState(true);
   const [negativeTarget, setNegativeTarget] = useState<string | null>(null);
   const [negativeTags, setNegativeTags] = useState<FeedbackTag[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -147,6 +151,10 @@ export function useRoomSession(id: string) {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [membersOpen, negativeTarget, messageMenu]);
 
+  useEffect(() => {
+    setMutterEnabled(localStorage.getItem(MUTTER_PREFERENCE_KEY) !== 'false');
+  }, []);
+
   const availableToInvite = useMemo(() => {
     const present = new Set(room?.state.agents.map((agent) => agent.type) ?? []);
     const pilotTypes = new Set(PILOT_TYPES);
@@ -187,12 +195,19 @@ export function useRoomSession(id: string) {
         roomVersion,
         text: trimmed,
         calledAgent: requestedAgent,
+        mutterEnabled,
       }, (event) => {
         if (event.type === 'room_action') {
           if ('agent' in event.action) setStatusText(`${characterName(event.action.agent)}准备发言…`);
         } else if (event.type === 'speaker_start') {
           setStatusText(`${characterName(event.agent)}正在发言`);
           setLive((previous) => [...previous, { agent: event.agent, speechType: event.speechType, text: '', done: false }]);
+        } else if (event.type === 'mutter') {
+          setLive((previous) => previous.map((message, index) => (
+            index === previous.length - 1 && message.agent === event.agent
+              ? { ...message, mutter: event.text }
+              : message
+          )));
         } else if (event.type === 'delta') {
           setLive((previous) => previous.map((message, index) => (
             index === previous.length - 1 && message.agent === event.agent
@@ -202,7 +217,13 @@ export function useRoomSession(id: string) {
         } else if (event.type === 'speaker_end') {
           setLive((previous) => previous.map((message, index) => (
             index === previous.length - 1 && message.agent === event.agent
-              ? { ...message, messageId: event.messageId, text: event.text, done: true }
+              ? {
+                  ...message,
+                  messageId: event.messageId,
+                  text: event.text,
+                  mutter: event.mutter ?? message.mutter,
+                  done: true,
+                }
               : message
           )));
         } else if (event.type === 'memory_candidate') {
@@ -409,6 +430,14 @@ export function useRoomSession(id: string) {
 
   const hasUnknownTurn = failedAttempt?.outcome === 'unknown';
 
+  function toggleMutter(): void {
+    setMutterEnabled((current) => {
+      const next = !current;
+      localStorage.setItem(MUTTER_PREFERENCE_KEY, String(next));
+      return next;
+    });
+  }
+
   return {
     room,
     input,
@@ -435,6 +464,8 @@ export function useRoomSession(id: string) {
     setMessageMenu,
     expandedMessages,
     setExpandedMessages,
+    mutterEnabled,
+    toggleMutter,
     negativeTarget,
     setNegativeTarget,
     negativeTags,

@@ -80,6 +80,8 @@ function RoomView() {
     setMessageMenu,
     expandedMessages,
     setExpandedMessages,
+    mutterEnabled,
+    toggleMutter,
     negativeTarget,
     setNegativeTarget,
     negativeTags,
@@ -181,6 +183,7 @@ function RoomView() {
               <span><strong>{characterName(message.speaker)}</strong></span>
               <button className="message-more" onClick={() => setMessageMenu({ messageId: message.id, agent: message.speaker as AgentType })} aria-label="更多消息操作"><DotsThree size={22} weight="bold" aria-hidden /></button>
             </header>
+            {message.mutter && <p className="mutter" aria-label={`${characterName(message.speaker)}的碎碎念`}>{message.mutter}</p>}
             <p>{message.id && readablePersonaText(message.text).length > 240 && !expandedMessages.has(message.id) ? `${readablePersonaText(message.text).slice(0, 240)}…` : readablePersonaText(message.text)}</p>
             {message.id && readablePersonaText(message.text).length > 240 && (
               <button className="expand-message" onClick={() => setExpandedMessages((current) => {
@@ -197,6 +200,7 @@ function RoomView() {
         {live.map((message, index) => (
           <article key={`live-${index}`} className="persona-message live" style={characterStyle(message.agent)}>
             <header><CharacterAvatar type={message.agent} size={38} /><span><strong>{characterName(message.agent)}</strong><small>正在回应</small></span></header>
+            {message.mutter && <p className="mutter" aria-label={`${characterName(message.agent)}的碎碎念`}>{message.mutter}</p>}
             <p>{message.text}<span className="cursor" /></p>
           </article>
         ))}
@@ -288,6 +292,7 @@ function RoomView() {
                 </div>
                 <button className="sheet-wide-action" onClick={() => setInviteOpen(true)} disabled={state.agents.length >= 3}><UserPlus size={20} aria-hidden />邀请新成员</button>
                 <button className="sheet-text-action" onClick={() => void toggleMemoryManager()}>{showMemories ? '收起记忆管理' : '管理已确认记忆'}</button>
+                <button className="sheet-text-action" aria-pressed={mutterEnabled} onClick={toggleMutter}>{mutterEnabled ? '关闭碎碎念' : '开启碎碎念'}</button>
               </>
             ) : (
               <div className="invite-list">
