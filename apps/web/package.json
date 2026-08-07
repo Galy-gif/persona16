@@ -16,6 +16,8 @@
     "@persona16/engine": "workspace:*",
     "@persona16/runtime-pi": "workspace:*",
     "@persona16/store": "workspace:*",
+    "@persona16/turn-application": "workspace:*",
+    "@persona16/turn-protocol": "workspace:*",
     "@phosphor-icons/react": "^2.1.10",
     "next": "^15.5.21",
     "react": "^19.0.0",

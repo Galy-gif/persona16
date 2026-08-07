@@ -1,14 +1,19 @@
 import {
-  createTurnTimingRecorder,
   defaultConfig,
   type AgentRuntime,
 } from '@persona16/engine';
+import { createTurnApplication } from '@persona16/turn-application';
 import { parseJson } from '../../../lib/server/http';
+import { clientIpKey } from '../../../lib/server/rateLimit';
 import { resolveAnonymousSession } from '../../../lib/server/session';
 import { getPersonaStore } from '../../../lib/server/store';
-import { executeTurn } from '../../../lib/server/turnExecution';
-import { prepareTurn } from '../../../lib/server/turnPreflight';
-import { turnRecoveryDetails, turnRequestSchema } from '../../../lib/server/turnProtocol';
+import {
+  TURN_BUILD_VERSION,
+  TURN_PROMPT_VERSION,
+  turnExecutionResponse,
+  turnRecoveryDetails,
+  turnRequestSchema,
+} from '../../../lib/server/turnProtocol';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -24,7 +29,6 @@ function getRuntime(): Promise<AgentRuntime | undefined> {
 }
 
 export async function POST(request: Request): Promise<Response> {
-  const timing = createTurnTimingRecorder();
   const body = await parseJson(
     request,
     turnRequestSchema,
@@ -34,26 +38,18 @@ export async function POST(request: Request): Promise<Response> {
 
   const session = resolveAnonymousSession(request);
   const store = getPersonaStore();
-  const prepared = await prepareTurn({
-    body,
-    request,
-    userId: session.userId,
-    setCookie: session.setCookie,
+  const application = createTurnApplication({
     store,
     config: engineConfig,
-    timing,
-  });
-  if (prepared instanceof Response) return prepared;
-
-  return executeTurn({
-    body,
-    userId: session.userId,
-    setCookie: session.setCookie,
-    store,
-    config: engineConfig,
-    prepared,
-    signal: request.signal,
-    timing,
+    promptVersion: TURN_PROMPT_VERSION,
+    buildVersion: TURN_BUILD_VERSION,
     getRuntime,
   });
+  const execution = await application.execute({
+    request: body,
+    userId: session.userId,
+    clientIp: clientIpKey(request),
+    signal: request.signal,
+  });
+  return turnExecutionResponse(execution, session.setCookie);
 }

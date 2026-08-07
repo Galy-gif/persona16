@@ -10,6 +10,8 @@
 | `packages/engine` | 人物、Prompt、语义裁决、房间循环、安全与恢复策略 | `packages/engine/AGENTS.md` |
 | `packages/runtime-pi` | Pi Agent Runtime 与模型供应商适配 | `packages/runtime-pi/AGENTS.md` |
 | `packages/store` | 内存/PostgreSQL Store、迁移、关系投影与 Trace | `packages/store/AGENTS.md` |
+| `packages/turn-protocol` | Turn v1 请求、事件、可信终态与恢复元数据 | `packages/turn-protocol/AGENTS.md` |
+| `packages/turn-application` | 幂等预处理、执行、流式事件与原子提交编排 | `packages/turn-application/AGENTS.md` |
 | `eval` | 自动评测、语料、协议门与报告 | `eval/AGENTS.md` |
 | `docs` | PRD、领域语言、ADR、评测协议与研究记录 | `docs/AGENTS.md` |
 | `scripts` | 构建和发布准备脚本 | `scripts/AGENTS.md` |

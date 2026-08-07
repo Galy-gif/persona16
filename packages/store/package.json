@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@persona16/engine": "workspace:*",
+    "@persona16/turn-protocol": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "pg": "^8.16.0"
   },
