@@ -2,13 +2,13 @@ import { checkUtterance, recordOpening } from './antiTemplate';
 import { randomUUID } from 'node:crypto';
 import { runDirector } from './director';
 import {
-  createSingleAgentDecision,
+  createDeterministicDirectorDecision,
   shouldUseModelDirector,
 } from './singleAgentDirector';
 import { chatText, defaultConfig } from './llm';
 import {
-  buildSystemBlocks,
-  buildTurnPrompt,
+  buildMeasuredSystemBlocks,
+  buildMeasuredTurnPrompt,
   relationshipFocusForTurn,
 } from './prompt';
 import { promptVariantForVersion } from './relational/sharedSystemPrompt';
@@ -55,6 +55,10 @@ import {
   semanticTurnFallback,
   validateSemanticTurnDelivery,
 } from './semanticTurnControl';
+import {
+  createTurnTimingRecorder,
+  type TurnTimingRecorder,
+} from './observability/turnTiming';
 
 export interface RunTurnOptions {
   /** 用户本轮点名的 Agent */
@@ -85,6 +89,7 @@ export interface EngineDependencies {
   roomController?: RoomController;
   roomLoopBudget?: Partial<RoomLoopBudget>;
   modelBudget?: ModelBudget;
+  timing?: TurnTimingRecorder;
 }
 
 export function createRoom(agents: AgentType[], roomGoal?: RoomGoal): RoomState {
@@ -141,6 +146,7 @@ async function generateUtterance(
   turnId: string,
   modelBudget: ModelBudget,
   maxCharacters: number,
+  timing: TurnTimingRecorder,
 ): Promise<AgentUtterance> {
   const agentState = room.agents.find((a) => a.type === speaker.type)!;
   const relationshipContext = agentState.relationship.promptContext;
@@ -175,7 +181,10 @@ async function generateUtterance(
       recentOpenings: agentState.recentOpenings,
     });
     const policyValidation = policyResponse
-      ? validateSemanticTurnDelivery(policyResponse.text, semanticControl.plan)
+      ? timing.measureSync(
+          'delivery_validation',
+          () => validateSemanticTurnDelivery(policyResponse.text, semanticControl.plan),
+        )
       : undefined;
     const policyVerdict = policyResponse
       ? checkUtterance(
@@ -209,7 +218,13 @@ async function generateUtterance(
       };
     }
   }
-  const system = buildSystemBlocks(speaker.type, { variant: promptVariant });
+  const systemAssembly = buildMeasuredSystemBlocks(speaker.type, { variant: promptVariant });
+  const system = systemAssembly.blocks;
+  tracer.emit('prompt_measurement', {
+    agent: speaker.type,
+    scope: 'system',
+    measurement: systemAssembly.measurement,
+  });
   const requestedTokens = speaker.speechType === '长发言' ? 1200 : 400;
   const agentModel = selectAgentModel(
     config,
@@ -218,13 +233,16 @@ async function generateUtterance(
 
   let antiTemplateNote: string | undefined;
   let regenerated = false;
+  let relationalProtocolRepairUsed = false;
+  let semanticAttempt = 0;
 
-  for (let attempt = 0; attempt < SEMANTIC_TURN_GENERATION_POLICY.attempts; attempt++) {
+  while (semanticAttempt < SEMANTIC_TURN_GENERATION_POLICY.attempts) {
+    const attempt = semanticAttempt;
     const temperature = semanticTurnGenerationTemperature(
       attempt,
       semanticControl.plan.conversationAct,
     );
-    const prompt = buildTurnPrompt({
+    const promptAssembly = buildMeasuredTurnPrompt({
       plan,
       room,
       speaker,
@@ -236,6 +254,13 @@ async function generateUtterance(
       promptVariant,
       generatedAt: relationalPacket?.generatedAt,
       mutterEnabled: opts.mutterEnabled,
+    });
+    const prompt = promptAssembly.text;
+    tracer.emit('prompt_measurement', {
+      agent: speaker.type,
+      scope: 'turn',
+      attempt,
+      measurement: promptAssembly.measurement,
     });
     tracer.emit('agent_prompt', {
       agent: speaker.type,
@@ -255,8 +280,8 @@ async function generateUtterance(
     });
     // 人物文本必须先完成最终动作校验；provider delta 不能绕过 delivery gate。
     const onDelta = undefined;
-    const text = runtime
-      ? await runRuntimeText(runtime, {
+    const text = await timing.measure('persona_generation', async () => (runtime
+      ? runRuntimeText(runtime, {
           runId: `${turnId}:${speaker.type}:${attempt}:${randomUUID()}`,
           model: { provider: config.provider, id: agentModel },
           system,
@@ -288,7 +313,7 @@ async function generateUtterance(
             }
           },
         })
-      : await chatText({
+      : chatText({
           model: agentModel,
           maxTokens: reservation.maxTokens,
           temperature,
@@ -298,11 +323,20 @@ async function generateUtterance(
           onDelta,
           signal: reservation.signal(opts.signal),
           onUsage: reservation.recordUsage,
-        });
+        })));
     const parsedDraft = promptVariant === 'relational'
       ? parseRelationalReplyDraft(text)
       : { mutter: null, reply: text, structured: false };
-    if (promptVariant === 'relational' && !parsedDraft.structured && !isFinalAttempt) {
+    if (promptVariant === 'relational' && !parsedDraft.structured) {
+      if (relationalProtocolRepairUsed && isFinalAttempt) {
+        throw new RuntimeExecutionError({
+          code: 'structured_output_missing',
+          message: '关系型回复连续未返回约定 JSON，已停止交付。',
+          recoverable: true,
+          stopReason: 'error',
+          hadPartialText: false,
+        });
+      }
       regenerated = true;
       antiTemplateNote = '\n【输出协议修复】上一版没有返回约定 JSON。保留内容意图，严格改为 {"mutter": string|null, "reply": string}。';
       tracer.emit('relational_output_protocol_retry', {
@@ -310,19 +344,14 @@ async function generateUtterance(
         attemptCount: attempt + 1,
         reason: 'structured_output_missing',
       });
-      continue;
-    }
-    if (promptVariant === 'relational'
-      && relationalPacket?.mutterPolicy === 'default'
-      && !parsedDraft.mutter
-      && !isFinalAttempt) {
-      regenerated = true;
-      antiTemplateNote = '\n【碎碎念协议修复】本轮策略为 default。先给一条 8—24 字、用户可见且不复述正文的 mutter，再给 reply；仍只输出约定 JSON。';
-      tracer.emit('relational_output_protocol_retry', {
-        agent: speaker.type,
-        attemptCount: attempt + 1,
-        reason: 'default_mutter_missing',
-      });
+      if (!relationalProtocolRepairUsed) {
+        relationalProtocolRepairUsed = true;
+      } else {
+        // The bounded protocol retry is exhausted. Move to the semantic retry
+        // slot with the same repair instruction; malformed JSON is never
+        // evaluated or delivered as dialogue text.
+        semanticAttempt += 1;
+      }
       continue;
     }
     const relationalDraft = promptVariant === 'relational'
@@ -348,9 +377,9 @@ async function generateUtterance(
       relationshipContext,
       userMessage,
     );
-    const semanticValidation = validateSemanticTurnDelivery(
-      boundedText,
-      semanticControl.plan,
+    const semanticValidation = timing.measureSync(
+      'delivery_validation',
+      () => validateSemanticTurnDelivery(boundedText, semanticControl.plan),
     );
     const semanticViolations = semanticValidation.blockingViolations;
     const qualityObservationCodes = [
@@ -388,7 +417,10 @@ async function generateUtterance(
         recentOpenings: agentState.recentOpenings,
       });
       const fallbackValidation = fallback
-        ? validateSemanticTurnDelivery(fallback.text, semanticControl.plan)
+        ? timing.measureSync(
+            'delivery_validation',
+            () => validateSemanticTurnDelivery(fallback.text, semanticControl.plan),
+          )
         : undefined;
       const fallbackVerdict = fallback
         ? checkUtterance(
@@ -451,6 +483,7 @@ async function generateUtterance(
       : `反模板警告：你上一版回复因为"${verdict.reason}"被驳回。换一种完全不同的开场和结构重说，保持人格不变。`;
     }
     regenerated = true;
+    semanticAttempt += 1;
   }
   throw new Error('unreachable');
 }
@@ -478,6 +511,7 @@ export async function runTurn(
   });
   const turnId = opts.turnId ?? randomUUID();
   const modelBudget = dependencies.modelBudget ?? createModelBudget();
+  const timing = dependencies.timing ?? createTurnTimingRecorder();
   room.calledAgent = opts.calledAgent;
   room.history.push({
     id: randomUUID(),
@@ -489,24 +523,32 @@ export async function runTurn(
 
   const usesInjectedDirector = dependencies.director !== undefined;
   const usesModelDirector = usesInjectedDirector || shouldUseModelDirector(room, userMessage);
-  const decision = usesInjectedDirector
-    ? await dependencies.director!(
-        config.directorModel,
-        room,
-        userMessage,
-        { budget: modelBudget, signal: opts.signal },
-      )
-    : usesModelDirector
-      ? await runDirector(
+  const decision = await timing.measure('director', async () => (
+    usesInjectedDirector
+      ? dependencies.director!(
           config.directorModel,
           room,
           userMessage,
           { budget: modelBudget, signal: opts.signal },
         )
-      : createSingleAgentDecision(room, userMessage, opts.safetyMode);
+      : usesModelDirector
+        ? runDirector(
+            config.directorModel,
+            room,
+            userMessage,
+            { budget: modelBudget, signal: opts.signal },
+          )
+        : createDeterministicDirectorDecision(room, userMessage, opts.safetyMode)
+  ));
   tracer.emit('director_decision', {
     decision,
-    source: usesInjectedDirector ? 'injected' : usesModelDirector ? 'model' : 'deterministic_single_agent',
+    source: usesInjectedDirector
+      ? 'injected'
+      : usesModelDirector
+        ? 'model'
+        : room.agents.length === 1
+          ? 'deterministic_single_agent'
+          : 'deterministic_greeting',
   });
 
   const plan = resolveTurnPlan(decision, room);
@@ -519,7 +561,11 @@ export async function runTurn(
   });
 
   const earlierThisTurn: { type: AgentType; text: string }[] = [];
-  const controller = dependencies.roomController ?? createLlmRoomController(config.directorModel, { budget: modelBudget, signal: opts.signal });
+  const baseController = dependencies.roomController
+    ?? createLlmRoomController(config.directorModel, { budget: modelBudget, signal: opts.signal });
+  const controller: RoomController = {
+    decide: (context) => timing.measure('room_controller', () => baseController.decide(context)),
+  };
   const loop = await runRoomLoop({
     room,
     userMessage,
@@ -536,7 +582,7 @@ export async function runTurn(
       const effectivePlan = forceSummary ? { ...plan, forceSummary: true } : plan;
       const utterance = await generateUtterance(
         config, room, effectivePlan, speaker, earlierThisTurn, userMessage, tracer, opts,
-        dependencies.runtime, turnId, modelBudget, remainingCharacters,
+        dependencies.runtime, turnId, modelBudget, remainingCharacters, timing,
       );
       earlierThisTurn.push({ type: utterance.type, text: utterance.text });
       const messageId = randomUUID();

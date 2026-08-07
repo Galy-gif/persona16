@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createRoom } from '../src/engine';
 import {
+  createDeterministicDirectorDecision,
   createSingleAgentDecision,
   shouldUseModelDirector,
 } from '../src/singleAgentDirector';
@@ -33,6 +34,30 @@ test('multi-agent rooms retain model scheduling and chemistry', () => {
     shouldUseModelDirector(room, '今天有点累。'),
     true,
     'a multi-member room remains a room even when only one member is currently active',
+  );
+});
+
+test('a strictly bounded greeting bypasses the model director in a room', () => {
+  const room = createRoom(['INTJ', 'ENFP']);
+
+  assert.equal(shouldUseModelDirector(room, '你好～'), false);
+  assert.equal(shouldUseModelDirector(room, 'hello!'), false);
+  assert.equal(shouldUseModelDirector(room, '你好，我有件事想分析'), true);
+
+  const decision = createDeterministicDirectorDecision(room, '你好');
+  assert.equal(decision.scene, '闲聊');
+  assert.equal(decision.userEmotion, '稳定');
+  assert.deepEqual(
+    decision.assessments.map(({ type, baseImpulse, suggestedSpeechType, activeDispositionId }) => ({
+      type,
+      baseImpulse,
+      suggestedSpeechType,
+      activeDispositionId,
+    })),
+    [
+      { type: 'INTJ', baseImpulse: 60, suggestedSpeechType: '短句', activeDispositionId: undefined },
+      { type: 'ENFP', baseImpulse: 60, suggestedSpeechType: '短句', activeDispositionId: undefined },
+    ],
   );
 });
 

@@ -2,9 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   RuntimeExecutionError,
+  TurnTimingRecorder,
   createRoom,
   runTurn,
 } from '../src';
+import {
+  compileSemanticTurnControl,
+  validateSemanticTurnDelivery,
+} from '../src/semanticTurnControl';
 import type {
   AgentRuntime,
   DirectorDecision,
@@ -50,6 +55,7 @@ async function runSingleTurn(
   modelTexts: readonly string[],
 ) {
   const deltas: string[] = [];
+  const timing = new TurnTimingRecorder();
   const result = await runTurn(
     createRoom(['INTJ']),
     userMessage,
@@ -61,9 +67,10 @@ async function runSingleTurn(
     {
       runtime: queuedRuntime(modelTexts),
       director: async () => directorDecision,
+      timing,
     },
   );
-  return { result, deltas };
+  return { result, deltas, latency: timing.snapshot() };
 }
 
 test('production delivery gate covers first pass, retry recovery, and role fallback', async () => {
@@ -73,6 +80,15 @@ test('production delivery gate covers first pass, retry recovery, and role fallb
   );
   assert.deepEqual(firstPass.deltas, ['我在听。']);
   assert.equal(firstPass.result.utterances[0]?.regenerated, false);
+  assert.deepEqual(Object.keys(firstPass.latency.stagesMs).sort(), [
+    'delivery_validation',
+    'director',
+    'persona_generation',
+  ]);
+  assert.deepEqual(firstPass.latency.counts, {
+    persona_generation: 1,
+    delivery_validation: 1,
+  });
 
   const retry = await runSingleTurn(
     '你就听我说一会儿。',
@@ -80,6 +96,8 @@ test('production delivery gate covers first pass, retry recovery, and role fallb
   );
   assert.deepEqual(retry.deltas, ['我在听。']);
   assert.equal(retry.result.utterances[0]?.regenerated, true);
+  assert.equal(retry.latency.counts.persona_generation, 2);
+  assert.equal(retry.latency.counts.delivery_validation, 2);
 
   const fallback = await runSingleTurn(
     '你就听我说一会儿。',
@@ -91,6 +109,8 @@ test('production delivery gate covers first pass, retry recovery, and role fallb
   assert.equal(fallback.deltas.length, 1);
   assert.match(fallback.deltas[0] ?? '', /听/u);
   assert.equal(fallback.result.utterances[0]?.regenerated, true);
+  assert.equal(fallback.latency.counts.persona_generation, 2);
+  assert.equal(fallback.latency.counts.delivery_validation, 3);
 });
 
 test('production safely stops with zero delta when no valid fallback exists', async () => {
@@ -215,7 +235,7 @@ test('relational delivery retries a missing structured envelope before publishin
   assert.equal(result.utterances[0]?.regenerated, true);
 });
 
-test('relational delivery retries a missing default mutter and publishes only the repaired draft', async () => {
+test('relational delivery treats a missing default mutter as an optional omission', async () => {
   const mutters: string[] = [];
   const deltas: string[] = [];
   const result = await runTurn(
@@ -231,13 +251,129 @@ test('relational delivery retries a missing default mutter and publishes only th
     {
       runtime: queuedRuntime([
         '{"mutter":null,"reply":"不用急着讲完整，我在听。"}',
-        '{"mutter":"这句话像是压了很久。","reply":"不用急着讲完整，我在听。"}',
       ]),
       director: async () => directorDecision,
     },
   );
 
-  assert.deepEqual(mutters, ['这句话像是压了很久。']);
+  assert.deepEqual(mutters, []);
   assert.deepEqual(deltas, ['不用急着讲完整，我在听。']);
+  assert.equal(result.utterances[0]?.regenerated, false);
+});
+
+test('relational protocol repair keeps the semantic rewrite attempt available', async () => {
+  const deltas: string[] = [];
+  const result = await runTurn(
+    createRoom(['INTJ']),
+    '你就听我说一会儿。',
+    {
+      turnId: 'relational-protocol-then-semantic-retry',
+      promptVersion: 'web-relational-v10',
+      onDelta: (_agent, delta) => deltas.push(delta),
+    },
+    config,
+    {
+      runtime: queuedRuntime([
+        '我在听。',
+        '{"mutter":null,"reply":"我在听。你接下来想先说哪一部分？"}',
+        '{"mutter":null,"reply":"我在听。"}',
+      ]),
+      director: async () => directorDecision,
+    },
+  );
+
+  assert.deepEqual(deltas, ['我在听。']);
   assert.equal(result.utterances[0]?.regenerated, true);
+});
+
+test('relational delivery blocks repeatedly malformed JSON without leaking raw text', async () => {
+  const deltas: string[] = [];
+  await assert.rejects(
+    runTurn(
+      createRoom(['INTJ']),
+      '今天发生了一件挺难开口的事。',
+      {
+        turnId: 'relational-protocol-hard-stop',
+        promptVersion: 'web-relational-v10',
+        onDelta: (_agent, delta) => deltas.push(delta),
+      },
+      config,
+      {
+        runtime: queuedRuntime([
+          '{"mutter":null,"reply":"我在听。"',
+          '{"mutter":null,"reply":"我在听。"',
+          '{"mutter":null,"reply":"我在听。"',
+        ]),
+        director: async () => directorDecision,
+      },
+    ),
+    (error: unknown) => (
+      error instanceof RuntimeExecutionError
+      && error.code === 'structured_output_missing'
+    ),
+  );
+  assert.deepEqual(deltas, []);
+});
+
+test('delivery authorization matches the bounded relationship evidence rendered to the model', () => {
+  const control = compileSemanticTurnControl({
+    userMessage: '你还记得我到底吃不吃香菜吗？',
+    relationshipFocus: 'ordinary',
+    relationshipContext: {
+      memoryEnabled: true,
+      evidence: [
+        {
+          id: 'pref-coriander-old',
+          kind: 'preference',
+          content: '用户以前明确说不吃香菜',
+          traceability: 'traceable',
+          sourceTurnId: 'turn-old',
+          sourceMessageId: 'message-old',
+          recordedAt: '2026-08-02T00:00:00.000Z',
+        },
+        {
+          id: 'pref-coriander-new',
+          kind: 'preference',
+          content: '用户后来明确说最近开始吃香菜',
+          traceability: 'traceable',
+          sourceTurnId: 'turn-new',
+          sourceMessageId: 'message-new',
+          recordedAt: '2026-08-06T00:00:00.000Z',
+        },
+      ],
+    },
+  });
+
+  assert.deepEqual(control.plan.allowedEvidenceIds, [
+    'current:user-message',
+    'pref-coriander-old',
+    'pref-coriander-new',
+  ]);
+  assert.deepEqual(
+    validateSemanticTurnDelivery(
+      '记得。你以前说不吃，后来又说最近开始吃了。我记对了吗？',
+      control.plan,
+    ).blockingViolations,
+    [],
+  );
+});
+
+test('boundary repair distinguishes negated past actions from an actual terminal stop', () => {
+  const control = compileSemanticTurnControl({
+    userMessage: '我已经说了只想被听见，你还是一直替我安排下一步。现在别解释好意。',
+  });
+  assert.deepEqual(
+    validateSemanticTurnDelivery(
+      '你说得对，我说过只想被听见，却还是没停。现在不说了。',
+      control.plan,
+    ).blockingViolations.map(({ code }) => code),
+    ['required_semantic_move_missing', 'unsupported_shared_history'],
+  );
+  assert.deepEqual(
+    validateSemanticTurnDelivery(
+      '你说得对，我越界了。你只想被听见，我却一直给方案。现在停了，不解释，只听你说。',
+      control.plan,
+    ).blockingViolations,
+    [],
+  );
 });

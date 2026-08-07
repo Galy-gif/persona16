@@ -12,7 +12,12 @@ import {
   sanitizeRelationalReplyDraft,
   validateMutter,
 } from '@persona16/engine';
-import { validateSemanticTurnDelivery } from '@persona16/engine/semantic-turn-control';
+import {
+  semanticTurnFallback,
+  semanticTurnGenerationTemperature,
+  SEMANTIC_TURN_GENERATION_POLICY,
+  validateSemanticTurnDelivery,
+} from '@persona16/engine/semantic-turn-control';
 import {
   evaluationModelTelemetrySnapshot,
   measuredChatText,
@@ -38,8 +43,11 @@ interface CandidateOutput {
   reply: string;
   structured: boolean;
   protocolRetried: boolean;
+  generationAttempts: number;
+  deliverySource: 'model' | 'fallback' | 'blocked';
   hardGateViolations: string[];
   mutterViolations: string[];
+  mutterHealthViolations: string[];
 }
 
 interface BlindJudgeScore {
@@ -121,50 +129,115 @@ function selectedLiveCases(manifest: readonly RelationalMigrationCase[]): Relati
 
 async function generateCandidate(sample: RelationalMigrationCase): Promise<CandidateOutput> {
   const config = defaultConfig();
-  const generate = (prompt: string) => measuredChatText('candidate', 'relational_prompt_migration', {
+  const generate = (prompt: string, temperature: number) => measuredChatText('candidate', 'relational_prompt_migration', {
     provider: config.provider,
     model: config.agentModel,
     maxTokens: 1200,
-    temperature: sample.variant === 'A' ? 1.25 : 0.7,
+    temperature,
     thinkingMode: 'disabled',
     system: sample.system,
     prompt,
   });
-  let raw = await generate(sample.prompt);
-  let parsed = sample.variant === 'A'
-    ? { mutter: null, reply: raw.trim(), structured: false }
-    : parseRelationalReplyDraft(raw);
+  let raw = '';
+  let parsed = { mutter: null as string | null, reply: '', structured: false };
+  let sanitized = { mutter: null as string | null, reply: '' };
   let protocolRetried = false;
-  if (sample.variant !== 'A' && !parsed.structured) {
-    protocolRetried = true;
-    raw = await generate(`${sample.prompt}\n\n【输出协议修复】上一版没有返回约定 JSON。保留内容意图，严格改为 {"mutter": string|null, "reply": string}。`);
-    parsed = parseRelationalReplyDraft(raw);
-  }
   const allowedEvidenceSpans = [
     sample.dynamicContext.userMessage,
     ...sample.dynamicContext.relationshipEvidence.map((item) => item.content),
   ];
-  const sanitized = sample.variant === 'A'
-    ? { mutter: null, reply: parsed.reply }
-    : sanitizeRelationalReplyDraft(parsed, sample.dynamicContext.mutterPolicy, { allowedEvidenceSpans });
-  const hardGateViolations = [
-    ...(sample.variant !== 'A' && !parsed.structured ? ['structured_output_missing'] : []),
-    ...findPilotNarrativeViolations(sanitized.reply, { allowedEvidenceSpans })
-      .map((violation) => `narrative:${String(violation)}`),
-    ...validateSemanticTurnDelivery(sanitized.reply, sample.semanticControl.plan).blockingViolations
-      .map((violation) => `semantic:${violation.code}`),
-  ];
-  const mutterViolations: string[] = [];
-  if (sample.variant !== 'A' && sample.dynamicContext.mutterPolicy === 'default') {
-    if (!parsed.mutter) mutterViolations.push('mutter_missing');
-    else {
+  let hardGateViolations: string[] = [];
+  const mutterHealthViolations: string[] = [];
+  let generationAttempts = 0;
+  let semanticAttempt = 0;
+  let repairInstruction = '';
+  const maxGenerationAttempts = sample.variant === 'A'
+    ? 1
+    : SEMANTIC_TURN_GENERATION_POLICY.attempts + 1;
+
+  while (generationAttempts < maxGenerationAttempts) {
+    const temperature = sample.variant === 'A'
+      ? 1.25
+      : semanticTurnGenerationTemperature(
+          Math.min(semanticAttempt, SEMANTIC_TURN_GENERATION_POLICY.attempts - 1),
+          sample.semanticControl.plan.conversationAct,
+        );
+    raw = await generate(`${sample.prompt}${repairInstruction}`, temperature);
+    generationAttempts += 1;
+    parsed = sample.variant === 'A'
+      ? { mutter: null, reply: raw.trim(), structured: false }
+      : parseRelationalReplyDraft(raw);
+    sanitized = sample.variant === 'A'
+      ? { mutter: null, reply: parsed.reply }
+      : sanitizeRelationalReplyDraft(parsed, sample.dynamicContext.mutterPolicy, { allowedEvidenceSpans });
+
+    if (sample.variant !== 'A' && parsed.mutter) {
       const verdict = validateMutter(parsed.mutter, parsed.reply, { allowedEvidenceSpans });
-      if (!verdict.ok) mutterViolations.push(verdict.reason ?? 'mutter_invalid');
+      if (!verdict.ok) mutterHealthViolations.push(verdict.reason ?? 'mutter_invalid');
+    }
+
+    const semanticValidation = validateSemanticTurnDelivery(
+      sanitized.reply,
+      sample.semanticControl.plan,
+    );
+    hardGateViolations = [
+      ...(sample.variant !== 'A' && !parsed.structured ? ['structured_output_missing'] : []),
+      ...findPilotNarrativeViolations(sanitized.reply, { allowedEvidenceSpans })
+        .map((violation) => `narrative:${String(violation)}`),
+      ...semanticValidation.blockingViolations
+        .map((violation) => `semantic:${violation.code}`),
+      ...(sample.dynamicContext.mutterPolicy !== 'default' && sanitized.mutter
+        ? ['mutter_suppression_failed']
+        : []),
+    ];
+    if (hardGateViolations.length === 0 || generationAttempts >= maxGenerationAttempts) break;
+
+    if (!parsed.structured) {
+      protocolRetried = true;
+      repairInstruction = '\n\n【输出协议修复】上一版没有返回约定 JSON。保留内容意图，严格改为 {"mutter": string|null, "reply": string}。';
+      continue;
+    }
+    semanticAttempt = Math.min(
+      semanticAttempt + 1,
+      SEMANTIC_TURN_GENERATION_POLICY.attempts - 1,
+    );
+    const semanticInstructions = semanticValidation.blockingViolations
+      .map((violation) => violation.repairInstruction);
+    repairInstruction = `\n\n【最终交付修复】上一版未通过确定性交付门：${[
+      ...semanticInstructions,
+      ...(hardGateViolations.some((violation) => violation.startsWith('narrative:'))
+        ? ['删除没有来源的经历、能力或历史断言，只使用动态上下文明确列出的证据。']
+        : []),
+    ].join('；')}保留未违规内容，只输出修复后的约定 JSON。`;
+  }
+
+  let deliverySource: CandidateOutput['deliverySource'] = hardGateViolations.length === 0
+    ? 'model'
+    : 'blocked';
+  if (sample.variant !== 'A'
+    && parsed.structured
+    && hardGateViolations.length > 0
+    && hardGateViolations.every((violation) => violation.startsWith('semantic:'))) {
+    const fallback = semanticTurnFallback(sample.semanticControl, {
+      agentType: sample.agent,
+      turnKey: sample.id,
+    });
+    if (fallback) {
+      const fallbackValidation = validateSemanticTurnDelivery(
+        fallback.text,
+        sample.semanticControl.plan,
+      );
+      if (fallbackValidation.blockingViolations.length === 0) {
+        sanitized = { mutter: null, reply: fallback.text };
+        hardGateViolations = [];
+        deliverySource = 'fallback';
+      }
     }
   }
-  if (sample.dynamicContext.mutterPolicy !== 'default' && sanitized.mutter) {
-    hardGateViolations.push('mutter_suppression_failed');
-  }
+
+  // Mutter is optional at the final delivery boundary. Invalid generated
+  // mutter is dropped and remains visible only as model-health telemetry.
+  const mutterViolations: string[] = [];
   return {
     sample,
     raw,
@@ -172,8 +245,11 @@ async function generateCandidate(sample: RelationalMigrationCase): Promise<Candi
     reply: sanitized.reply,
     structured: parsed.structured,
     protocolRetried,
+    generationAttempts,
+    deliverySource,
     hardGateViolations,
     mutterViolations,
+    mutterHealthViolations: [...new Set(mutterHealthViolations)],
   };
 }
 
@@ -323,8 +399,11 @@ async function main() {
       reply: output.reply,
       structured: output.structured,
       protocolRetried: output.protocolRetried,
+      generationAttempts: output.generationAttempts,
+      deliverySource: output.deliverySource,
       hardGateViolations: output.hardGateViolations,
       mutterViolations: output.mutterViolations,
+      mutterHealthViolations: output.mutterHealthViolations,
       judge: result.scores.find((score) => score.blindId === output.sample.blindId),
     })),
   });

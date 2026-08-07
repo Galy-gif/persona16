@@ -36,6 +36,13 @@ import {
   buildDynamicContextPacket,
   renderDynamicContextPacket,
 } from './relational/dynamicContext';
+import {
+  PROMPT_BUDGET,
+  measurePromptSections,
+  measureSystemBlocks,
+  type MeasuredPrompt,
+  type PromptMeasurement,
+} from './promptBudget';
 
 /**
  * 6 层 prompt 组装（spec §1）：
@@ -104,11 +111,33 @@ export function buildSystemBlocks(
   ];
 }
 
+export interface MeasuredSystemBlocks {
+  blocks: { text: string; cache?: boolean }[];
+  measurement: PromptMeasurement;
+}
+
+/**
+ * 单个 utterance 的稳定前缀只在重试循环外构建一次。当前没有跨 utterance
+ * 缓存：尚无构建成本热点证据，且共享可变 block 数组会引入污染风险。
+ */
+export function buildMeasuredSystemBlocks(
+  type: AgentType,
+  options: { variant?: PromptVariant } = {},
+): MeasuredSystemBlocks {
+  const blocks = buildSystemBlocks(type, options);
+  return { blocks, measurement: measureSystemBlocks(blocks) };
+}
+
 function characterName(type: AgentType): string {
   return getPilotCharacter(type)?.name ?? getPersona(type).title;
 }
 
-export function renderTranscript(history: TurnMessage[], self: AgentType, limit = 30, maxCharacters = 12_000): string {
+export function renderTranscript(
+  history: TurnMessage[],
+  self: AgentType,
+  limit = PROMPT_BUDGET.transcript.maxMessages,
+  maxCharacters = PROMPT_BUDGET.transcript.maxCharacters,
+): string {
   const recent = history.slice(-limit);
   if (recent.length === 0) return '（对话刚开始）';
   const lines = recent
@@ -170,7 +199,7 @@ export function relationshipFocusForTurn(
 }
 
 /** 后三层：房间状态 + 主持器指令 + 关系记忆 + 用户消息，渲染成本轮的 user prompt */
-export function buildTurnPrompt(ctx: HostContext): string {
+export function buildMeasuredTurnPrompt(ctx: HostContext): MeasuredPrompt {
   const { plan, room, speaker, earlierThisTurn, userMessage } = ctx;
   const agentState = room.agents.find((a) => a.type === speaker.type)!;
   const persona = getPersona(speaker.type);
@@ -275,53 +304,99 @@ export function buildTurnPrompt(ctx: HostContext): string {
       safetyMode: ctx.safetyMode,
       mutterEnabled: ctx.mutterEnabled,
     });
-    return [
-      renderDynamicContextPacket(dynamicPacket),
-      ...(activeDispositionId ? [buildPilotTurnPresence(speaker.type, {
+    const dynamicContextSection = renderDynamicContextPacket(dynamicPacket);
+    const characterTurnPresenceSection = activeDispositionId
+      ? buildPilotTurnPresence(speaker.type, {
         focus,
         activeDispositionId,
-      })] : []),
-      renderSemanticTurnActPlan(semanticControl),
-      `【本轮表达编译】
+      })
+      : undefined;
+    const semanticTurnControlSection = renderSemanticTurnActPlan(semanticControl);
+    const hostInstructionSection = `【本轮表达编译】
 ${renderSpeechTypeInstruction(speaker.speechType)}
 本轮切入：${directorAngle}${summaryNote}${safetyNote}${analysisScopeNote}
 ${expressionInstruction ? `${expressionInstruction}\n` : ''}${ctx.antiTemplateNote ?? ''}
 
-只输出共同系统规则指定的 JSON 对象。mutter 必须服从动态上下文中的碎碎念策略；reply 直接接用户当前这句话。`,
-    ].join('\n\n');
+只输出共同系统规则指定的 JSON 对象。mutter 必须服从动态上下文中的碎碎念策略；reply 直接接用户当前这句话。`;
+    const sections = [
+      dynamicContextSection,
+      ...(characterTurnPresenceSection ? [characterTurnPresenceSection] : []),
+      semanticTurnControlSection,
+      hostInstructionSection,
+    ];
+    return {
+      text: sections.join('\n\n'),
+      measurement: measurePromptSections({
+        room_transcript: dynamicContextSection,
+        ...(characterTurnPresenceSection
+          ? { character_turn_presence: characterTurnPresenceSection }
+          : {}),
+        semantic_turn_control: semanticTurnControlSection,
+        host_instruction: hostInstructionSection,
+        assembly_overhead: '\n\n'.repeat(sections.length - 1),
+      }),
+    };
   }
 
-  const sections = [
-    `【房间状态】
+  const roomTranscriptBase = `【房间状态】
 场景：${plan.scene}｜用户情绪：${plan.userEmotion}${room.roomGoal ? `｜房间目标：${room.roomGoal}` : ''}
 在场：${others ? `${characterName(speaker.type)}（你）、${others}` : `只有你和用户（单聊）`}
 
 【对话记录】
-${renderTranscript(room.history, speaker.type)}${earlier}`,
-
-    ...(canonicalCharacter ? [buildPilotTurnPresence(speaker.type, {
+${renderTranscript(room.history, speaker.type)}`;
+  const roomTranscriptSection = `${roomTranscriptBase}${earlier}`;
+  const characterTurnPresenceSection = canonicalCharacter
+    ? buildPilotTurnPresence(speaker.type, {
       focus,
       ...(activeDispositionId ? { activeDispositionId } : {}),
-    })] : []),
-
-    renderSemanticTurnActPlan(semanticControl),
-
-    `【主持器指令】
+    })
+    : undefined;
+  const semanticTurnControlSection = renderSemanticTurnActPlan(semanticControl);
+  const hostInstructionSection = `【主持器指令】
 ${renderSpeechTypeInstruction(speaker.speechType)}
 你本轮的切入角度：${directorAngle}${summaryNote}${safetyNote}${analysisScopeNote}
-${expressionInstruction ? `${expressionInstruction}\n` : ''}${ctx.antiTemplateNote ?? ''}`,
-
-    `【关系记忆】
+${expressionInstruction ? `${expressionInstruction}\n` : ''}${ctx.antiTemplateNote ?? ''}`;
+  const measuredHostInstruction = `【主持器指令】
+${renderSpeechTypeInstruction(speaker.speechType)}
+你本轮的切入角度：${directorAngle}${summaryNote}${analysisScopeNote}
+${expressionInstruction ? `${expressionInstruction}\n` : ''}${ctx.antiTemplateNote ?? ''}`;
+  const relationshipSection = `【关系记忆】
 ${renderRelationshipPromptContext(relationshipContext, {
   focus,
-  maxEvidence: 3,
-})}`,
-
-    `【用户刚刚说】
+  maxEvidence: PROMPT_BUDGET.relationship.maxEvidence,
+})}`;
+  const userMessageSection = `【用户刚刚说】
 ${userMessage}
 
-现在直接接这句话。只输出对用户说的内容，不加名字、解释或任何前缀。`,
+现在直接接这句话。只输出对用户说的内容，不加名字、解释或任何前缀。`;
+  const sections = [
+    roomTranscriptSection,
+    ...(characterTurnPresenceSection ? [characterTurnPresenceSection] : []),
+    semanticTurnControlSection,
+    hostInstructionSection,
+    relationshipSection,
+    userMessageSection,
   ];
 
-  return sections.join('\n\n');
+  return {
+    text: sections.join('\n\n'),
+    measurement: measurePromptSections({
+      room_transcript: roomTranscriptBase,
+      earlier_this_turn: earlier,
+      ...(characterTurnPresenceSection
+        ? { character_turn_presence: characterTurnPresenceSection }
+        : {}),
+      semantic_turn_control: semanticTurnControlSection,
+      host_instruction: measuredHostInstruction,
+      turn_safety: safetyNote,
+      relationship: relationshipSection,
+      user_message: userMessageSection,
+      assembly_overhead: '\n\n'.repeat(sections.length - 1),
+    }),
+  };
+}
+
+/** 兼容接口：Prompt 文本与基线实现逐字一致。 */
+export function buildTurnPrompt(ctx: HostContext): string {
+  return buildMeasuredTurnPrompt(ctx).text;
 }
