@@ -1,0 +1,2 @@
+{"v":1,"turnId":"00000000-0000-4000-8000-000000000104","type":"turn_start"}
+{"v":1,"turnId":"00000000-0000-4000-8000-000000000104","type":"error","code":"TURN_FAILED","message":"虚构生成失败，可以重新发起这一轮。","recoverable":true,"recoveryAction":"retry","outcome":"known_failed"}

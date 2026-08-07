@@ -6,7 +6,7 @@
 
 | 文档 | 用途 |
 | --- | --- |
-| [PRD](PRD.md) | 当前产品逻辑、L1–L8 主链路、功能边界和阶段门 |
+| [PRD](PRD.md) | 当前产品逻辑、L1 到 L8 主链路、功能边界和阶段门 |
 | [领域语言](../CONTEXT.md) | 正典人物、关系分支、人物底色等统一术语 |
 | [人物与关系模型](character-relationship-model.md) | 正典人物核心、私有关系分支和关系事件模型 |
 | [首批四位人物 v0.3](characters/pilot-cast-v0.3.md) | 当前对话投影版本；人物核心继承 v0.2 |
@@ -15,6 +15,7 @@
 | [v0.8 候选模型盲对照协议](evals/pilot-model-comparison-protocol-v0.8.md) | 同 SHA 三批对照、固定 Judge/仲裁器、成本延迟和隐藏来源盲审 |
 | [三模板 Prompt 说明](prompts/relational-shared-system-v1.md) | Shared System、四人物 Character Prompt 与 Dynamic Context 的当前结构 |
 | [三模板迁移评测](evals/relational-prompt-migration-v1-2026-08-07.md) | A/B/C、20 场景、三批放行门与当前运行状态 |
+| [iOS 优先的架构与性能优化计划](ios-first-architecture-performance-optimization-plan-2026-08-06.md) | Turn 全链路计时、语义控制拆分、原生 iOS、性能优化与最终验收的实施顺序 |
 
 出现产品冲突时，以 PRD 中标记为“已确认”的结论为准；领域术语以根目录 `CONTEXT.md` 为准。
 

@@ -1,0 +1,124 @@
+name: iOS
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/ios.yml"
+      - "apps/ios/**"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/ios.yml"
+      - "apps/ios/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build and test
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate project and verify no drift
+        run: |
+          set -euo pipefail
+          xcodegen generate --spec apps/ios/project.yml
+          git diff --exit-code -- apps/ios/Persona16.xcodeproj
+          if [ -n "$(git status --porcelain --untracked-files=all -- apps/ios/Persona16.xcodeproj)" ]; then
+            echo "error: Generated Persona16.xcodeproj contains uncommitted files."
+            git status --short -- apps/ios/Persona16.xcodeproj
+            exit 1
+          fi
+
+      - name: Build for a generic Simulator
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project apps/ios/Persona16.xcodeproj \
+            -scheme Persona16 \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Test on a temporary Simulator
+        run: |
+          set -euo pipefail
+
+          runtime_id="$(
+            xcrun simctl list runtimes --json | python3 -c '
+          import json
+          import sys
+
+          runtimes = [
+              runtime
+              for runtime in json.load(sys.stdin).get("runtimes", [])
+              if runtime.get("isAvailable")
+              and runtime.get("identifier", "").startswith("com.apple.CoreSimulator.SimRuntime.iOS-")
+          ]
+          runtimes.sort(
+              key=lambda runtime: tuple(int(part) for part in runtime.get("version", "0").split(".")),
+              reverse=True,
+          )
+          print(runtimes[0]["identifier"] if runtimes else "")
+          '
+          )"
+
+          if [ -z "$runtime_id" ]; then
+            echo "error: No available iOS Simulator runtime is installed on this runner."
+            xcrun simctl list runtimes
+            exit 1
+          fi
+
+          device_type_id="$(
+            xcrun simctl list devicetypes --json | python3 -c '
+          import json
+          import sys
+
+          devices = [
+              device
+              for device in json.load(sys.stdin).get("devicetypes", [])
+              if device.get("name", "").startswith("iPhone")
+          ]
+          print(devices[0]["identifier"] if devices else "")
+          '
+          )"
+
+          if [ -z "$device_type_id" ]; then
+            echo "error: No iPhone Simulator device type is installed on this runner."
+            xcrun simctl list devicetypes
+            exit 1
+          fi
+
+          simulator_name="Persona16-CI-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          simulator_udid="$(xcrun simctl create "$simulator_name" "$device_type_id" "$runtime_id")"
+
+          cleanup() {
+            xcrun simctl shutdown "$simulator_udid" >/dev/null 2>&1 || true
+            xcrun simctl delete "$simulator_udid" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          xcrun simctl boot "$simulator_udid"
+          xcrun simctl bootstatus "$simulator_udid" -b
+
+          xcodebuild \
+            -project apps/ios/Persona16.xcodeproj \
+            -scheme Persona16 \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,id=$simulator_udid" \
+            CODE_SIGNING_ALLOWED=NO \
+            test

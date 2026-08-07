@@ -1,0 +1,8 @@
+{"v":1,"turnId":"00000000-0000-4000-8000-000000000101","type":"turn_start"}
+{"v":1,"turnId":"00000000-0000-4000-8000-000000000101","type":"room_action","action":{"type":"speak","agent":"INTJ","speechType":"短句","angle":"先确认这项虚构偏好"}}
+{"v":1,"turnId":"00000000-0000-4000-8000-000000000101","type":"speaker_start","agent":"INTJ","speechType":"短句"}
+{"v":1,"turnId":"00000000-0000-4000-8000-000000000101","type":"delta","agent":"INTJ","delta":"知道了。之后我会先给结论，再补必要依据。"}
+{"v":1,"turnId":"00000000-0000-4000-8000-000000000101","type":"speaker_end","messageId":"00000000-0000-4000-8000-000000000202","agent":"INTJ","speechType":"短句","text":"知道了。之后我会先给结论，再补必要依据。"}
+{"v":1,"turnId":"00000000-0000-4000-8000-000000000101","type":"memory_candidate","candidate":{"id":"00000000-0000-4000-8000-000000000301","agent":"INTJ","kind":"preference","content":"回复时先给结论"}}
+{"v":1,"turnId":"00000000-0000-4000-8000-000000000101","type":"turn_end","stopReason":"complete","roomVersion":2}
+{"v":1,"turnId":"00000000-0000-4000-8000-000000000101","type":"done","room":{"agents":[{"type":"INTJ","paused":false,"turnsSinceSpoke":0,"turnsInRoom":1000,"recentOpenings":["知道了。之后我会先给结论"],"relationship":{"intimacy":0,"userPrefers":[],"repeatedPatterns":[],"knownBoundaries":[]}}],"history":[{"id":"00000000-0000-4000-8000-000000000201","speaker":"user","text":"请记住，我希望回复时先给结论。"},{"id":"00000000-0000-4000-8000-000000000202","speaker":"INTJ","text":"知道了。之后我会先给结论，再补必要依据。","speechType":"短句"}],"conflictTopic":null,"conflictRounds":0},"roomVersion":2,"plan":{"scene":"闲聊","userEmotion":"稳定"},"safetyLevel":"normal"}

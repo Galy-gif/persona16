@@ -65,6 +65,66 @@ test('completed turn is replayed for the same idempotency key and payload', asyn
   if (replay.kind === 'replay') assert.equal(replay.roomVersion, 2);
 });
 
+test('completeTurn atomically persists preallocated memory candidates with the turn result', async () => {
+  const store = new InMemoryPersonaStore();
+  const room = await store.createRoom({ userId: 'user-a', state: createRoom(['INTJ']) });
+  await store.reserveTurn({
+    userId: 'user-a', roomId: room.id, turnId: 'turn-with-memory', roomVersion: 1,
+    requestHash: 'memory', promptVersion: 'test-v1', model: 'fake:test',
+  });
+  const state = structuredClone(room.state);
+  state.history.push({ id: 'message-user-memory', speaker: 'user', text: '以后先给结论' });
+  state.history.push({ id: 'message-agent-memory', speaker: 'INTJ', text: '记住了。', speechType: '短句' });
+  const memoryEvent = {
+    v: 1 as const,
+    turnId: 'turn-with-memory',
+    type: 'memory_candidate' as const,
+    candidate: {
+      id: 'candidate-preallocated', agent: 'INTJ' as const, kind: 'preference' as const, content: '先给结论',
+    },
+  };
+
+  await store.completeTurn({
+    userId: 'user-a', roomId: room.id, turnId: 'turn-with-memory', state,
+    stopReason: 'complete', events: [memoryEvent],
+    memoryCandidates: [{
+      id: 'candidate-preallocated', agent: 'INTJ', kind: 'preference', content: '先给结论',
+    }],
+  });
+
+  const [candidate] = await store.listMemories('user-a', 'candidate', room.id);
+  assert.equal(candidate?.id, 'candidate-preallocated');
+  assert.equal(candidate?.sourceMessageId, 'message-user-memory');
+  const replay = await store.lookupTurn({
+    userId: 'user-a', roomId: room.id, turnId: 'turn-with-memory', requestHash: 'memory',
+  });
+  assert.equal(replay.kind, 'replay');
+  if (replay.kind === 'replay') assert.deepEqual(replay.events, [memoryEvent]);
+});
+
+test('completeTurn rejects duplicate candidate IDs before mutating in-memory turn state', async () => {
+  const store = new InMemoryPersonaStore();
+  const room = await store.createRoom({ userId: 'user-a', state: createRoom(['INTJ']) });
+  await store.reserveTurn({
+    userId: 'user-a', roomId: room.id, turnId: 'turn-duplicate-memory', roomVersion: 1,
+    requestHash: 'duplicate-memory', promptVersion: 'test-v1', model: 'fake:test',
+  });
+  const duplicate = { id: 'same-candidate', agent: 'INTJ' as const, kind: 'preference' as const, content: '先给结论' };
+
+  await assert.rejects(
+    store.completeTurn({
+      userId: 'user-a', roomId: room.id, turnId: 'turn-duplicate-memory', state: room.state,
+      stopReason: 'complete', events: [], memoryCandidates: [duplicate, duplicate],
+    }),
+    (error: unknown) => (error as StoreError).code === 'MEMORY_STATUS_CONFLICT',
+  );
+
+  const unchanged = await store.getRoom(room.id, 'user-a');
+  assert.equal(unchanged.version, 1);
+  assert.equal(unchanged.activeTurnId, 'turn-duplicate-memory');
+  assert.deepEqual(await store.listMemories('user-a', 'candidate', room.id), []);
+});
+
 test('turn lookup is read-only and detects missing and mismatched requests', async () => {
   const store = new InMemoryPersonaStore();
   const room = await store.createRoom({ userId: 'user-a', state: createRoom(['INTJ']) });

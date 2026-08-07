@@ -148,6 +148,11 @@ export interface CompleteTurnInput {
   state: RoomState;
   stopReason: TurnStopReason;
   events: PersistedTurnEvent[];
+  /**
+   * 与 Turn 终态一起原子落库的候选记忆。ID 由 Harness 预先分配，
+   * 使同一个 ID 可以安全写入持久化事件，且提交失败时不会留下孤儿候选。
+   */
+  memoryCandidates?: Array<MemoryCandidateDraft & { id: string }>;
   observability?: TurnObservability;
 }
 

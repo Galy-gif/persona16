@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "dataClassification": "synthetic-only",
+  "currentRouteEmitsPlan": false,
+  "declaredEngineEvents": [
+    "turn_start",
+    "plan",
+    "room_action",
+    "speaker_start",
+    "delta",
+    "speaker_end",
+    "safety_notice",
+    "memory_candidate",
+    "turn_end",
+    "error"
+  ],
+  "streamTerminalEvents": ["done", "error"],
+  "trustedSuccessTerminal": "done",
+  "trustedErrorOutcomes": ["known_failed"],
+  "unknownResultFixtures": ["unknown-result.ndjson", "unknown-error.ndjson"]
+}

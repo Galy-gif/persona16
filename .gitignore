@@ -13,3 +13,4 @@ dist/
 .DS_Store
 artifacts/
 traces/
+apps/ios/build/

@@ -1,0 +1,4 @@
+#include "Base.xcconfig"
+
+// This placeholder intentionally fails the Release validation build phase.
+PERSONA16_API_BASE_URL = https:/$()/api.persona16.invalid

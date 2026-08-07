@@ -1,4 +1,8 @@
-import { defaultConfig, type AgentRuntime } from '@persona16/engine';
+import {
+  createTurnTimingRecorder,
+  defaultConfig,
+  type AgentRuntime,
+} from '@persona16/engine';
 import { parseJson } from '../../../lib/server/http';
 import { resolveAnonymousSession } from '../../../lib/server/session';
 import { getPersonaStore } from '../../../lib/server/store';
@@ -20,6 +24,7 @@ function getRuntime(): Promise<AgentRuntime | undefined> {
 }
 
 export async function POST(request: Request): Promise<Response> {
+  const timing = createTurnTimingRecorder();
   const body = await parseJson(
     request,
     turnRequestSchema,
@@ -27,7 +32,6 @@ export async function POST(request: Request): Promise<Response> {
   );
   if (body instanceof Response) return body;
 
-  const turnStartedAt = Date.now();
   const session = resolveAnonymousSession(request);
   const store = getPersonaStore();
   const prepared = await prepareTurn({
@@ -37,7 +41,7 @@ export async function POST(request: Request): Promise<Response> {
     setCookie: session.setCookie,
     store,
     config: engineConfig,
-    turnStartedAt,
+    timing,
   });
   if (prepared instanceof Response) return prepared;
 
@@ -49,7 +53,7 @@ export async function POST(request: Request): Promise<Response> {
     config: engineConfig,
     prepared,
     signal: request.signal,
-    turnStartedAt,
+    timing,
     getRuntime,
   });
 }

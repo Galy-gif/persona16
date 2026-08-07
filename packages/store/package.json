@@ -13,7 +13,8 @@
     "test:postgres": "tsx --test test/postgres.integration.test.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/migrate.ts",
-    "trace:export": "tsx src/exportTraces.ts"
+    "trace:export": "tsx src/exportTraces.ts",
+    "performance:export": "tsx src/exportPerformanceSamples.ts"
   },
   "dependencies": {
     "@persona16/engine": "workspace:*",

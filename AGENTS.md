@@ -1,6 +1,42 @@
 # persona16 的第二大脑协作约定
 
+本文件对整个仓库生效。进入含有更深层 `AGENTS.md` 的目录时，同时遵守根规则与离目标文件最近的规则；发生冲突时以更具体的规则为准。
+
+## 仓库地图
+
+| 路径 | 职责 | 局部说明 |
+| --- | --- | --- |
+| `apps/web` | Next.js 移动端界面、API Route 与 Turn Harness | `apps/web/AGENTS.md` |
+| `packages/engine` | 人物、Prompt、语义裁决、房间循环、安全与恢复策略 | `packages/engine/AGENTS.md` |
+| `packages/runtime-pi` | Pi Agent Runtime 与模型供应商适配 | `packages/runtime-pi/AGENTS.md` |
+| `packages/store` | 内存/PostgreSQL Store、迁移、关系投影与 Trace | `packages/store/AGENTS.md` |
+| `eval` | 自动评测、语料、协议门与报告 | `eval/AGENTS.md` |
+| `docs` | PRD、领域语言、ADR、评测协议与研究记录 | `docs/AGENTS.md` |
+| `scripts` | 构建和发布准备脚本 | `scripts/AGENTS.md` |
+
+## 开发基线
+
+- 使用仓库声明的 `pnpm@11.11.0`，不要混用 npm 或 yarn 写入 lockfile。
+- 安装依赖用 `pnpm install`；新增依赖时放到真正使用它的 workspace，并说明运行时或开发时用途。
+- 全仓类型检查：`pnpm typecheck`。
+- 全仓单元测试：`pnpm test`。未设置 `PERSONA16_TEST_DATABASE_URL` 时 PostgreSQL 集成测试允许明确跳过。
+- Web 生产构建：`pnpm --filter @persona16/web build`；Cloudflare/Sites 完整构建：`pnpm build`。
+- 本地运行：`pnpm --filter @persona16/web dev`，默认地址为 `http://localhost:3016`。
+- 提交前至少运行与改动直接相关的测试、`pnpm typecheck` 和 `git diff --check`；涉及跨 workspace 契约时运行 `pnpm test`。
+
+## 实施规则
+
+- 修改前先读根 `CONTEXT.md`、相关 ADR 和目标目录的 `AGENTS.md`，沿用项目已有领域术语。
+- 保持 workspace 边界：Web 负责传输和呈现，Engine 负责确定性产品规则，Runtime 负责模型执行，Store 负责持久化，Eval 负责验证。
+- 硬门、权限、预算、幂等、停止条件和安全边界必须由代码确定，不能只依赖 Prompt 或模型自觉。
+- 新增或改变跨模块契约时，更新公开类型/导出、调用方、测试和相应文档；重大架构决策新增 ADR。
+- 不手改 `.next/`、`.next-dev/`、`.open-next/`、`.wrangler/`、`dist/`、`.sites-worker/`、`node_modules/`、`*.tsbuildinfo` 或评测生成 artifact。
+- 不读取、输出或提交 `.env` 中的密钥。示例配置只写占位值，并同步到 `.env.example`。
+- 保留用户已有未提交改动；不要为了整理工作树覆盖或回退无关文件。
+
 本项目连接到个人 Obsidian 第二大脑：`/Users/gouzi/Documents/Obsidian Vault`。
+
+若该绝对路径在当前机器或容器中不存在，先确认是否有已挂载的真实 Vault 路径；不要自行创建替代 Vault，也不要让缺失的外部路径阻塞纯仓库工作。需要同步但 Vault 不可用时，在交付说明中明确记录未同步原因。
 
 ## 每次会话开始
 

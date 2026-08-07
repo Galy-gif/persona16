@@ -6,6 +6,7 @@ import {
   createRoom as createRoomState,
 } from '@persona16/engine';
 import { InMemoryPersonaStore } from '@persona16/store';
+import type { TurnObservability } from '@persona16/store';
 import { POST as createRoom } from '../app/api/rooms/route';
 import { GET as getRoom, PATCH as updateRoom } from '../app/api/rooms/[roomId]/route';
 import { POST as runTurn } from '../app/api/turn/route';
@@ -78,6 +79,74 @@ test('turn API ignores client-supplied history and crisis bypasses room actions'
   assert.equal(body.state.history[0]?.text, '我准备好药了，今晚不想活了');
 });
 
+test('completed turns persist V2 stage latency without exposing text in timing labels', async () => {
+  const room = await createOwnedRoom();
+  let observed: TurnObservability | undefined;
+  const completeTurn = room.store.completeTurn.bind(room.store);
+  room.store.completeTurn = async (input) => {
+    observed = structuredClone(input.observability);
+    return completeTurn(input);
+  };
+
+  const response = await runTurn(turnRequest(room, crypto.randomUUID()));
+  await response.text();
+
+  const latency = observed?.latency as {
+    schemaVersion?: number;
+    totalMs?: number;
+    validatedOutputMs?: number | null;
+    firstTokenMs?: number | null;
+    stagesMs?: Record<string, number>;
+    counts?: Record<string, number>;
+  };
+  assert.equal(latency.schemaVersion, 2);
+  assert.ok((latency.totalMs ?? -1) >= 0);
+  assert.equal(latency.validatedOutputMs, null);
+  assert.equal(latency.firstTokenMs, latency.validatedOutputMs);
+  assert.deepEqual(Object.keys(latency.stagesMs ?? {}).sort(), [
+    'idempotency_lookup',
+    'rate_limit',
+    'safety',
+    'turn_reservation',
+  ]);
+  assert.deepEqual(latency.counts, {});
+  assert.doesNotMatch(JSON.stringify(latency), /今晚不想活了/u);
+});
+
+test('preprocessing failures persist the stages completed before fail-closed recovery', async () => {
+  const room = await createOwnedRoom();
+  let observed: TurnObservability | undefined;
+  const failTurn = room.store.failTurn.bind(room.store);
+  room.store.failTurn = async (userId, roomId, turnId, failure) => {
+    observed = structuredClone(failure);
+    return failTurn(userId, roomId, turnId, failure);
+  };
+  room.store.listRelationshipBranches = async () => [{
+    agent: 'INTJ',
+    version: 1,
+    branch: { recentClimate: 'steady' },
+  }] as never;
+
+  const response = await runTurn(turnRequest(room, crypto.randomUUID(), {
+    command: { type: 'message', text: '今天发生了一件普通的事。' },
+  }));
+
+  assert.equal(response.status, 503);
+  const latency = observed?.latency as {
+    schemaVersion?: number;
+    stagesMs?: Record<string, number>;
+  };
+  assert.equal(latency.schemaVersion, 2);
+  assert.deepEqual(Object.keys(latency.stagesMs ?? {}).sort(), [
+    'confirmed_memory_read',
+    'idempotency_lookup',
+    'rate_limit',
+    'relationship_branch_read',
+    'safety',
+    'turn_reservation',
+  ]);
+});
+
 test('completed turn returns the persisted event stream for the same idempotency key', async () => {
   const room = await createOwnedRoom();
   const turnId = crypto.randomUUID();
@@ -124,8 +193,14 @@ test('a missing room is a confirmed stop instead of an unknown turn result', asy
 
 test('an uncertain completeTurn result must refresh the original turn instead of retrying', async () => {
   const room = await createOwnedRoom();
+  let observed: TurnObservability | undefined;
   room.store.completeTurn = async () => {
     throw new Error('synthetic commit acknowledgement failure');
+  };
+  const failTurn = room.store.failTurn.bind(room.store);
+  room.store.failTurn = async (userId, roomId, turnId, failure) => {
+    observed = structuredClone(failure);
+    return failTurn(userId, roomId, turnId, failure);
   };
 
   const response = await runTurn(turnRequest(room, crypto.randomUUID()));
@@ -136,6 +211,30 @@ test('an uncertain completeTurn result must refresh the original turn instead of
   assert.equal(failure?.code, 'TURN_RESULT_UNKNOWN');
   assert.equal(failure?.outcome, 'unknown');
   assert.equal(failure?.recoveryAction, 'refresh');
+  const latency = observed?.latency as { totalMs?: number; stagesMs?: Record<string, number> };
+  assert.ok((latency.stagesMs?.turn_persistence ?? -1) >= 0);
+  assert.ok((latency.totalMs ?? -1) >= (latency.stagesMs?.turn_persistence ?? 0));
+});
+
+test('an unknown called agent persists failed-turn timing after reservation', async () => {
+  const room = await createOwnedRoom();
+  let observed: TurnObservability | undefined;
+  const failTurn = room.store.failTurn.bind(room.store);
+  room.store.failTurn = async (userId, roomId, turnId, failure) => {
+    observed = structuredClone(failure);
+    return failTurn(userId, roomId, turnId, failure);
+  };
+
+  const response = await runTurn(turnRequest(room, crypto.randomUUID(), {
+    command: { type: 'message', text: '今天发生了一件普通的事。', calledAgent: 'ENTP' },
+  }));
+
+  assert.equal(response.status, 400);
+  assert.equal((observed?.trace as { errorCode?: string }).errorCode, 'UNKNOWN_AGENT');
+  const latency = observed?.latency as { schemaVersion?: number; stagesMs?: Record<string, number> };
+  assert.equal(latency.schemaVersion, 2);
+  assert.ok((latency.stagesMs?.turn_reservation ?? -1) >= 0);
+  assert.ok((latency.stagesMs?.safety ?? -1) >= 0);
 });
 
 test('relationship branch projection timeout fails closed before persona generation', async () => {

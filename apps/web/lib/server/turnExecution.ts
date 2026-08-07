@@ -13,6 +13,7 @@ import {
   type EngineConfig,
   type RoomState,
   type TurnStopReason,
+  type TurnTimingRecorder,
 } from '@persona16/engine';
 import type { PersistedTurnEvent, PersonaStore } from '@persona16/store';
 import { appendPersistedTurnEvent } from './turnPersistence';
@@ -46,11 +47,11 @@ export function executeTurn(input: {
   config: EngineConfig;
   prepared: PreparedTurn;
   signal: AbortSignal;
-  turnStartedAt: number;
+  timing: TurnTimingRecorder;
   getRuntime: () => Promise<AgentRuntime | undefined>;
 }): Response {
   const {
-    body, userId, setCookie, store, config, prepared, signal, turnStartedAt, getRuntime,
+    body, userId, setCookie, store, config, prepared, signal, timing, getRuntime,
   } = input;
   const { reservation, room, safety, modelBudget, relationshipProjection } = prepared;
   const encoder = new TextEncoder();
@@ -61,7 +62,6 @@ export function executeTurn(input: {
       const roomActions: unknown[] = [];
       const observerFailures: Array<{ hook: string; errorType: string }> = [];
       let sentEventCount = 0;
-      let firstTokenAt: number | undefined;
       let mutterCount = 0;
       let closed = false;
       let completionAttempted = false;
@@ -82,6 +82,7 @@ export function executeTurn(input: {
         let planSummary: { scene: string; userEmotion: string } | undefined;
         let tracePlan: Record<string, unknown> | undefined;
         let loop: unknown;
+        const memoryCandidates: NonNullable<Parameters<PersonaStore['completeTurn']>[0]['memoryCandidates']> = [];
 
         if (safety.bypassRoom) {
           const bypass = safetyBypass(
@@ -122,13 +123,13 @@ export function executeTurn(input: {
               speechType: plan.speechType,
             }),
             onMutter: (agent, text) => {
-              firstTokenAt ??= Date.now();
               mutterCount += 1;
               send({ v: TURN_EVENT_VERSION, turnId: body.turnId, type: 'mutter', agent, text });
+              timing.markValidatedOutput();
             },
             onDelta: (agent, delta) => {
-              firstTokenAt ??= Date.now();
               send({ v: TURN_EVENT_VERSION, turnId: body.turnId, type: 'delta', agent, delta });
+              timing.markValidatedOutput();
             },
             onSpeakerEnd: (utterance, messageId) => {
               send({
@@ -145,6 +146,7 @@ export function executeTurn(input: {
           }, config, {
             runtime: runtimeDependency,
             modelBudget,
+            timing,
             roomLoopBudget: safety.level === 'sensitive'
               ? { maxNormalSpeakers: 1, maxControllerCalls: 0, maxGeneratedCharacters: 1_500 }
               : undefined,
@@ -162,14 +164,12 @@ export function executeTurn(input: {
 
           if (safety.level === 'normal') {
             const memoryAgent = body.command.calledAgent ?? result.utterances[0]?.type ?? room.agents[0]!.type;
-            const draft = extractMemoryCandidate(body.command.text, memoryAgent);
-            if (draft) {
-              const [candidate] = await store.createMemoryCandidates({
-                userId,
-                sourceTurnId: body.turnId,
-                candidates: [draft],
-              });
-              if (candidate) events.push({
+            await timing.measure('candidate_memory', async () => {
+              const draft = extractMemoryCandidate(body.command.text, memoryAgent);
+              if (!draft) return;
+              const candidate = { id: randomUUID(), ...draft };
+              memoryCandidates.push(candidate);
+              events.push({
                 v: TURN_EVENT_VERSION,
                 turnId: body.turnId,
                 type: 'memory_candidate',
@@ -180,7 +180,7 @@ export function executeTurn(input: {
                   content: candidate.content,
                 },
               });
-            }
+            });
           }
         }
 
@@ -199,10 +199,7 @@ export function executeTurn(input: {
               reservedOutputTokens: budgetSnapshot.reservedOutputTokens,
             },
           },
-          latency: {
-            totalMs: Math.max(0, Date.now() - turnStartedAt),
-            firstTokenMs: firstTokenAt ? Math.max(0, firstTokenAt - turnStartedAt) : null,
-          },
+          latency: timing.snapshot(),
           trace: {
             v: 1,
             safety: { level: safety.level, reason: safety.reason, bypassRoom: safety.bypassRoom },
@@ -237,15 +234,16 @@ export function executeTurn(input: {
           modelBudget: budgetSnapshot,
         });
         completionAttempted = true;
-        await store.completeTurn({
+        await timing.measure('turn_persistence', () => store.completeTurn({
           userId,
           roomId: body.roomId,
           turnId: body.turnId,
           state: room,
           stopReason,
           events,
+          memoryCandidates,
           observability,
-        });
+        }));
 
         for (let index = sentEventCount; index < events.length; index++) send(events[index]!, false);
       } catch (error) {
@@ -282,10 +280,7 @@ export function executeTurn(input: {
               reservedOutputTokens: budgetSnapshot.reservedOutputTokens,
             },
           },
-          latency: {
-            totalMs: Math.max(0, Date.now() - turnStartedAt),
-            firstTokenMs: firstTokenAt ? Math.max(0, firstTokenAt - turnStartedAt) : null,
-          },
+          latency: timing.snapshot(),
           trace: {
             v: 1,
             safety: { level: safety.level, reason: safety.reason, bypassRoom: safety.bypassRoom },

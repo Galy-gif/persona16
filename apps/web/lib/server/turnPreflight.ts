@@ -7,8 +7,10 @@ import {
   type ModelBudget,
   type RoomState,
   type SafetyDecision,
+  type TurnTimingRecorder,
 } from '@persona16/engine';
 import type {
+  FailedTurnObservability,
   PersonaStore,
   RelationshipBranchRecord,
   TurnReservation,
@@ -124,6 +126,23 @@ export interface PreparedTurn {
   relationshipProjection: RelationshipProjection;
 }
 
+function preprocessingFailureObservability(
+  modelBudget: ModelBudget,
+  timing: TurnTimingRecorder,
+  errorCode: string,
+): FailedTurnObservability {
+  const budgetSnapshot = modelBudget.snapshot();
+  return {
+    stopReason: 'error',
+    usage: {
+      status: budgetSnapshot.actualUsage.calls > 0 ? 'actual_provider_usage' : 'no_provider_usage',
+      ...budgetSnapshot.actualUsage,
+    },
+    latency: timing.snapshot(),
+    trace: { v: 1, stage: 'preprocessing', errorCode },
+  };
+}
+
 export async function prepareTurn(input: {
   body: TurnRequest;
   request: Request;
@@ -131,18 +150,18 @@ export async function prepareTurn(input: {
   setCookie?: string;
   store: PersonaStore;
   config: EngineConfig;
-  turnStartedAt: number;
+  timing: TurnTimingRecorder;
 }): Promise<PreparedTurn | Response> {
-  const { body, request, userId, setCookie, store, config, turnStartedAt } = input;
+  const { body, request, userId, setCookie, store, config, timing } = input;
   const hash = turnRequestHash(body);
 
   try {
-    const lookup = await store.lookupTurn({
+    const lookup = await timing.measure('idempotency_lookup', () => store.lookupTurn({
       userId,
       roomId: body.roomId,
       turnId: body.turnId,
       requestHash: hash,
-    });
+    }));
     if (lookup.kind === 'replay') return replayTurnResponse(lookup.events, setCookie);
     if (lookup.kind === 'conflict') return turnConflictResponse(lookup.code, setCookie);
   } catch (error) {
@@ -154,11 +173,13 @@ export async function prepareTurn(input: {
   let userRate: { allowed: boolean; retryAfterSeconds: number } | undefined;
   let ipRate: { allowed: boolean; retryAfterSeconds: number } | undefined;
   try {
-    const ipKey = clientIpKey(request);
-    ipRate = ipKey ? await store.consumeRateLimit(`ip:${ipKey}`, 100, 60_000) : undefined;
-    if (ipRate?.allowed !== false) {
-      userRate = await store.consumeRateLimit(`user:${userId}`, 20, 60_000);
-    }
+    await timing.measure('rate_limit', async () => {
+      const ipKey = clientIpKey(request);
+      ipRate = ipKey ? await store.consumeRateLimit(`ip:${ipKey}`, 100, 60_000) : undefined;
+      if (ipRate?.allowed !== false) {
+        userRate = await store.consumeRateLimit(`user:${userId}`, 20, 60_000);
+      }
+    });
   } catch {
     const response = jsonError(
       'RATE_LIMIT_UNAVAILABLE',
@@ -186,7 +207,7 @@ export async function prepareTurn(input: {
   let reservation: TurnReservation;
   try {
     // lookup 与 reserve 之间可能有并发竞争，因此 reserve 仍需再次处理重放与冲突。
-    reservation = await store.reserveTurn({
+    reservation = await timing.measure('turn_reservation', () => store.reserveTurn({
       userId,
       roomId: body.roomId,
       turnId: body.turnId,
@@ -196,7 +217,7 @@ export async function prepareTurn(input: {
       buildVersion: TURN_BUILD_VERSION,
       provider: config.provider,
       model: `agent=${config.provider}:${config.agentModel};director=${config.provider}:${config.directorModel}`,
-    });
+    }));
   } catch (error) {
     const response = storeErrorResponse(error, unknownTurnStoreRecovery);
     if (setCookie) response.headers.set('Set-Cookie', setCookie);
@@ -213,13 +234,13 @@ export async function prepareTurn(input: {
   };
   try {
     const room = structuredClone(reservation.room.state);
-    const safety = await classifySafety(
+    const safety = await timing.measure('safety', () => classifySafety(
       body.command.text,
       config.directorModel,
       undefined,
       modelBudget,
       request.signal,
-    );
+    ));
     if (safety.bypassRoom) {
       return {
         reservation,
@@ -234,7 +255,12 @@ export async function prepareTurn(input: {
       };
     }
     if (body.command.calledAgent && !room.agents.some((agent) => agent.type === body.command.calledAgent)) {
-      await store.failTurn(userId, body.roomId, body.turnId);
+      await store.failTurn(
+        userId,
+        body.roomId,
+        body.turnId,
+        preprocessingFailureObservability(modelBudget, timing, 'UNKNOWN_AGENT'),
+      );
       const response = jsonError(
         'UNKNOWN_AGENT',
         '该 Agent 不在房间中',
@@ -247,13 +273,19 @@ export async function prepareTurn(input: {
     }
     const roomAgentTypes = room.agents.map((agent) => agent.type);
     const [confirmed, branchResult] = await Promise.all([
-      store.listConfirmedMemories(userId, roomAgentTypes),
-      observeWithin(
-        async (signal) => store.listRelationshipBranches(userId, roomAgentTypes, {
-          timeoutMs: RELATIONSHIP_PROJECTION_READ_TIMEOUT_MS,
-          signal,
-        }),
-        RELATIONSHIP_PROJECTION_READ_TIMEOUT_MS,
+      timing.measure(
+        'confirmed_memory_read',
+        () => store.listConfirmedMemories(userId, roomAgentTypes),
+      ),
+      timing.measure(
+        'relationship_branch_read',
+        () => observeWithin(
+          async (signal) => store.listRelationshipBranches(userId, roomAgentTypes, {
+            timeoutMs: RELATIONSHIP_PROJECTION_READ_TIMEOUT_MS,
+            signal,
+          }),
+          RELATIONSHIP_PROJECTION_READ_TIMEOUT_MS,
+        ),
       ),
     ]);
     applyConfirmedMemories(room, confirmed);
@@ -273,16 +305,12 @@ export async function prepareTurn(input: {
     };
     return { reservation, room, safety, modelBudget, relationshipProjection };
   } catch {
-    const budgetSnapshot = modelBudget.snapshot();
-    await store.failTurn(userId, body.roomId, body.turnId, {
-      stopReason: 'error',
-      usage: {
-        status: budgetSnapshot.actualUsage.calls > 0 ? 'actual_provider_usage' : 'no_provider_usage',
-        ...budgetSnapshot.actualUsage,
-      },
-      latency: { totalMs: Math.max(0, Date.now() - turnStartedAt), firstTokenMs: null },
-      trace: { v: 1, stage: 'preprocessing', errorCode: 'PREPROCESSING_FAILED' },
-    }).catch(() => undefined);
+    await store.failTurn(
+      userId,
+      body.roomId,
+      body.turnId,
+      preprocessingFailureObservability(modelBudget, timing, 'PREPROCESSING_FAILED'),
+    ).catch(() => undefined);
     const response = jsonError(
       'PREPROCESSING_FAILED',
       '请求预处理失败，请稍后重试',
