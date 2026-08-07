@@ -1,26 +1,36 @@
 export {
   SEMANTIC_TURN_GENERATION_POLICY,
+  compileSemanticTurnControl,
+  renderSemanticTurnActPlan,
+  semanticTurnGenerationTemperature,
+} from './actPlan';
+export {
   affirmedHistoricalEvidenceClauseRecords,
   affirmedHistoricalEvidenceClauses,
-  compileRelationshipEffects,
-  compileSemanticTurnControl,
-  compileTurnFrame,
-  findImmediateDistressAcknowledgement,
   hasSourcedClearPastUserStatement,
+} from './historicalEvidenceRules';
+export {
   isEvidenceBoundedDirectContrast,
   isNarrowFatigueStoppingJudgment,
-  nextPendingUserRequest,
-  renderSemanticTurnActPlan,
-  semanticTurnFallback,
-  semanticTurnGenerationTemperature,
+} from './evidencePredicates';
+export { compileTurnFrame } from './turnFrame';
+export { compileRelationshipEffects } from './relationshipEffects';
+export {
+  findImmediateDistressAcknowledgement,
   validateSemanticTurnDelivery,
   validateUtteranceAgainstTurnPlan,
-} from './semantic/index';
+} from './deliveryValidator';
+export {
+  nextPendingUserRequest,
+  semanticTurnFallback,
+} from './fallbacks';
 
 export type {
   AffirmedHistoricalEvidenceClause,
-  CompileSemanticTurnControlInput,
   HistoricalEvidenceTime,
+} from './historicalEvidenceRules';
+export type {
+  CompileSemanticTurnControlInput,
   ImmediateDistressAcknowledgementMatch,
   PendingUserRequest,
   RelationshipEffect,
@@ -42,4 +52,4 @@ export type {
   TurnFrame,
   TurnResponseContract,
   TurnSemanticRequirements,
-} from './semantic/index';
+} from './types';

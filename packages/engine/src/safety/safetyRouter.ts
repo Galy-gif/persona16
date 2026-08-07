@@ -117,7 +117,11 @@ export async function classifySafety(
 ): Promise<SafetyDecision> {
   const fast = routeSafety(message);
   if (fast.level !== 'normal') return fast;
-  if (compileTurnActPlan(message).kind === 'direct_confrontation') return fast;
+  const turnAct = compileTurnActPlan(message).kind;
+  // greeting 的语法被锚定为“纯问候词 + 标点/空白”，不能携带第二个语义子句。
+  // 规则安全路由已先运行，因此这个窄集合可以确定性判为 normal；任何附加文本
+  // 都会退回结构化分类器。直接冲突同理属于已有的确定性普通对话动作。
+  if (turnAct === 'greeting' || turnAct === 'direct_confrontation') return fast;
   try {
     const reservation = budget?.reserve('safety-classifier', 120, 2);
     const result = await classifier(

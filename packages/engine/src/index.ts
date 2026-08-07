@@ -48,10 +48,24 @@ export type {
 } from './relational/relationalReply';
 export {
   buildPersonaCard,
+  buildMeasuredSystemBlocks,
+  buildMeasuredTurnPrompt,
   buildSystemBlocks,
   buildTurnPrompt,
   relationshipFocusForTurn,
 } from './prompt';
+export {
+  PROMPT_BUDGET,
+  PROMPT_SECTIONS,
+  measurePromptSections,
+  measureSystemBlocks,
+} from './promptBudget';
+export type {
+  MeasuredPrompt,
+  PromptMeasurement,
+  PromptSection,
+  PromptSectionMeasurement,
+} from './promptBudget';
 export { applyToneShift, renderToneInstruction } from './tone';
 export {
   expressionTendenciesForAgent,
@@ -84,6 +98,18 @@ export type {
 } from './semanticTurnControl';
 export { createTracer } from './trace';
 export type { TraceFailure, Tracer } from './trace';
+export {
+  createTurnTimingRecorder,
+  REPEATED_TURN_TIMING_STAGES,
+  TURN_TIMING_STAGES,
+  TurnTimingRecorder,
+} from './observability/turnTiming';
+export type {
+  RepeatedTurnTimingStage,
+  TurnClock,
+  TurnLatencySnapshot,
+  TurnTimingStage,
+} from './observability/turnTiming';
 export { DeliveryCallbackError } from './lifecycleHooks';
 export type { ObserverErrorHandler, ObserverFailure } from './lifecycleHooks';
 export { defaultConfig, defaultJudgeModel, currentProvider, chatText, chatJson } from './llm';

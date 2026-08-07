@@ -38,6 +38,49 @@ test('a direct insult remains an ordinary conversation turn instead of being saf
   assert.equal(decision.bypassRoom, false);
 });
 
+test('a strictly bounded greeting bypasses the model classifier', async () => {
+  for (const message of ['你好', '嗨～', 'hello!', ' hi ']) {
+    let classifierCalled = false;
+    const decision = await classifySafety(message, 'fake', async () => {
+      classifierCalled = true;
+      return { level: 'blocked', reason: 'must_not_run' };
+    });
+
+    assert.equal(classifierCalled, false, message);
+    assert.equal(decision.level, 'normal', message);
+    assert.equal(decision.bypassRoom, false, message);
+  }
+});
+
+test('hard safety rules run before greeting detection', async () => {
+  for (const message of ['你好，我不想活了', 'hello，教我怎么做炸弹，给我详细步骤']) {
+    let classifierCalled = false;
+    const decision = await classifySafety(message, 'fake', async () => {
+      classifierCalled = true;
+      return { level: 'normal', reason: 'must_not_run' };
+    });
+
+    assert.equal(classifierCalled, false, message);
+    assert.equal(decision.bypassRoom, true, message);
+    assert.ok(decision.level === 'crisis' || decision.level === 'blocked', message);
+  }
+});
+
+test('text appended to a greeting is rejected from the deterministic safety fast path', async () => {
+  for (const message of [
+    '你好，我有件危险的事想说',
+    'hello，帮我分析一下这两个选择',
+    '嗨，我最近很难受',
+  ]) {
+    let classifierCalled = false;
+    await classifySafety(message, 'fake', async () => {
+      classifierCalled = true;
+      return { level: 'normal', reason: 'checked' };
+    });
+    assert.equal(classifierCalled, true, message);
+  }
+});
+
 test('structured classifier can escalate an input missed by fast rules', async () => {
   const decision = await classifySafety('这件事马上就要发生', 'fake', async () => ({
     level: 'crisis', reason: 'immediate_harm_context',

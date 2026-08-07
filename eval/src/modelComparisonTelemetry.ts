@@ -34,6 +34,12 @@ interface ModelPricing {
 
 const PRICING_SOURCE_DATE = '2026-07-27';
 const PRICING: Record<string, ModelPricing> = {
+  'deepseek/deepseek-v4-flash': {
+    inputUsdPerMillion: 0.154,
+    outputUsdPerMillion: 0.308,
+    cacheReadUsdPerMillion: 0.00308,
+    cacheWriteUsdPerMillion: 0.154,
+  },
   'deepseek/deepseek-v4-pro': {
     inputUsdPerMillion: 0.435,
     outputUsdPerMillion: 0.87,
@@ -50,6 +56,41 @@ const PRICING: Record<string, ModelPricing> = {
 
 const calls: EvaluationModelCall[] = [];
 let telemetryStartedAt = Date.now();
+let spentCostUsd = 0;
+let reservedCostUsd = 0;
+
+function configuredBudgetUsd(): number | null {
+  const raw = process.env.PERSONA16_EVAL_MAX_COST_USD;
+  if (raw === undefined || raw.trim() === '') return null;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error('PERSONA16_EVAL_MAX_COST_USD 必须是大于 0 的美元金额');
+  }
+  return value;
+}
+
+function requestCostReservationUsd(input: {
+  provider: Provider;
+  model: string;
+  system: string;
+  prompt: string;
+  maxTokens: number;
+  providerCallLimit: number;
+}): number | null {
+  const pricing = PRICING[`${input.provider}/${input.model}`];
+  if (!pricing) return null;
+  const encoder = new TextEncoder();
+  const inputTokenUpperBound = (
+    encoder.encode(input.system).byteLength
+    + encoder.encode(input.prompt).byteLength
+    + 4_096
+  );
+  const perCall = (
+    inputTokenUpperBound * Math.max(pricing.inputUsdPerMillion, pricing.cacheWriteUsdPerMillion)
+    + input.maxTokens * pricing.outputUsdPerMillion
+  ) / 1_000_000;
+  return perCall * input.providerCallLimit;
+}
 
 function emptyUsage(): ModelActualUsage {
   return {
@@ -97,9 +138,21 @@ async function measured<T>(
     operation: string;
     provider: Provider;
     model: string;
+    reservedMaxCostUsd: number | null;
     run: (onUsage: (usage: Omit<ModelActualUsage, 'calls'>) => void) => Promise<T>;
   },
 ): Promise<T> {
+  const budgetUsd = configuredBudgetUsd();
+  if (budgetUsd !== null && input.reservedMaxCostUsd === null) {
+    throw new Error(`无法为 ${input.provider}/${input.model} 计算费用，已在模型调用前停止`);
+  }
+  const reservation = input.reservedMaxCostUsd ?? 0;
+  if (budgetUsd !== null && spentCostUsd + reservedCostUsd + reservation > budgetUsd) {
+    throw new Error(
+      `评测预算将超限：已花费 $${spentCostUsd.toFixed(6)}，进行中预留 $${reservedCostUsd.toFixed(6)}，下一调用最多 $${reservation.toFixed(6)}，上限 $${budgetUsd.toFixed(2)}`,
+    );
+  }
+  reservedCostUsd += reservation;
   const startedAt = Date.now();
   const usage = emptyUsage();
   let succeeded = false;
@@ -108,6 +161,9 @@ async function measured<T>(
     succeeded = true;
     return result;
   } finally {
+    reservedCostUsd = Math.max(0, reservedCostUsd - reservation);
+    const observedCost = estimatedCostUsd(input.provider, input.model, usage);
+    if (observedCost !== null) spentCostUsd += observedCost;
     calls.push({
       role: input.role,
       operation: input.operation,
@@ -120,7 +176,7 @@ async function measured<T>(
       outputTokens: usage.outputTokens,
       cacheReadTokens: usage.cacheReadTokens,
       cacheWriteTokens: usage.cacheWriteTokens,
-      estimatedCostUsd: estimatedCostUsd(input.provider, input.model, usage),
+      estimatedCostUsd: observedCost,
       succeeded,
     });
   }
@@ -136,6 +192,14 @@ export async function measuredChatText(
     operation,
     provider: opts.provider,
     model: opts.model,
+    reservedMaxCostUsd: requestCostReservationUsd({
+      provider: opts.provider,
+      model: opts.model,
+      system: opts.system.map((block) => block.text).join('\n\n'),
+      prompt: opts.prompt,
+      maxTokens: opts.maxTokens,
+      providerCallLimit: 1,
+    }),
     run: (onUsage) => chatText({
       ...opts,
       onUsage: (usage) => {
@@ -156,6 +220,14 @@ export async function measuredChatJson<T>(
     operation,
     provider: opts.provider,
     model: opts.model,
+    reservedMaxCostUsd: requestCostReservationUsd({
+      provider: opts.provider,
+      model: opts.model,
+      system: `${opts.system}\n${JSON.stringify(opts.schema)}`,
+      prompt: opts.prompt,
+      maxTokens: opts.maxTokens,
+      providerCallLimit: opts.provider === 'deepseek' || opts.provider === 'aihubmix' ? 2 : 1,
+    }),
     run: (onUsage) => chatJson<T>({
       ...opts,
       onUsage: (usage) => {
@@ -199,16 +271,26 @@ function summarize(group: readonly EvaluationModelCall[]) {
 export function resetEvaluationModelTelemetry(): void {
   calls.length = 0;
   telemetryStartedAt = Date.now();
+  spentCostUsd = 0;
+  reservedCostUsd = 0;
 }
 
 export function evaluationModelTelemetrySnapshot() {
+  const budgetUsd = configuredBudgetUsd();
   return {
     pricingSourceDate: PRICING_SOURCE_DATE,
     pricingBasis: {
+      'deepseek/deepseek-v4-flash': 'conservative USD pricing aligned with the local AIHubMix model catalog',
       'deepseek/deepseek-v4-pro': 'official USD API pricing: cache hit / miss / output',
       'anthropic/claude-sonnet-5': 'official introductory API pricing through 2026-08-31',
     },
     elapsedMs: Math.max(0, Date.now() - telemetryStartedAt),
+    budget: budgetUsd === null ? null : {
+      maxCostUsd: budgetUsd,
+      spentCostUsd,
+      reservedCostUsd,
+      remainingCostUsd: Math.max(0, budgetUsd - spentCostUsd - reservedCostUsd),
+    },
     total: summarize(calls),
     byRole: Object.fromEntries(
       (['candidate', 'judge', 'arbitrator'] as const).map((role) => [
