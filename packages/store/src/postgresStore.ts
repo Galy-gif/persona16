@@ -34,6 +34,7 @@ import type {
   UpsertFeedbackInput,
   UpdateRoomInput,
 } from './types';
+import { recordTurnPersistence } from './turnLatency';
 import { StoreError } from './types';
 import {
   rebuildRelationshipBranch,
@@ -355,6 +356,7 @@ export class PostgresPersonaStore implements PersonaStore {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
+      const persistenceStartedAt = Date.now();
       const room = await this.lockRoom(client, input.roomId, input.userId);
       const turnResult = await client.query<TurnRow>(
         `SELECT id, room_id, user_id, request_hash, status, result_room_version, base_history_length, updated_at
@@ -372,21 +374,6 @@ export class PostgresPersonaStore implements PersonaStore {
         [input.roomId, input.userId, JSON.stringify(input.state)],
       );
       const updated = result.rows[0]!;
-      const observability = input.observability ?? {
-        usage: { status: 'actual_usage_unavailable' }, latency: {}, trace: {},
-      };
-      await client.query(
-        `UPDATE turn_runs SET
-           status = 'completed', stop_reason = $2, result_room_version = $3,
-           usage_json = $4::jsonb, latency_json = $5::jsonb, trace_json = $6::jsonb, updated_at = now()
-         WHERE id = $1`,
-        [
-          input.turnId, input.stopReason, updated.version,
-          JSON.stringify(observability.usage),
-          JSON.stringify(observability.latency),
-          JSON.stringify(observability.trace),
-        ],
-      );
       let sourceMessageId: string | undefined;
       const messages: Array<{
         id: string;
@@ -418,6 +405,25 @@ export class PostgresPersonaStore implements PersonaStore {
           [input.roomId, input.turnId, JSON.stringify(messages)],
         );
       }
+      if (input.memoryCandidates?.length) {
+        const candidates = input.memoryCandidates.map((candidate) => ({
+          id: candidate.id,
+          agent_type: candidate.agent,
+          kind: candidate.kind,
+          content: candidate.content,
+        }));
+        await client.query(
+          `INSERT INTO memories (
+             id, user_id, agent_type, kind, content, status, source_turn_id, source_message_id
+           )
+           SELECT candidate.id, $1, candidate.agent_type, candidate.kind::memory_kind,
+                  candidate.content, 'candidate', $2, $3
+           FROM jsonb_to_recordset($4::jsonb) AS candidate(
+             id text, agent_type text, kind text, content text
+           )`,
+          [input.userId, input.turnId, sourceMessageId ?? null, JSON.stringify(candidates)],
+        );
+      }
       if (sourceMessageId) {
         await client.query(
           `UPDATE memories SET source_message_id = $2 WHERE source_turn_id = $1 AND source_message_id IS NULL`,
@@ -439,6 +445,22 @@ export class PostgresPersonaStore implements PersonaStore {
           [input.turnId, JSON.stringify(events)],
         );
       }
+      const observability = structuredClone(input.observability ?? {
+        usage: { status: 'actual_usage_unavailable' }, latency: {}, trace: {},
+      });
+      recordTurnPersistence(observability, Date.now() - persistenceStartedAt);
+      await client.query(
+        `UPDATE turn_runs SET
+           status = 'completed', stop_reason = $2, result_room_version = $3,
+           usage_json = $4::jsonb, latency_json = $5::jsonb, trace_json = $6::jsonb, updated_at = now()
+         WHERE id = $1`,
+        [
+          input.turnId, input.stopReason, updated.version,
+          JSON.stringify(observability.usage),
+          JSON.stringify(observability.latency),
+          JSON.stringify(observability.trace),
+        ],
+      );
       await client.query('COMMIT');
       return mapRoom(updated);
     } catch (error) {
@@ -457,20 +479,16 @@ export class PostgresPersonaStore implements PersonaStore {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
+      const persistenceStartedAt = Date.now();
       await this.lockRoom(client, roomId, userId);
-      const failed = await client.query(
-        `UPDATE turn_runs SET status = 'failed', stop_reason = COALESCE($4, stop_reason),
-           usage_json = COALESCE($5::jsonb, usage_json), latency_json = COALESCE($6::jsonb, latency_json),
-           trace_json = COALESCE($7::jsonb, trace_json), updated_at = now()
-         WHERE id = $1 AND room_id = $2 AND user_id = $3 AND status = 'active'`,
-        [
-          turnId, roomId, userId, failure?.stopReason ?? null,
-          failure ? JSON.stringify(failure.usage) : null,
-          failure ? JSON.stringify(failure.latency) : null,
-          failure ? JSON.stringify(failure.trace) : null,
-        ],
+      const turnResult = await client.query<{ status: string }>(
+        `SELECT status FROM turn_runs
+         WHERE id = $1 AND room_id = $2 AND user_id = $3
+         FOR UPDATE`,
+        [turnId, roomId, userId],
       );
-      if (failed.rowCount) {
+      const transitioned = turnResult.rows[0]?.status === 'active';
+      if (transitioned) {
         await client.query(`DELETE FROM memories WHERE source_turn_id = $1 AND status = 'candidate'`, [turnId]);
       }
       await client.query(
@@ -478,6 +496,22 @@ export class PostgresPersonaStore implements PersonaStore {
          WHERE id = $1 AND user_id = $2 AND active_turn_id = $3`,
         [roomId, userId, turnId],
       );
+      if (transitioned) {
+        const observability = failure ? structuredClone(failure) : undefined;
+        recordTurnPersistence(observability, Date.now() - persistenceStartedAt);
+        await client.query(
+          `UPDATE turn_runs SET status = 'failed', stop_reason = COALESCE($4, stop_reason),
+             usage_json = COALESCE($5::jsonb, usage_json), latency_json = COALESCE($6::jsonb, latency_json),
+             trace_json = COALESCE($7::jsonb, trace_json), updated_at = now()
+           WHERE id = $1 AND room_id = $2 AND user_id = $3 AND status = 'active'`,
+          [
+            turnId, roomId, userId, failure?.stopReason ?? null,
+            observability ? JSON.stringify(observability.usage) : null,
+            observability ? JSON.stringify(observability.latency) : null,
+            observability ? JSON.stringify(observability.trace) : null,
+          ],
+        );
+      }
       await client.query('COMMIT');
     } catch (error) {
       return this.rollbackAndRethrow(client, error);

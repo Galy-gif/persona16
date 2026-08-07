@@ -1,0 +1,4 @@
+{"v":1,"turnId":"00000000-0000-4000-8000-000000000103","type":"turn_start"}
+{"v":1,"turnId":"00000000-0000-4000-8000-000000000103","type":"safety_notice","level":"crisis","text":"这是虚构安全夹具。请立即联系身边可信任的人和当地紧急支持服务。"}
+{"v":1,"turnId":"00000000-0000-4000-8000-000000000103","type":"turn_end","stopReason":"safety_redirect","roomVersion":2}
+{"v":1,"turnId":"00000000-0000-4000-8000-000000000103","type":"done","room":{"agents":[{"type":"ISFJ","paused":false,"turnsSinceSpoke":999,"turnsInRoom":1000,"recentOpenings":[],"relationship":{"intimacy":0,"userPrefers":[],"repeatedPatterns":[],"knownBoundaries":[]}}],"history":[{"id":"00000000-0000-4000-8000-000000000221","speaker":"user","text":"这是用于验证安全旁路的完全虚构高风险句子。"},{"id":"00000000-0000-4000-8000-000000000222","speaker":"safety","text":"这是虚构安全夹具。请立即联系身边可信任的人和当地紧急支持服务。"}],"conflictTopic":null,"conflictRounds":0},"roomVersion":2,"safetyLevel":"crisis"}

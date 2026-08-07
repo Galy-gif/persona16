@@ -1,0 +1,889 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		125E8F544B2D5442436A7CB8 /* Recovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47175D1EE2A21DB2E4F246B6 /* Recovery.swift */; };
+		23A198F4F4C2539B595EE26A /* Memory.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4987D3E48BFE43597F58D1D /* Memory.swift */; };
+		2484CE670872B2E506F666DA /* RoomMemberCommandService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE2CD1D8C694164B30A8658F /* RoomMemberCommandService.swift */; };
+		2501BF03615CFC4328C82870 /* FeedbackSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 384B9952E026FA68BA84B0EE /* FeedbackSheet.swift */; };
+		25306F90EFAE07DA845C64C8 /* RoomSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A3389A314C753B2FBC6C02D /* RoomSessionTests.swift */; };
+		2AD69DF745E8F4E030F3CDA1 /* RoomMessageRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE934BC46D34789E9B2F2F18 /* RoomMessageRow.swift */; };
+		3453107677D40F0585D97E41 /* RoomAncillaryCommandService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC37574E02A2DD9D7C647055 /* RoomAncillaryCommandService.swift */; };
+		384B616313FB6744687FE8D7 /* SmokeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 432A5F11EC8CE38C800BBAF4 /* SmokeTests.swift */; };
+		3D9D95E8C4404D86B8E9B878 /* RoomComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 285EC41DE2FBF62FA8E52C5F /* RoomComposer.swift */; };
+		45FE77262F133CF34B128D15 /* ConversationEntryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B91AFEB2B066A35F768C4FF4 /* ConversationEntryView.swift */; };
+		4CD98CBBE94D4AEF37204CD5 /* AgentType.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35D68298C4BC73ADAF9CBE16 /* AgentType.swift */; };
+		4DF35E493C7EDD13A33473AF /* RoomEventReducerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D973674813D5F4199694A6A /* RoomEventReducerTests.swift */; };
+		53C14D9E80718AAC9CF6A1AB /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B3AD9957C84CC5C625A0BC3 /* AppEnvironment.swift */; };
+		547B56756537666A47EE1957 /* Persona16APITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2649D34A7436AA7482DF4C8 /* Persona16APITests.swift */; };
+		5AB9D743FF14E23CE0A093FB /* PersistenceStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0512B231842A6E5BFFBF2105 /* PersistenceStoreTests.swift */; };
+		62051B10852E2D0D271152F4 /* AppConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B0F52951568EEAB79E4D540 /* AppConfiguration.swift */; };
+		637CDD2FB830321E6DABE02F /* RoomMembersSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0ABE8FA0F484D7B3E0019354 /* RoomMembersSheet.swift */; };
+		6BEA847F22E51D105E09555E /* CharacterDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 131C745C4CC4173D1939835C /* CharacterDetailView.swift */; };
+		72732905A64BF9A8DA1B03C9 /* Persona16Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB4D60A52CC38F8E0C1C70FB /* Persona16Theme.swift */; };
+		779182DAF102ACDBE2B03F5F /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8F08860CCD05652A566DC2E /* RootView.swift */; };
+		7AA311AF306225586A630EE3 /* NDJSONStreamDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = F08381788970FC12143BF1DA /* NDJSONStreamDecoder.swift */; };
+		7BE1014B9B349AE7E6A0ADCB /* PendingTurnStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE4462EE6012705E17F3B5F1 /* PendingTurnStore.swift */; };
+		803481687A30D031632168A4 /* CharacterPortrait.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91DDF9B6AB6F14430DEC961C /* CharacterPortrait.swift */; };
+		81E8276BC7954E431D843A31 /* Room.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD1A8999A3ADBE176163A60F /* Room.swift */; };
+		8A28694F11EC11A8E50C2F3E /* RoomArchiveStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04B7898C490D38FEA67190E6 /* RoomArchiveStore.swift */; };
+		8A64B3FA16B43AEF97E1C3D5 /* RoomSessionContracts.swift in Sources */ = {isa = PBXBuildFile; fileRef = F90C7A1BD536238F5F170571 /* RoomSessionContracts.swift */; };
+		8B89A3523D316542B9B9B493 /* RoomArchiveService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73E7410BF629C7238D352DFA /* RoomArchiveService.swift */; };
+		8D8EA0A93C27D2077305899D /* MemoryDecisionCardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53C927F001EAAF98E130F5D8 /* MemoryDecisionCardTests.swift */; };
+		90905FB7ECEE0838329873FB /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = E7394C7A5DC386A43426238F /* Assets.xcassets */; };
+		92A11122B583821C25A6ADCD /* Character.swift in Sources */ = {isa = PBXBuildFile; fileRef = A48B8D3A430E8906D34D7D25 /* Character.swift */; };
+		A86A5D2A00FC619E82E0F885 /* Persona16API.swift in Sources */ = {isa = PBXBuildFile; fileRef = 429F470916A52A2A2F96CFBA /* Persona16API.swift */; };
+		AAD35BCE2FA0807E5003F742 /* Persona16App.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9273EDEB9A6CD3FEC3D57ECE /* Persona16App.swift */; };
+		AED5A8465ED1E42B34DC6A0C /* RoomScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1B6EC0D52C736E88E72B415 /* RoomScreen.swift */; };
+		B4C527012C6624EBAAADD5F0 /* RecentConversationsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5481FCEEE34FBCF283B1E731 /* RecentConversationsView.swift */; };
+		BB0B4D916C3F5D8BDDD92958 /* InformationCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CDCBABE458291163EB9E3E7 /* InformationCard.swift */; };
+		BDB88D01255FD555B1AEF1D5 /* FeedbackModelsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC27214A14E826EF14CAD1C1 /* FeedbackModelsTests.swift */; };
+		C01A43B828817C1AFA1FF196 /* RoomSessionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FD74DE62C9C8C4E76916262 /* RoomSessionState.swift */; };
+		C296D5381B72CC9D4F1FDDEB /* RoomEventReducer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 195E39BD7588824820E5CB53 /* RoomEventReducer.swift */; };
+		D03FCA8E67765097400BF5D6 /* MemoryDecisionCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = B90A3ED45807FC9C178BF542 /* MemoryDecisionCard.swift */; };
+		D2D23B0634CAD59DADD8BEAF /* PrototypeBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04765B9F3EC458221D1F6B3D /* PrototypeBadge.swift */; };
+		D65AD574AD92CB90A3B46BEA /* AgentPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B1E931534ADEE7A33C7D8C2 /* AgentPresentation.swift */; };
+		D6DCB59BAAF70AAF99DD44EF /* Feedback.swift in Sources */ = {isa = PBXBuildFile; fileRef = 127E95D985A81832F93EAFA8 /* Feedback.swift */; };
+		DA4B825444953D308F1D6C90 /* FeedbackModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84A4FD9AD9F972506096F540 /* FeedbackModels.swift */; };
+		EA2E6965911774E3A3AC5D9E /* TurnEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3948FF411D0462FFDF614118 /* TurnEvent.swift */; };
+		EAFA7596822C4C849AB81B0B /* RoomTestFixtures.swift in Sources */ = {isa = PBXBuildFile; fileRef = 366AA634D4013C27FA6EC000 /* RoomTestFixtures.swift */; };
+		EB9B53591541C11C0126FB06 /* CharacterListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C345080C36DE211AF54C413E /* CharacterListView.swift */; };
+		F5EBAAFA1057C3BC5DBB00FE /* RoomSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55AE3DE1AFDD98EAC3DD6E3A /* RoomSession.swift */; };
+		FAF79D7C872B6815E442921F /* RoomStatusCards.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4C28FF6FBCEE85B5E910ACD /* RoomStatusCards.swift */; };
+		FB2428C9D3214333F98215FA /* RoomSessionOwnerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 855FD0A38F3925FCE1BA3369 /* RoomSessionOwnerView.swift */; };
+		FBCE6D2D3D90D222A99DDB25 /* NDJSONStreamDecoderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5ED5E097C90CD27CCE019CFF /* NDJSONStreamDecoderTests.swift */; };
+		FEB0088804DAA3E4D54F7D02 /* ProtocolFixtureModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDCD4D4B07EC3B9A702C50B4 /* ProtocolFixtureModelTests.swift */; };
+		FEB547BC79EDCB6091BBA8A6 /* APIError.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D0EA2A42991854DC5E5E19 /* APIError.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		E0A5D561B10DB37F671C30F0 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = CE7813D038768934F378AFB8 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C98F48AB3D282E07F6259AB3;
+			remoteInfo = Persona16;
+		};
+		F0D3BAF4E95C216EAFE0CA3A /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = CE7813D038768934F378AFB8 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C98F48AB3D282E07F6259AB3;
+			remoteInfo = Persona16;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		04765B9F3EC458221D1F6B3D /* PrototypeBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeBadge.swift; sourceTree = "<group>"; };
+		04B7898C490D38FEA67190E6 /* RoomArchiveStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomArchiveStore.swift; sourceTree = "<group>"; };
+		0512B231842A6E5BFFBF2105 /* PersistenceStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistenceStoreTests.swift; sourceTree = "<group>"; };
+		0ABE8FA0F484D7B3E0019354 /* RoomMembersSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomMembersSheet.swift; sourceTree = "<group>"; };
+		0B0F52951568EEAB79E4D540 /* AppConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConfiguration.swift; sourceTree = "<group>"; };
+		127E95D985A81832F93EAFA8 /* Feedback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Feedback.swift; sourceTree = "<group>"; };
+		131C745C4CC4173D1939835C /* CharacterDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterDetailView.swift; sourceTree = "<group>"; };
+		195E39BD7588824820E5CB53 /* RoomEventReducer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomEventReducer.swift; sourceTree = "<group>"; };
+		285EC41DE2FBF62FA8E52C5F /* RoomComposer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomComposer.swift; sourceTree = "<group>"; };
+		2CDCBABE458291163EB9E3E7 /* InformationCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InformationCard.swift; sourceTree = "<group>"; };
+		35D68298C4BC73ADAF9CBE16 /* AgentType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentType.swift; sourceTree = "<group>"; };
+		366AA634D4013C27FA6EC000 /* RoomTestFixtures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomTestFixtures.swift; sourceTree = "<group>"; };
+		384B9952E026FA68BA84B0EE /* FeedbackSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedbackSheet.swift; sourceTree = "<group>"; };
+		3948FF411D0462FFDF614118 /* TurnEvent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TurnEvent.swift; sourceTree = "<group>"; };
+		3FD74DE62C9C8C4E76916262 /* RoomSessionState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomSessionState.swift; sourceTree = "<group>"; };
+		429F470916A52A2A2F96CFBA /* Persona16API.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Persona16API.swift; sourceTree = "<group>"; };
+		432A5F11EC8CE38C800BBAF4 /* SmokeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmokeTests.swift; sourceTree = "<group>"; };
+		47175D1EE2A21DB2E4F246B6 /* Recovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Recovery.swift; sourceTree = "<group>"; };
+		473E64FA07B33C81FD3CD786 /* Persona16Tests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = Persona16Tests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		4A3389A314C753B2FBC6C02D /* RoomSessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomSessionTests.swift; sourceTree = "<group>"; };
+		53C927F001EAAF98E130F5D8 /* MemoryDecisionCardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryDecisionCardTests.swift; sourceTree = "<group>"; };
+		53D3BF040C72AC5252565AFE /* Persona16.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Persona16.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		5481FCEEE34FBCF283B1E731 /* RecentConversationsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentConversationsView.swift; sourceTree = "<group>"; };
+		55AE3DE1AFDD98EAC3DD6E3A /* RoomSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomSession.swift; sourceTree = "<group>"; };
+		576084846A03B1780DD075DB /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
+		5B3AD9957C84CC5C625A0BC3 /* AppEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppEnvironment.swift; sourceTree = "<group>"; };
+		5D973674813D5F4199694A6A /* RoomEventReducerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomEventReducerTests.swift; sourceTree = "<group>"; };
+		5ED5E097C90CD27CCE019CFF /* NDJSONStreamDecoderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NDJSONStreamDecoderTests.swift; sourceTree = "<group>"; };
+		73E7410BF629C7238D352DFA /* RoomArchiveService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomArchiveService.swift; sourceTree = "<group>"; };
+		84A4FD9AD9F972506096F540 /* FeedbackModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedbackModels.swift; sourceTree = "<group>"; };
+		855FD0A38F3925FCE1BA3369 /* RoomSessionOwnerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomSessionOwnerView.swift; sourceTree = "<group>"; };
+		91DDF9B6AB6F14430DEC961C /* CharacterPortrait.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterPortrait.swift; sourceTree = "<group>"; };
+		9273EDEB9A6CD3FEC3D57ECE /* Persona16App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Persona16App.swift; sourceTree = "<group>"; };
+		99E8EE6050B5D7A94EE095EB /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
+		9B1E931534ADEE7A33C7D8C2 /* AgentPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentPresentation.swift; sourceTree = "<group>"; };
+		A48B8D3A430E8906D34D7D25 /* Character.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Character.swift; sourceTree = "<group>"; };
+		A4987D3E48BFE43597F58D1D /* Memory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Memory.swift; sourceTree = "<group>"; };
+		A4C28FF6FBCEE85B5E910ACD /* RoomStatusCards.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomStatusCards.swift; sourceTree = "<group>"; };
+		A5D0EA2A42991854DC5E5E19 /* APIError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIError.swift; sourceTree = "<group>"; };
+		AB4D60A52CC38F8E0C1C70FB /* Persona16Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Persona16Theme.swift; sourceTree = "<group>"; };
+		AC37574E02A2DD9D7C647055 /* RoomAncillaryCommandService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomAncillaryCommandService.swift; sourceTree = "<group>"; };
+		AE2CD1D8C694164B30A8658F /* RoomMemberCommandService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomMemberCommandService.swift; sourceTree = "<group>"; };
+		B90A3ED45807FC9C178BF542 /* MemoryDecisionCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryDecisionCard.swift; sourceTree = "<group>"; };
+		B91AFEB2B066A35F768C4FF4 /* ConversationEntryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationEntryView.swift; sourceTree = "<group>"; };
+		B91DE1B9557106C936D6DE10 /* Persona16UITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = Persona16UITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		BDCD4D4B07EC3B9A702C50B4 /* ProtocolFixtureModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProtocolFixtureModelTests.swift; sourceTree = "<group>"; };
+		C345080C36DE211AF54C413E /* CharacterListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterListView.swift; sourceTree = "<group>"; };
+		CC27214A14E826EF14CAD1C1 /* FeedbackModelsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedbackModelsTests.swift; sourceTree = "<group>"; };
+		DE4462EE6012705E17F3B5F1 /* PendingTurnStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingTurnStore.swift; sourceTree = "<group>"; };
+		DE934BC46D34789E9B2F2F18 /* RoomMessageRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomMessageRow.swift; sourceTree = "<group>"; };
+		E7394C7A5DC386A43426238F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		F08381788970FC12143BF1DA /* NDJSONStreamDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NDJSONStreamDecoder.swift; sourceTree = "<group>"; };
+		F1B6EC0D52C736E88E72B415 /* RoomScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomScreen.swift; sourceTree = "<group>"; };
+		F2649D34A7436AA7482DF4C8 /* Persona16APITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Persona16APITests.swift; sourceTree = "<group>"; };
+		F8F08860CCD05652A566DC2E /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		F90C7A1BD536238F5F170571 /* RoomSessionContracts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomSessionContracts.swift; sourceTree = "<group>"; };
+		FD1A8999A3ADBE176163A60F /* Room.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Room.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		01ECC3EF69182F153C2C0213 /* Memories */ = {
+			isa = PBXGroup;
+			children = (
+				53C927F001EAAF98E130F5D8 /* MemoryDecisionCardTests.swift */,
+			);
+			path = Memories;
+			sourceTree = "<group>";
+		};
+		19657C99C4520DCE2C4A7567 = {
+			isa = PBXGroup;
+			children = (
+				B0ECC0D9043FAD0AA1BB7E17 /* App */,
+				CC5CD496E10B7084C3B5AFFF /* Config */,
+				5E75C89F752DC242DD7ED2E3 /* DesignSystem */,
+				6121B4D9801131C97A479985 /* Domain */,
+				EB633F92BA2D8E96A968CA58 /* Features */,
+				82F1CED26F424C6DAACB4DD2 /* Networking */,
+				6A207A4C1B882960CF630507 /* Persistence */,
+				896F23D542069E2ED3827BF9 /* Persona16Tests */,
+				61B13DE4F9CA853D9E35DFCD /* Persona16UITests */,
+				B9EB150E6B53F0ACEF76698D /* Resources */,
+				6D8D44D4F8C57EF5310B39C5 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		29B746620A01D8A42A5474EC /* Characters */ = {
+			isa = PBXGroup;
+			children = (
+				131C745C4CC4173D1939835C /* CharacterDetailView.swift */,
+				C345080C36DE211AF54C413E /* CharacterListView.swift */,
+			);
+			path = Characters;
+			sourceTree = "<group>";
+		};
+		3C2FEE2C8215E74F9CDE2F74 /* Memories */ = {
+			isa = PBXGroup;
+			children = (
+				B90A3ED45807FC9C178BF542 /* MemoryDecisionCard.swift */,
+			);
+			path = Memories;
+			sourceTree = "<group>";
+		};
+		5E75C89F752DC242DD7ED2E3 /* DesignSystem */ = {
+			isa = PBXGroup;
+			children = (
+				9B1E931534ADEE7A33C7D8C2 /* AgentPresentation.swift */,
+				91DDF9B6AB6F14430DEC961C /* CharacterPortrait.swift */,
+				2CDCBABE458291163EB9E3E7 /* InformationCard.swift */,
+				AB4D60A52CC38F8E0C1C70FB /* Persona16Theme.swift */,
+				04765B9F3EC458221D1F6B3D /* PrototypeBadge.swift */,
+			);
+			name = DesignSystem;
+			path = Persona16/DesignSystem;
+			sourceTree = "<group>";
+		};
+		6121B4D9801131C97A479985 /* Domain */ = {
+			isa = PBXGroup;
+			children = (
+				35D68298C4BC73ADAF9CBE16 /* AgentType.swift */,
+				A48B8D3A430E8906D34D7D25 /* Character.swift */,
+				127E95D985A81832F93EAFA8 /* Feedback.swift */,
+				A4987D3E48BFE43597F58D1D /* Memory.swift */,
+				47175D1EE2A21DB2E4F246B6 /* Recovery.swift */,
+				FD1A8999A3ADBE176163A60F /* Room.swift */,
+				3948FF411D0462FFDF614118 /* TurnEvent.swift */,
+			);
+			name = Domain;
+			path = Persona16/Domain;
+			sourceTree = "<group>";
+		};
+		61B13DE4F9CA853D9E35DFCD /* Persona16UITests */ = {
+			isa = PBXGroup;
+			children = (
+				432A5F11EC8CE38C800BBAF4 /* SmokeTests.swift */,
+			);
+			path = Persona16UITests;
+			sourceTree = "<group>";
+		};
+		6A207A4C1B882960CF630507 /* Persistence */ = {
+			isa = PBXGroup;
+			children = (
+				DE4462EE6012705E17F3B5F1 /* PendingTurnStore.swift */,
+				04B7898C490D38FEA67190E6 /* RoomArchiveStore.swift */,
+			);
+			name = Persistence;
+			path = Persona16/Persistence;
+			sourceTree = "<group>";
+		};
+		6C34734857A72F425AE74D1B /* Persistence */ = {
+			isa = PBXGroup;
+			children = (
+				0512B231842A6E5BFFBF2105 /* PersistenceStoreTests.swift */,
+			);
+			path = Persistence;
+			sourceTree = "<group>";
+		};
+		6D8D44D4F8C57EF5310B39C5 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				53D3BF040C72AC5252565AFE /* Persona16.app */,
+				473E64FA07B33C81FD3CD786 /* Persona16Tests.xctest */,
+				B91DE1B9557106C936D6DE10 /* Persona16UITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		82F1CED26F424C6DAACB4DD2 /* Networking */ = {
+			isa = PBXGroup;
+			children = (
+				A5D0EA2A42991854DC5E5E19 /* APIError.swift */,
+				F08381788970FC12143BF1DA /* NDJSONStreamDecoder.swift */,
+				429F470916A52A2A2F96CFBA /* Persona16API.swift */,
+			);
+			name = Networking;
+			path = Persona16/Networking;
+			sourceTree = "<group>";
+		};
+		834B53B8F0E1CF5E1B69815B /* Feedback */ = {
+			isa = PBXGroup;
+			children = (
+				84A4FD9AD9F972506096F540 /* FeedbackModels.swift */,
+				384B9952E026FA68BA84B0EE /* FeedbackSheet.swift */,
+			);
+			path = Feedback;
+			sourceTree = "<group>";
+		};
+		896F23D542069E2ED3827BF9 /* Persona16Tests */ = {
+			isa = PBXGroup;
+			children = (
+				E2EEF6B80A45481549B3FDEF /* Domain */,
+				B27CAED64299B0330C4B61F5 /* Feedback */,
+				01ECC3EF69182F153C2C0213 /* Memories */,
+				AE1C13E9BBD718B8C54B24DE /* Networking */,
+				6C34734857A72F425AE74D1B /* Persistence */,
+				E506EB9B0F779C71F3A61729 /* Room */,
+			);
+			path = Persona16Tests;
+			sourceTree = "<group>";
+		};
+		AE1C13E9BBD718B8C54B24DE /* Networking */ = {
+			isa = PBXGroup;
+			children = (
+				5ED5E097C90CD27CCE019CFF /* NDJSONStreamDecoderTests.swift */,
+				F2649D34A7436AA7482DF4C8 /* Persona16APITests.swift */,
+			);
+			path = Networking;
+			sourceTree = "<group>";
+		};
+		B0ECC0D9043FAD0AA1BB7E17 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				0B0F52951568EEAB79E4D540 /* AppConfiguration.swift */,
+				5B3AD9957C84CC5C625A0BC3 /* AppEnvironment.swift */,
+				9273EDEB9A6CD3FEC3D57ECE /* Persona16App.swift */,
+				F8F08860CCD05652A566DC2E /* RootView.swift */,
+			);
+			name = App;
+			path = Persona16/App;
+			sourceTree = "<group>";
+		};
+		B27CAED64299B0330C4B61F5 /* Feedback */ = {
+			isa = PBXGroup;
+			children = (
+				CC27214A14E826EF14CAD1C1 /* FeedbackModelsTests.swift */,
+			);
+			path = Feedback;
+			sourceTree = "<group>";
+		};
+		B9EB150E6B53F0ACEF76698D /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				E7394C7A5DC386A43426238F /* Assets.xcassets */,
+			);
+			name = Resources;
+			path = Persona16/Resources;
+			sourceTree = "<group>";
+		};
+		CC5CD496E10B7084C3B5AFFF /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				576084846A03B1780DD075DB /* Debug.xcconfig */,
+				99E8EE6050B5D7A94EE095EB /* Release.xcconfig */,
+			);
+			path = Config;
+			sourceTree = "<group>";
+		};
+		E2EEF6B80A45481549B3FDEF /* Domain */ = {
+			isa = PBXGroup;
+			children = (
+				BDCD4D4B07EC3B9A702C50B4 /* ProtocolFixtureModelTests.swift */,
+			);
+			path = Domain;
+			sourceTree = "<group>";
+		};
+		E30DBA5EE30BA66810EEDCC6 /* Room */ = {
+			isa = PBXGroup;
+			children = (
+				AC37574E02A2DD9D7C647055 /* RoomAncillaryCommandService.swift */,
+				73E7410BF629C7238D352DFA /* RoomArchiveService.swift */,
+				195E39BD7588824820E5CB53 /* RoomEventReducer.swift */,
+				AE2CD1D8C694164B30A8658F /* RoomMemberCommandService.swift */,
+				0ABE8FA0F484D7B3E0019354 /* RoomMembersSheet.swift */,
+				55AE3DE1AFDD98EAC3DD6E3A /* RoomSession.swift */,
+				F90C7A1BD536238F5F170571 /* RoomSessionContracts.swift */,
+				3FD74DE62C9C8C4E76916262 /* RoomSessionState.swift */,
+			);
+			path = Room;
+			sourceTree = "<group>";
+		};
+		E506EB9B0F779C71F3A61729 /* Room */ = {
+			isa = PBXGroup;
+			children = (
+				5D973674813D5F4199694A6A /* RoomEventReducerTests.swift */,
+				4A3389A314C753B2FBC6C02D /* RoomSessionTests.swift */,
+				366AA634D4013C27FA6EC000 /* RoomTestFixtures.swift */,
+			);
+			path = Room;
+			sourceTree = "<group>";
+		};
+		E6C9A40F8072869B29EF92C5 /* Conversations */ = {
+			isa = PBXGroup;
+			children = (
+				B91AFEB2B066A35F768C4FF4 /* ConversationEntryView.swift */,
+				5481FCEEE34FBCF283B1E731 /* RecentConversationsView.swift */,
+				285EC41DE2FBF62FA8E52C5F /* RoomComposer.swift */,
+				DE934BC46D34789E9B2F2F18 /* RoomMessageRow.swift */,
+				F1B6EC0D52C736E88E72B415 /* RoomScreen.swift */,
+				855FD0A38F3925FCE1BA3369 /* RoomSessionOwnerView.swift */,
+				A4C28FF6FBCEE85B5E910ACD /* RoomStatusCards.swift */,
+			);
+			path = Conversations;
+			sourceTree = "<group>";
+		};
+		EB633F92BA2D8E96A968CA58 /* Features */ = {
+			isa = PBXGroup;
+			children = (
+				29B746620A01D8A42A5474EC /* Characters */,
+				E6C9A40F8072869B29EF92C5 /* Conversations */,
+				834B53B8F0E1CF5E1B69815B /* Feedback */,
+				3C2FEE2C8215E74F9CDE2F74 /* Memories */,
+				E30DBA5EE30BA66810EEDCC6 /* Room */,
+			);
+			name = Features;
+			path = Persona16/Features;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		BE47C325D7B9F5B7857D1A54 /* Persona16UITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A89099678811CACC7BC924EB /* Build configuration list for PBXNativeTarget "Persona16UITests" */;
+			buildPhases = (
+				6B43C69C9A8938B52EDA5C94 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				38B01EBB86957FE0D7A9AF4F /* PBXTargetDependency */,
+			);
+			name = Persona16UITests;
+			packageProductDependencies = (
+			);
+			productName = Persona16UITests;
+			productReference = B91DE1B9557106C936D6DE10 /* Persona16UITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		C0A38341CB257C65ADD60CB6 /* Persona16Tests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 0632E9C24C5EAE2C6E286E41 /* Build configuration list for PBXNativeTarget "Persona16Tests" */;
+			buildPhases = (
+				C6B3C955C87D3D66F919440E /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				88B1F978F392B46C25DC9F09 /* PBXTargetDependency */,
+			);
+			name = Persona16Tests;
+			packageProductDependencies = (
+			);
+			productName = Persona16Tests;
+			productReference = 473E64FA07B33C81FD3CD786 /* Persona16Tests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		C98F48AB3D282E07F6259AB3 /* Persona16 */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 137096A941FABA6F47DFB183 /* Build configuration list for PBXNativeTarget "Persona16" */;
+			buildPhases = (
+				6472039FC8C4E63A35DEE2B8 /* Validate Release API Base URL */,
+				92AC7C14A7A53A0C3D2777B1 /* Sources */,
+				4F887D95D710BD34F633709C /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Persona16;
+			packageProductDependencies = (
+			);
+			productName = Persona16;
+			productReference = 53D3BF040C72AC5252565AFE /* Persona16.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		CE7813D038768934F378AFB8 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 2600;
+				TargetAttributes = {
+					BE47C325D7B9F5B7857D1A54 = {
+						TestTargetID = C98F48AB3D282E07F6259AB3;
+					};
+					C98F48AB3D282E07F6259AB3 = {
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 802EBB44C5C8DDB6654D6FA6 /* Build configuration list for PBXProject "Persona16" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 19657C99C4520DCE2C4A7567;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 6D8D44D4F8C57EF5310B39C5 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				C98F48AB3D282E07F6259AB3 /* Persona16 */,
+				C0A38341CB257C65ADD60CB6 /* Persona16Tests */,
+				BE47C325D7B9F5B7857D1A54 /* Persona16UITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		4F887D95D710BD34F633709C /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				90905FB7ECEE0838329873FB /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		6472039FC8C4E63A35DEE2B8 /* Validate Release API Base URL */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Validate Release API Base URL";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "if [ \"${CONFIGURATION:-}\" != \"Release\" ]; then\n  exit 0\nfi\n\napi_base_url=\"${PERSONA16_API_BASE_URL:-}\"\nnormalized_api_base_url=\"$(printf '%s' \"$api_base_url\" | tr '[:upper:]' '[:lower:]')\"\ncase \"$normalized_api_base_url\" in\n  \"\"|*\".invalid\"*)\n    echo \"error: Release requires PERSONA16_API_BASE_URL to be set to the production HTTPS endpoint.\"\n    exit 1\n    ;;\nesac\n\ncase \"$normalized_api_base_url\" in\n  https://?*) ;;\n  *)\n    echo \"error: Release PERSONA16_API_BASE_URL must use HTTPS.\"\n    exit 1\n    ;;\nesac\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		6B43C69C9A8938B52EDA5C94 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				384B616313FB6744687FE8D7 /* SmokeTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		92AC7C14A7A53A0C3D2777B1 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				FEB547BC79EDCB6091BBA8A6 /* APIError.swift in Sources */,
+				D65AD574AD92CB90A3B46BEA /* AgentPresentation.swift in Sources */,
+				4CD98CBBE94D4AEF37204CD5 /* AgentType.swift in Sources */,
+				62051B10852E2D0D271152F4 /* AppConfiguration.swift in Sources */,
+				53C14D9E80718AAC9CF6A1AB /* AppEnvironment.swift in Sources */,
+				92A11122B583821C25A6ADCD /* Character.swift in Sources */,
+				6BEA847F22E51D105E09555E /* CharacterDetailView.swift in Sources */,
+				EB9B53591541C11C0126FB06 /* CharacterListView.swift in Sources */,
+				803481687A30D031632168A4 /* CharacterPortrait.swift in Sources */,
+				45FE77262F133CF34B128D15 /* ConversationEntryView.swift in Sources */,
+				D6DCB59BAAF70AAF99DD44EF /* Feedback.swift in Sources */,
+				DA4B825444953D308F1D6C90 /* FeedbackModels.swift in Sources */,
+				2501BF03615CFC4328C82870 /* FeedbackSheet.swift in Sources */,
+				BB0B4D916C3F5D8BDDD92958 /* InformationCard.swift in Sources */,
+				23A198F4F4C2539B595EE26A /* Memory.swift in Sources */,
+				D03FCA8E67765097400BF5D6 /* MemoryDecisionCard.swift in Sources */,
+				7AA311AF306225586A630EE3 /* NDJSONStreamDecoder.swift in Sources */,
+				7BE1014B9B349AE7E6A0ADCB /* PendingTurnStore.swift in Sources */,
+				A86A5D2A00FC619E82E0F885 /* Persona16API.swift in Sources */,
+				AAD35BCE2FA0807E5003F742 /* Persona16App.swift in Sources */,
+				72732905A64BF9A8DA1B03C9 /* Persona16Theme.swift in Sources */,
+				D2D23B0634CAD59DADD8BEAF /* PrototypeBadge.swift in Sources */,
+				B4C527012C6624EBAAADD5F0 /* RecentConversationsView.swift in Sources */,
+				125E8F544B2D5442436A7CB8 /* Recovery.swift in Sources */,
+				81E8276BC7954E431D843A31 /* Room.swift in Sources */,
+				3453107677D40F0585D97E41 /* RoomAncillaryCommandService.swift in Sources */,
+				8B89A3523D316542B9B9B493 /* RoomArchiveService.swift in Sources */,
+				8A28694F11EC11A8E50C2F3E /* RoomArchiveStore.swift in Sources */,
+				3D9D95E8C4404D86B8E9B878 /* RoomComposer.swift in Sources */,
+				C296D5381B72CC9D4F1FDDEB /* RoomEventReducer.swift in Sources */,
+				2484CE670872B2E506F666DA /* RoomMemberCommandService.swift in Sources */,
+				637CDD2FB830321E6DABE02F /* RoomMembersSheet.swift in Sources */,
+				2AD69DF745E8F4E030F3CDA1 /* RoomMessageRow.swift in Sources */,
+				AED5A8465ED1E42B34DC6A0C /* RoomScreen.swift in Sources */,
+				F5EBAAFA1057C3BC5DBB00FE /* RoomSession.swift in Sources */,
+				8A64B3FA16B43AEF97E1C3D5 /* RoomSessionContracts.swift in Sources */,
+				FB2428C9D3214333F98215FA /* RoomSessionOwnerView.swift in Sources */,
+				C01A43B828817C1AFA1FF196 /* RoomSessionState.swift in Sources */,
+				FAF79D7C872B6815E442921F /* RoomStatusCards.swift in Sources */,
+				779182DAF102ACDBE2B03F5F /* RootView.swift in Sources */,
+				EA2E6965911774E3A3AC5D9E /* TurnEvent.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C6B3C955C87D3D66F919440E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BDB88D01255FD555B1AEF1D5 /* FeedbackModelsTests.swift in Sources */,
+				8D8EA0A93C27D2077305899D /* MemoryDecisionCardTests.swift in Sources */,
+				FBCE6D2D3D90D222A99DDB25 /* NDJSONStreamDecoderTests.swift in Sources */,
+				5AB9D743FF14E23CE0A093FB /* PersistenceStoreTests.swift in Sources */,
+				547B56756537666A47EE1957 /* Persona16APITests.swift in Sources */,
+				FEB0088804DAA3E4D54F7D02 /* ProtocolFixtureModelTests.swift in Sources */,
+				4DF35E493C7EDD13A33473AF /* RoomEventReducerTests.swift in Sources */,
+				25306F90EFAE07DA845C64C8 /* RoomSessionTests.swift in Sources */,
+				EAFA7596822C4C849AB81B0B /* RoomTestFixtures.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		38B01EBB86957FE0D7A9AF4F /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = C98F48AB3D282E07F6259AB3 /* Persona16 */;
+			targetProxy = F0D3BAF4E95C216EAFE0CA3A /* PBXContainerItemProxy */;
+		};
+		88B1F978F392B46C25DC9F09 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = C98F48AB3D282E07F6259AB3 /* Persona16 */;
+			targetProxy = E0A5D561B10DB37F671C30F0 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		26BADB1200B78B411E0355B7 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 99E8EE6050B5D7A94EE095EB /* Release.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Persona16/Resources/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_NAME = Persona16;
+				SDKROOT = iphoneos;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		4E814D5722B12FBA31329372 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.persona16.app.uitests;
+				SDKROOT = iphoneos;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Persona16;
+			};
+			name = Release;
+		};
+		50FC3AF67C81604B62EC488A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.persona16.app.tests;
+				SDKROOT = iphoneos;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Persona16.app/Persona16";
+			};
+			name = Release;
+		};
+		54FBBA6821696D7752642876 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.persona16.app.tests;
+				SDKROOT = iphoneos;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Persona16.app/Persona16";
+			};
+			name = Debug;
+		};
+		62007FD1B5E87E7D3CCCB603 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.persona16.app.uitests;
+				SDKROOT = iphoneos;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Persona16;
+			};
+			name = Debug;
+		};
+		709B62C1C8FC68D5781B3D04 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		85A12DD17F3FE986763812D2 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 576084846A03B1780DD075DB /* Debug.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Persona16/Resources/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_NAME = Persona16;
+				SDKROOT = iphoneos;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		F8286601B4860AB4E5FBC075 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		0632E9C24C5EAE2C6E286E41 /* Build configuration list for PBXNativeTarget "Persona16Tests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				54FBBA6821696D7752642876 /* Debug */,
+				50FC3AF67C81604B62EC488A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		137096A941FABA6F47DFB183 /* Build configuration list for PBXNativeTarget "Persona16" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				85A12DD17F3FE986763812D2 /* Debug */,
+				26BADB1200B78B411E0355B7 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		802EBB44C5C8DDB6654D6FA6 /* Build configuration list for PBXProject "Persona16" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				709B62C1C8FC68D5781B3D04 /* Debug */,
+				F8286601B4860AB4E5FBC075 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		A89099678811CACC7BC924EB /* Build configuration list for PBXNativeTarget "Persona16UITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				62007FD1B5E87E7D3CCCB603 /* Debug */,
+				4E814D5722B12FBA31329372 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = CE7813D038768934F378AFB8 /* Project object */;
+}

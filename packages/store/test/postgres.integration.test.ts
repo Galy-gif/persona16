@@ -30,25 +30,49 @@ test('PostgreSQL migration supports cross-connection turn locking and replay', {
     const state = structuredClone(room.state);
     const userMessageId = crypto.randomUUID();
     const agentMessageId = crypto.randomUUID();
+    const atomicCandidateId = crypto.randomUUID();
     state.history.push({ id: userMessageId, speaker: 'user', text: '数据库并发测试' });
     state.history.push({ id: agentMessageId, speaker: 'INTJ', text: '只生成一次。', speechType: '短句' });
     const event: PersistedTurnEvent = { v: 1, turnId: accepted.turnId, type: 'turn_end', stopReason: 'complete', roomVersion: 2 };
     await firstStore.completeTurn({
       userId, roomId: room.id, turnId: accepted.turnId, state, stopReason: 'complete', events: [event],
+      memoryCandidates: [{
+        id: atomicCandidateId,
+        agent: 'INTJ',
+        kind: 'preference',
+        content: '先给结论',
+      }],
       observability: {
         usage: { status: 'actual_provider_usage', calls: 3, inputTokens: 120, outputTokens: 40 },
-        latency: { totalMs: 850, firstTokenMs: 220 },
+        latency: {
+          schemaVersion: 2,
+          totalMs: 850,
+          validatedOutputMs: 220,
+          firstTokenMs: 220,
+          stagesMs: { safety: 40 },
+          counts: {},
+        },
         trace: { v: 1, safety: { level: 'normal' }, roomActions: [{ type: 'speak', agent: 'INTJ' }] },
       },
     });
     const observed = await firstStore.pool.query<{
-      build_version: string; provider: string; usage_json: { calls: number }; latency_json: { firstTokenMs: number }; trace_json: { v: number };
+      build_version: string;
+      provider: string;
+      usage_json: { calls: number };
+      latency_json: { firstTokenMs: number; stagesMs: { safety: number; turn_persistence: number } };
+      trace_json: { v: number };
     }>(`SELECT build_version, provider, usage_json, latency_json, trace_json FROM turn_runs WHERE id = $1`, [accepted.turnId]);
     assert.equal(observed.rows[0]?.build_version, 'build-42');
     assert.equal(observed.rows[0]?.provider, 'fake');
     assert.equal(observed.rows[0]?.usage_json.calls, 3);
     assert.equal(observed.rows[0]?.latency_json.firstTokenMs, 220);
+    assert.equal(observed.rows[0]?.latency_json.stagesMs.safety, 40);
+    assert.ok((observed.rows[0]?.latency_json.stagesMs.turn_persistence ?? -1) >= 0);
     assert.equal(observed.rows[0]?.trace_json.v, 1);
+    const [atomicCandidate] = await firstStore.listMemories(userId, 'candidate', room.id);
+    assert.equal(atomicCandidate?.id, atomicCandidateId);
+    assert.equal(atomicCandidate?.sourceMessageId, userMessageId);
+    await firstStore.updateMemoryStatus(userId, atomicCandidateId, 'rejected');
     const lookup = await secondStore.lookupTurn({
       userId, roomId: room.id, turnId: accepted.turnId, requestHash: accepted.hash,
     });
@@ -245,5 +269,123 @@ test('PostgreSQL migration supports cross-connection turn locking and replay', {
     assert.equal(afterLease.kind, 'accepted');
   } finally {
     await Promise.all([firstStore.close(), secondStore.close()]);
+  }
+});
+
+test('PostgreSQL completeTurn rolls back every write when an atomic memory candidate conflicts', {
+  skip: connectionString ? false : 'PERSONA16_TEST_DATABASE_URL is not set',
+}, async () => {
+  await migrateDatabase(connectionString!);
+  const store = new PostgresPersonaStore(connectionString!);
+  try {
+    const userId = crypto.randomUUID();
+
+    const seedRoom = await store.createRoom({ userId, state: createRoom(['INTJ']) });
+    const seedTurnId = crypto.randomUUID();
+    await store.reserveTurn({
+      userId,
+      roomId: seedRoom.id,
+      turnId: seedTurnId,
+      roomVersion: seedRoom.version,
+      requestHash: 'seed-memory-conflict',
+      promptVersion: 'test-v1',
+      model: 'fake:test',
+    });
+    await store.completeTurn({
+      userId,
+      roomId: seedRoom.id,
+      turnId: seedTurnId,
+      state: seedRoom.state,
+      stopReason: 'complete',
+      events: [],
+    });
+    const [existingCandidate] = await store.createMemoryCandidates({
+      userId,
+      sourceTurnId: seedTurnId,
+      candidates: [{ agent: 'INTJ', kind: 'preference', content: '保留已有候选' }],
+    });
+    assert.ok(existingCandidate);
+
+    const targetRoom = await store.createRoom({ userId, state: createRoom(['INTJ']) });
+    const targetTurnId = crypto.randomUUID();
+    await store.reserveTurn({
+      userId,
+      roomId: targetRoom.id,
+      turnId: targetTurnId,
+      roomVersion: targetRoom.version,
+      requestHash: 'target-memory-conflict',
+      promptVersion: 'test-v1',
+      model: 'fake:test',
+    });
+    const targetState = structuredClone(targetRoom.state);
+    targetState.history.push({ id: crypto.randomUUID(), speaker: 'user', text: '请记住先给结论' });
+    targetState.history.push({ id: crypto.randomUUID(), speaker: 'INTJ', text: '记住了。', speechType: '短句' });
+    const targetEvent: PersistedTurnEvent = {
+      v: 1,
+      turnId: targetTurnId,
+      type: 'turn_end',
+      stopReason: 'complete',
+      roomVersion: targetRoom.version + 1,
+    };
+
+    await assert.rejects(() => store.completeTurn({
+      userId,
+      roomId: targetRoom.id,
+      turnId: targetTurnId,
+      state: targetState,
+      stopReason: 'complete',
+      events: [targetEvent],
+      memoryCandidates: [{
+        id: existingCandidate.id,
+        agent: 'INTJ',
+        kind: 'preference',
+        content: '这条冲突候选不应落库',
+      }],
+    }));
+
+    const rolledBackRoom = await store.getRoom(targetRoom.id, userId);
+    assert.equal(rolledBackRoom.version, targetRoom.version);
+    assert.equal(rolledBackRoom.activeTurnId, targetTurnId);
+    assert.deepEqual(rolledBackRoom.state.history, []);
+    const rolledBackTurn = await store.pool.query<{
+      status: string;
+      result_room_version: number | null;
+    }>(
+      `SELECT status, result_room_version FROM turn_runs WHERE id = $1`,
+      [targetTurnId],
+    );
+    assert.deepEqual(rolledBackTurn.rows[0], {
+      status: 'active',
+      result_room_version: null,
+    });
+    const partialWrites = await store.pool.query<{
+      message_count: number;
+      event_count: number;
+      candidate_count: number;
+    }>(
+      `SELECT
+         (SELECT count(*)::int FROM messages WHERE turn_id = $1) AS message_count,
+         (SELECT count(*)::int FROM turn_events WHERE turn_id = $1) AS event_count,
+         (SELECT count(*)::int FROM memories WHERE source_turn_id = $1) AS candidate_count`,
+      [targetTurnId],
+    );
+    assert.deepEqual(partialWrites.rows[0], {
+      message_count: 0,
+      event_count: 0,
+      candidate_count: 0,
+    });
+    assert.equal((await store.listMemories(userId, 'candidate', seedRoom.id))[0]?.id, existingCandidate.id);
+
+    await store.failTurn(userId, targetRoom.id, targetTurnId);
+    const cleanedRoom = await store.getRoom(targetRoom.id, userId);
+    assert.equal(cleanedRoom.version, targetRoom.version);
+    assert.equal(cleanedRoom.activeTurnId, undefined);
+    const cleanedTurn = await store.pool.query<{ status: string }>(
+      `SELECT status FROM turn_runs WHERE id = $1`,
+      [targetTurnId],
+    );
+    assert.equal(cleanedTurn.rows[0]?.status, 'failed');
+  } finally {
+    await store.close();
   }
 });

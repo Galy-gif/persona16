@@ -1,0 +1,12 @@
+{"v":1,"turnId":"00000000-0000-4000-8000-000000000102","type":"turn_start"}
+{"v":1,"turnId":"00000000-0000-4000-8000-000000000102","type":"room_action","action":{"type":"speak","agent":"INTJ","speechType":"短句","angle":"指出虚构计划的范围"}}
+{"v":1,"turnId":"00000000-0000-4000-8000-000000000102","type":"speaker_start","agent":"INTJ","speechType":"短句"}
+{"v":1,"turnId":"00000000-0000-4000-8000-000000000102","type":"delta","agent":"INTJ","delta":"先把范围缩到今晚能完成的一小段。"}
+{"v":1,"turnId":"00000000-0000-4000-8000-000000000102","type":"speaker_end","messageId":"00000000-0000-4000-8000-000000000212","agent":"INTJ","speechType":"短句","text":"先把范围缩到今晚能完成的一小段。"}
+{"v":1,"turnId":"00000000-0000-4000-8000-000000000102","type":"room_action","action":{"type":"speak","agent":"ENFP","speechType":"短句","angle":"补充一个轻量开始方式"}}
+{"v":1,"turnId":"00000000-0000-4000-8000-000000000102","type":"speaker_start","agent":"ENFP","speechType":"短句"}
+{"v":1,"turnId":"00000000-0000-4000-8000-000000000102","type":"delta","agent":"ENFP","delta":"那就只读十分钟，给开始留一点轻松感。"}
+{"v":1,"turnId":"00000000-0000-4000-8000-000000000102","type":"speaker_end","messageId":"00000000-0000-4000-8000-000000000213","agent":"ENFP","speechType":"短句","text":"那就只读十分钟，给开始留一点轻松感。"}
+{"v":1,"turnId":"00000000-0000-4000-8000-000000000102","type":"room_action","action":{"type":"stop","reason":"no_new_value"}}
+{"v":1,"turnId":"00000000-0000-4000-8000-000000000102","type":"turn_end","stopReason":"no_new_value","roomVersion":2}
+{"v":1,"turnId":"00000000-0000-4000-8000-000000000102","type":"done","room":{"agents":[{"type":"INTJ","paused":false,"turnsSinceSpoke":0,"turnsInRoom":1000,"recentOpenings":["先把范围缩到今晚能完成的一小段。"],"relationship":{"intimacy":0,"userPrefers":[],"repeatedPatterns":[],"knownBoundaries":[]}},{"type":"ENFP","paused":false,"turnsSinceSpoke":0,"turnsInRoom":1000,"recentOpenings":["那就只读十分钟"],"relationship":{"intimacy":0,"userPrefers":[],"repeatedPatterns":[],"knownBoundaries":[]}}],"history":[{"id":"00000000-0000-4000-8000-000000000211","speaker":"user","text":"这是虚构示例：我想今晚开始读一本不存在的故事书。"},{"id":"00000000-0000-4000-8000-000000000212","speaker":"INTJ","text":"先把范围缩到今晚能完成的一小段。","speechType":"短句"},{"id":"00000000-0000-4000-8000-000000000213","speaker":"ENFP","text":"那就只读十分钟，给开始留一点轻松感。","speechType":"短句"}],"roomGoal":"更有行动感","conflictTopic":null,"conflictRounds":0},"roomVersion":2,"plan":{"scene":"创作","userEmotion":"稳定"},"safetyLevel":"normal"}

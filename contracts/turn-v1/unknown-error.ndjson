@@ -1,0 +1,3 @@
+{"v":1,"turnId":"00000000-0000-4000-8000-000000000106","type":"turn_start"}
+{"v":1,"turnId":"00000000-0000-4000-8000-000000000106","type":"delta","agent":"INTJ","delta":"这段虚构正文尚未得到持久化确认。"}
+{"v":1,"turnId":"00000000-0000-4000-8000-000000000106","type":"error","code":"TURN_RESULT_UNKNOWN","message":"无法确认本轮结果，请刷新或原样重放。","recoverable":true,"recoveryAction":"refresh","outcome":"unknown"}

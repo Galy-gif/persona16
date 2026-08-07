@@ -17,6 +17,7 @@
     "safety": "tsx src/safety.ts",
     "phase4:smoke": "tsx src/phase4Smoke.ts",
     "report": "tsx src/report.ts",
+    "performance:report": "tsx src/turnPerformanceReport.ts",
     "pi:smoke": "tsx src/piSmoke.ts",
     "runtime:compare": "tsx src/runtimeRegression.ts",
     "trust:balance": "tsx src/trustBalanceProbe.ts",

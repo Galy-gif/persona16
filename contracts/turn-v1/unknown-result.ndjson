@@ -1,0 +1,4 @@
+{"v":1,"turnId":"00000000-0000-4000-8000-000000000105","type":"turn_start"}
+{"v":1,"turnId":"00000000-0000-4000-8000-000000000105","type":"room_action","action":{"type":"speak","agent":"INTJ","speechType":"短句","angle":"回应虚构测试消息"}}
+{"v":1,"turnId":"00000000-0000-4000-8000-000000000105","type":"speaker_start","agent":"INTJ","speechType":"短句"}
+{"v":1,"turnId":"00000000-0000-4000-8000-000000000105","type":"delta","agent":"INTJ","delta":"这是通过交付验证但尚未收到可信终态的虚构回复。"}

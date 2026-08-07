@@ -29,6 +29,7 @@ import type {
   UpsertFeedbackInput,
   UpdateRoomInput,
 } from './types';
+import { recordTurnPersistence } from './turnLatency';
 import { StoreError } from './types';
 import {
   rebuildRelationshipBranch,
@@ -45,6 +46,7 @@ interface StoredTurn {
   requestHash: string;
   status: 'active' | 'completed' | 'failed';
   events: PersistedTurnEvent[];
+  baseHistoryLength: number;
   roomVersion?: number;
   observability?: TurnObservability;
   updatedAt: number;
@@ -161,6 +163,7 @@ export class InMemoryPersonaStore implements PersonaStore {
     this.turns.set(input.turnId, {
       id: input.turnId, roomId: input.roomId, userId: input.userId,
       requestHash: input.requestHash, status: 'active', events: [],
+      baseHistoryLength: room.state.history.length,
       updatedAt: this.now(),
     });
     return { kind: 'accepted', room: cloneRoom(room) };
@@ -182,30 +185,61 @@ export class InMemoryPersonaStore implements PersonaStore {
   }
 
   async completeTurn(input: CompleteTurnInput): Promise<RoomRecord> {
+    const persistenceStartedAt = this.now();
     const room = this.requireRoom(input.roomId, input.userId);
     const turn = this.turns.get(input.turnId);
     if (!turn || turn.status !== 'active' || room.activeTurnId !== input.turnId) {
       throw new StoreError('TURN_NOT_ACTIVE', '回合不在运行中');
     }
-    room.state = structuredClone(input.state);
+    const candidateIds = new Set<string>();
+    for (const candidate of input.memoryCandidates ?? []) {
+      if (candidateIds.has(candidate.id) || this.memories.has(candidate.id)) {
+        throw new StoreError('MEMORY_STATUS_CONFLICT', '候选记忆 ID 已存在');
+      }
+      candidateIds.add(candidate.id);
+    }
+    const nextState = structuredClone(input.state);
+    const nextEvents = structuredClone(input.events);
+    const observability = structuredClone(input.observability);
+    const sourceMessageId = [...input.state.history.slice(turn.baseHistoryLength)].reverse().find((message) => (
+      message.speaker === 'user' && message.id
+    ))?.id;
+    const now = new Date();
+    const candidates: MemoryRecord[] = (input.memoryCandidates ?? []).map((candidate) => ({
+      ...candidate,
+      userId: input.userId,
+      status: 'candidate',
+      sourceTurnId: input.turnId,
+      sourceMessageId,
+      version: 1,
+      createdAt: now,
+      updatedAt: now,
+    }));
+
+    room.state = nextState;
     room.version += 1;
     room.activeTurnId = undefined;
-    room.updatedAt = new Date();
+    room.updatedAt = now;
     turn.status = 'completed';
-    turn.events = structuredClone(input.events);
-    turn.observability = structuredClone(input.observability);
+    turn.events = nextEvents;
+    for (const candidate of candidates) this.memories.set(candidate.id, candidate);
+    recordTurnPersistence(observability, this.now() - persistenceStartedAt);
+    turn.observability = observability;
     turn.roomVersion = room.version;
     turn.updatedAt = this.now();
     return cloneRoom(room);
   }
 
   async failTurn(userId: string, roomId: string, turnId: string, failure?: FailedTurnObservability): Promise<void> {
+    const persistenceStartedAt = this.now();
     const room = this.requireRoom(roomId, userId);
     const turn = this.turns.get(turnId);
     const transitioned = turn?.status === 'active';
     if (transitioned && turn) {
       turn.status = 'failed';
-      turn.observability = failure ? structuredClone(failure) : undefined;
+      const observability = failure ? structuredClone(failure) : undefined;
+      recordTurnPersistence(observability, this.now() - persistenceStartedAt);
+      turn.observability = observability;
     }
     if (room.activeTurnId === turnId) room.activeTurnId = undefined;
     room.updatedAt = new Date();
