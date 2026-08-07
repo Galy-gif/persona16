@@ -22,19 +22,23 @@ persona16 是一个移动端优先的原创人物对话产品。所有用户遇�
 | `packages/engine` | 人物、Prompt、导演评分、有限房间循环、记忆策略、安全和评测规则 |
 | `packages/runtime-pi` | Pi Agent Runtime 适配与模型执行事件流 |
 | `packages/store` | PostgreSQL 状态、幂等 Turn、消息、记忆、反馈和共享限流 |
-| `apps/web` | Next.js 移动端 Web 原型与 HTTP Turn Harness |
+| `packages/turn-protocol` | Web、Store、评测与原生客户端共享的 Turn v1 wire contract |
+| `packages/turn-application` | 从幂等预留到可信终态、原子提交与恢复的 Turn 执行闭环 |
+| `apps/web` | Next.js 移动端界面与 HTTP/NDJSON Adapter |
 | `eval` | 人物盲测、动态性、房间化学反应、安全和运行时回归 |
 
 一次请求的主链路：
 
 ```text
 用户命令
-  → 身份、权限、版本、幂等、限流和安全检查
+  → Web HTTP Adapter 解析身份、Cookie 与请求
+  → Turn Application 执行版本、幂等、限流和安全检查
   → Director 提议发言计划
   → 确定性规则校验
   → 有限 Room Loop
   → Pi Runtime 生成人物发言
-  → 流式输出并持久化状态、事件和观测数据
+  → 原子持久化状态、事件和观测数据
+  → Web Adapter 编码 NDJSON；Web/iOS 按可信终态恢复
 ```
 
 ## 核心约束

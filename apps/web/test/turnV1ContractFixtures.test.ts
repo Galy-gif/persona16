@@ -2,8 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import type { TurnStreamEvent } from '@persona16/engine';
-import type { PersistedTurnEvent } from '@persona16/store';
+import type { TurnEvent, TurnStreamEvent } from '@persona16/turn-protocol';
 
 const CONTRACT_DIRECTORY = fileURLToPath(
   new URL('../../../contracts/turn-v1/', import.meta.url),
@@ -37,8 +36,8 @@ const TURN_EVENT_TYPES = new Set([
   'error',
 ]);
 
-type FixtureEvent = PersistedTurnEvent;
-type DoneEvent = Extract<PersistedTurnEvent, { type: 'done' }>;
+type FixtureEvent = TurnEvent;
+type DoneEvent = Extract<TurnEvent, { type: 'done' }>;
 type ErrorEvent = Extract<TurnStreamEvent, { type: 'error' }>;
 
 interface FixtureManifest {

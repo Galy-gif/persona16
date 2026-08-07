@@ -6,11 +6,12 @@ production exports or copied user conversations.
 
 ## Ownership
 
-- `TurnStreamEvent` in Engine declares the v1 runtime events, including `plan`.
+- `TurnEvent` in `@persona16/turn-protocol` owns the complete v1 wire contract.
+- `TurnStreamEvent` in Engine remains the runtime-event subset used by the Engine implementation.
 - The current `/api/turn` Route does not emit a standalone `plan` event. Plan data may appear inside
   the persisted Harness `done` event instead.
-- `done` is the Harness persisted success terminal and is intentionally not owned by the Engine-only
-  runtime event union.
+- `done` is the persisted success terminal declared by Turn Protocol and is intentionally not part of
+  the Engine-only runtime event subset.
 - `done` and `error` end the stream, but only `done` and an `error` whose `outcome` is
   `known_failed` are trusted result terminals. `turn_end` alone is not enough.
 - A stream that ends without a trusted result, either by truncation (`unknown-result.ndjson`) or an

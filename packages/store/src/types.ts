@@ -6,9 +6,9 @@ import type {
   RelationshipBranch,
   RelationshipEvent,
   RoomState,
-  TurnStreamEvent,
   TurnStopReason,
 } from '@persona16/engine';
+import type { TurnEvent } from '@persona16/turn-protocol';
 
 export type RoomStatus = 'active' | 'archived' | 'deleted';
 export type TurnRunStatus = 'active' | 'completed' | 'failed';
@@ -96,17 +96,8 @@ export interface FailedTurnObservability extends TurnObservability {
   stopReason: TurnStopReason;
 }
 
-export type PersistedTurnEvent = TurnStreamEvent | {
-  v: 1;
-  turnId: string;
-  type: 'done';
-  room: RoomState;
-  roomVersion: number;
-  plan?: { scene: string; userEmotion: string };
-  loop?: unknown;
-  safetyLevel: string;
-  modelBudget?: import('@persona16/engine').ModelBudgetSnapshot;
-};
+/** @deprecated Turn wire contract is owned by @persona16/turn-protocol. */
+export type PersistedTurnEvent = TurnEvent;
 
 export interface CreateRoomInput {
   userId: string;

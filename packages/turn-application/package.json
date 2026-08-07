@@ -1,0 +1,20 @@
+{
+  "name": "@persona16/turn-application",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@persona16/engine": "workspace:*",
+    "@persona16/store": "workspace:*",
+    "@persona16/turn-protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0"
+  }
+}

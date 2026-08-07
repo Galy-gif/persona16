@@ -46,6 +46,7 @@
 - [通过配置切换 Pi Runtime 供应商](adr/0021-configure-pi-runtime-providers.md)
 - [按信任任务路由 AIHubMix 模型与单聊控制链](adr/0022-route-aihubmix-models-for-trust-and-efficiency.md)
 - [编译三层关系型 Prompt 与公开碎碎念](adr/0023-compile-relational-prompts-and-public-mutter.md)
+- [提取 Turn Protocol 与 Turn Application 深 Module](adr/0024-extract-turn-protocol-and-application.md)
 
 ADR 记录决策当时的背景。新结论若改变既有决策，应新增 ADR，而不是改写旧文档。
 
